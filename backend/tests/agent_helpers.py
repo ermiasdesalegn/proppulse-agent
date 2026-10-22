@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -7,7 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from app.agent.deps import AgentDeps
 from app.agent.graph import BrokerAgent
-from app.agent.schemas import Extraction
+from app.agent.schemas import Extraction, Recommendation
 from app.config import get_settings
 from app.repository import Repository
 from app.services import Services
@@ -36,6 +37,10 @@ class FakeGateway:
         self.audio: list[bytes] = []
 
     async def generate_structured(self, prompt, schema, *, system=None):
+        if schema is Recommendation:
+            self.calls.append(("recommendation", prompt))
+            n = int(re.search(r"Number of options: (\d+)", prompt).group(1))
+            return Recommendation(intro="INTRO", blurbs=[f"blurb {i}" for i in range(1, n + 1)], closing="CLOSING")
         self.calls.append(("structured", prompt))
         if self.fail_extraction:
             raise RuntimeError("gemini down")
@@ -82,6 +87,16 @@ def make_agent(repo, gateway, *, services=None, checkpointer=None, **settings_ov
     settings = get_settings().model_copy(update=settings_overrides)
     deps = AgentDeps(gateway=gateway, repo=repo, services=services or make_services(), settings=settings, now=lambda: NOW)
     return BrokerAgent(deps, checkpointer or MemorySaver())
+
+
+def make_chat(repo, gateway, *, services=None, **settings_overrides):
+    from app.chat import ChatService
+
+    settings = get_settings().model_copy(update=settings_overrides)
+    services = services or make_services()
+    deps = AgentDeps(gateway=gateway, repo=repo, services=services, settings=settings, now=lambda: NOW)
+    agent = BrokerAgent(deps, MemorySaver())
+    return ChatService(repo, agent, services, settings), services, agent
 
 
 async def new_buyer(repo, tag: str) -> dict:

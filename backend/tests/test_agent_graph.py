@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.agent.prompts import VOICE_FALLBACK
+from app.agent.schemas import Recommendation
 from app.services.email import MockEmailService
 from tests.agent_helpers import FakeGateway, NOW, ext, make_agent, make_services, new_buyer, say_to
 
@@ -29,7 +30,9 @@ async def test_search_returns_matches_and_writes_the_crm(spy_repo, db_conn, vect
     titles = [m["title"] for m in res.state["active_matches"]]
     assert titles[0] == "Noah Bole Towers 3BR Apartment" and "Gift Bole Court 3BR Apartment" in titles
     assert res.state["search_scope"]["relaxation_step"] == 0 and len(spy_repo.searches) == 1
-    assert res.reply == "LLM-REPLY"
+    assert res.reply.startswith("INTRO") and res.reply.endswith("CLOSING")
+    assert "1. Noah Bole Towers 3BR Apartment - Noah Real Estate, Bole" in res.reply
+    assert "19.8M ETB (146,667 ETB/sqm) | 30% down (5.94M ETB) | delivery Mar 2027" in res.reply
 
     row = await buyer_row(db_conn, buyer)
     assert row["max_budget_etb"] == Decimal("25000000") and row["min_bedrooms"] == 3
@@ -49,7 +52,7 @@ async def test_step_1_relaxation_finds_a_unit_slightly_over_budget_and_says_so(s
     assert [s["max_budget_etb"] for s in spy_repo.searches] == [16_000_000, pytest.approx(17_920_000)]
     assert "Gift Bole Court 3BR Apartment" in [m["title"] for m in res.state["active_matches"]]
     assert res.state["search_scope"]["relaxation_step"] == 1
-    assert "IMPORTANT" in gw.prompts("text")[-1] and "widened" in gw.prompts("text")[-1]
+    assert "IMPORTANT" in gw.prompts("recommendation")[-1] and "widened" in gw.prompts("recommendation")[-1]
     prefs = res.state["buyer_preferences"]
     assert prefs["max_budget_etb"] == 16_000_000 and prefs["preferred_sub_cities"] == ["Bole"], "true preferences must survive"
 
@@ -186,14 +189,61 @@ async def test_model_outage_gives_a_polite_reply_instead_of_crashing(spy_repo):
 
 
 async def test_llm_writing_failure_falls_back_to_a_plain_listing(spy_repo, vector_of):
-    class BrokenText(FakeGateway):
-        async def generate_text(self, prompt, *, system=None):
-            raise RuntimeError("down")
+    class BrokenWriter(FakeGateway):
+        async def generate_structured(self, prompt, schema, *, system=None):
+            if schema is Recommendation:
+                raise RuntimeError("down")
+            return await super().generate_structured(prompt, schema, system=system)
 
-    gw = BrokenText([ext(**BOLE_3BR)], vector=await vector_of("Noah Bole Towers 3BR%"))
+    gw = BrokenWriter([ext(**BOLE_3BR)], vector=await vector_of("Noah Bole Towers 3BR%"))
     agent, buyer = make_agent(spy_repo, gw), await new_buyer(spy_repo, "fallbacktext")
     res = await say_to(agent, buyer, "3BR Bole")
-    assert "Noah Bole Towers 3BR Apartment" in res.reply and "ETB" in res.reply
+    assert res.reply.startswith("Here is what I found:") and "1. Noah Bole Towers 3BR Apartment" in res.reply
+    assert "compare them or book a visit" in res.reply
+
+
+async def test_widening_is_stated_even_when_the_model_cannot_write_the_reply(spy_repo, vector_of):
+    class BrokenWriter(FakeGateway):
+        async def generate_structured(self, prompt, schema, *, system=None):
+            if schema is Recommendation:
+                raise RuntimeError("down")
+            return await super().generate_structured(prompt, schema, system=system)
+
+    gw = BrokenWriter([ext(max_budget_etb=16_000_000, min_bedrooms=3, preferred_sub_cities=["Bole"], search_query="3BR Bole")],
+                      vector=await vector_of("Gift Bole Court%"))
+    agent, buyer = make_agent(spy_repo, gw), await new_buyer(spy_repo, "widenfallback")
+    res = await say_to(agent, buyer, "3 bedroom in Bole under 16M")
+    assert "widened the search" in res.reply and "17.92M ETB" in res.reply
+
+
+async def test_option_numbers_in_the_reply_always_match_the_stored_order(spy_repo, db_conn, vector_of):
+    """Regression: a live model once listed the options in a different order than the agent stored them,
+    so 'book the first one' would have booked the wrong property."""
+    class Reorders(FakeGateway):
+        async def generate_structured(self, prompt, schema, *, system=None):
+            if schema is Recommendation:
+                return Recommendation(intro="INTRO", blurbs=["second first", "first second"], closing="CLOSING")
+            return await super().generate_structured(prompt, schema, system=system)
+
+    gw = Reorders([ext(**BOLE_3BR)], vector=await vector_of("Gift Bole Court%"))
+    agent, buyer = make_agent(spy_repo, gw), await new_buyer(spy_repo, "order")
+    res = await say_to(agent, buyer, "3BR Bole")
+    stored = [m["title"] for m in res.state["active_matches"]]
+    shown = [line.split(" - ")[0].split(". ", 1)[1] for line in res.reply.splitlines() if line[:2] in ("1.", "2.", "3.")]
+    assert shown == stored and len(stored) >= 2
+
+
+async def test_a_blurb_count_mismatch_uses_the_plain_layout_instead_of_misaligning_text(spy_repo, vector_of):
+    class WrongCount(FakeGateway):
+        async def generate_structured(self, prompt, schema, *, system=None):
+            if schema is Recommendation:
+                return Recommendation(intro="INTRO", blurbs=["only one"], closing="CLOSING")
+            return await super().generate_structured(prompt, schema, system=system)
+
+    gw = WrongCount([ext(**BOLE_3BR)], vector=await vector_of("Noah Bole Towers 3BR%"))
+    agent, buyer = make_agent(spy_repo, gw), await new_buyer(spy_repo, "count")
+    res = await say_to(agent, buyer, "3BR Bole")
+    assert res.reply.startswith("Here is what I found:") and "only one" not in res.reply
 
 
 # ---------------- comparison ----------------

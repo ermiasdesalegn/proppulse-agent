@@ -5,6 +5,14 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class Recommendation(BaseModel):
+    """The only parts of a search reply the model writes. Numbering, prices and dates are rendered by code."""
+
+    intro: str = Field(description="One or two sentences; if the search was widened, say so openly")
+    blurbs: list[str] = Field(description="One short sentence per option, in the order given, about its standout feature")
+    closing: str = Field(description="One question offering to compare options or book a visit")
+
+
 class Extraction(BaseModel):
     """What the router asks Gemini to pull out of the latest buyer message."""
 

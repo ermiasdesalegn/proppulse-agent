@@ -19,7 +19,7 @@ from app.agent.prompts import (
     VOICE_FALLBACK,
     extraction_prompt,
 )
-from app.agent.schemas import Extraction
+from app.agent.schemas import Extraction, Recommendation
 from app.agent.scoring import lead_score
 from app.agent.state import EMPTY_PREFS, BrokerAgentState
 from app.geo import expand_with_adjacent, normalize_sub_cities
@@ -103,6 +103,21 @@ def property_facts(p: dict) -> dict:
         "est_rental_yield_pct": num(p.get("est_rental_yield_pct")),
         "features": (p.get("vision_amenities") or {}).get("tags", []),
     }
+
+
+def option_block(number: int, p: dict, blurb: str) -> str:
+    """One numbered option, built from database values so the numbers shown always match the stored order."""
+    price, sqm = float(p["price_etb"]), float(p["sqm"])
+    bits = [f"{fmt_etb(price)} ({price / sqm:,.0f} ETB/sqm)"]
+    if p.get("down_payment_pct") is not None:
+        pct = float(p["down_payment_pct"])
+        bits.append(f"{pct:g}% down ({fmt_etb(price * pct / 100)})")
+    if p.get("delivery_date") is not None:
+        bits.append(f"delivery {p['delivery_date'].strftime('%b %Y')}")
+    lines = [f"{number}. {p['title']} - {p['developer_name']}, {p['sub_city']}", "   " + " | ".join(bits)]
+    if blurb:
+        lines.append("   " + blurb)
+    return "\n".join(lines)
 
 
 def say(text: str, **extra: Any) -> dict:
@@ -288,23 +303,39 @@ class AgentNodes:
     async def recommend(self, state: BrokerAgentState) -> dict:
         d, scope, prefs = self.d, state["search_scope"], state["buyer_preferences"]
         rows = await d.repo.get_properties([m["id"] for m in state["active_matches"]])
-        facts = [property_facts(r) for r in rows]
-        note = ""
-        if scope["relaxation_step"] > 0:
-            note = (
-                "IMPORTANT: nothing matched the buyer's exact criteria, so the search was widened. State this openly in "
-                f"one sentence. Stated budget: {prefs['max_budget_etb']}. Budget used: {scope['effective_max_budget_etb']}. "
-                f"Stated areas: {prefs['preferred_sub_cities']}. Areas used: {scope['effective_sub_cities'] or 'any area'}.\n"
+        shown = {str(r["id"]) for r in rows}
+        matches = [m for m in state["active_matches"] if m["id"] in shown]  # numbering must match what the buyer is shown
+
+        widened = scope["relaxation_step"] > 0
+        widening = ""
+        if widened:
+            widening = (
+                f"Nothing matched exactly, so I widened the search (budget up to {fmt_etb(scope['effective_max_budget_etb'])}"
+                if scope["effective_max_budget_etb"] else "Nothing matched exactly, so I widened the search ("
             )
+            areas = scope["effective_sub_cities"]
+            widening += (", " if scope["effective_max_budget_etb"] else "") + (f"areas: {', '.join(areas)}" if areas else "any area") + ")."
+        facts = [property_facts(r) for r in rows]
         prompt = (
             f"Buyer wants: {state['query_text']}\nBuyer budget: {prefs['max_budget_etb']}, bedrooms: {prefs['min_bedrooms']}\n"
-            f"{note}Options found, best first. Present them as numbered options 1 to {len(facts)} in this exact order:\n"
-            f"{json.dumps(facts, default=str, indent=1)}\n\n"
-            "Write the reply: a one-line intro, then each option in two lines (developer and unit, area, price with price per sqm, "
-            "down payment, delivery) plus one standout feature. End with one question offering to compare options or book a visit."
+            + (f"IMPORTANT: the search was widened beyond the buyer's exact criteria. Say so openly in the intro. Details: {widening}\n" if widened else "")
+            + f"Number of options: {len(facts)}. Options, in the order they will be numbered:\n{json.dumps(facts, default=str, indent=1)}\n\n"
+            "Write: an intro; exactly one short blurb per option, in the same order, about its standout feature (do not repeat "
+            "prices or numbers); and a closing question offering to compare options or book a visit."
         )
-        fallback = "Here is what I found:\n" + options_text(state["active_matches"]) + "\nWould you like to compare them or book a visit?"
-        return say(await self._write(prompt, fallback))
+        try:
+            rec = await d.gateway.generate_structured(prompt, Recommendation, system=PERSONA)
+            if len(rec.blurbs) != len(rows) or not rec.intro.strip():
+                raise ValueError("recommendation does not line up with the options")
+            intro, blurbs, closing = rec.intro.strip(), [b.strip() for b in rec.blurbs], rec.closing.strip()
+        except Exception:
+            log.exception("recommendation wording failed; using the plain layout")
+            intro = f"{widening} Here is what I found:".strip() if widened else "Here is what I found:"
+            blurbs = [", ".join(f["features"][:2]) for f in facts]
+            closing = "Would you like to compare them or book a visit?"
+
+        text = "\n\n".join([intro, *[option_block(i, r, b) for i, (r, b) in enumerate(zip(rows, blurbs), start=1)], closing])
+        return {**say(text), "active_matches": matches}
 
     async def waitlist(self, state: BrokerAgentState) -> dict:
         scope, prefs = state["search_scope"], state["buyer_preferences"]
