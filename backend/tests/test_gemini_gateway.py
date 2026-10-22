@@ -1,9 +1,7 @@
 import asyncio
-import json
 import time
 
 import pytest
-import requests
 from google.genai import errors
 
 from app.gemini import GeminiGateway, is_retryable
@@ -34,12 +32,8 @@ class FakeBackend:
         return await self._go("embed", [[float(len(t))] * 3 for t in texts])
 
 
-def _response(code: int, status: str, message: str) -> requests.Response:
-    r = requests.Response()
-    r.status_code = code
-    r.reason = status
-    r._content = json.dumps({"error": {"code": code, "message": message, "status": status}}).encode()
-    return r
+def _response(code: int, status: str, message: str) -> dict:
+    return {"error": {"code": code, "message": message, "status": status}}
 
 
 def server_error():
@@ -121,6 +115,144 @@ async def test_non_retryable_error_fails_immediately():
     with pytest.raises(errors.ClientError):
         await gw.generate_text("x")
     assert len(backend.calls) == 1
+    await gw.aclose()
+
+
+async def test_a_hung_request_times_out_and_is_retried():
+    class Hangs(FakeBackend):
+        async def generate_text(self, prompt, system):
+            self.calls.append(("text", time.monotonic()))
+            if len(self.calls) == 1:
+                await asyncio.sleep(10)
+            return "recovered"
+
+    backend = Hangs()
+    gw = GeminiGateway(backend, rpm=6000, request_timeout=0.1, backoff=(0.01, 0.02))
+    assert await gw.generate_text("x") == "recovered" and len(backend.calls) == 2
+    await gw.aclose()
+
+
+class FakeModels:
+    """Mimics client.aio.models, recording which model each call used."""
+
+    def __init__(self, behaviour):
+        self.behaviour, self.used = behaviour, []
+
+    async def generate_content(self, *, model, **kw):
+        self.used.append(model)
+        return await self.behaviour(model)
+
+    @property
+    def aio(self):
+        return self
+
+
+class Reply:
+    def __init__(self, text):
+        self.text = text
+
+
+def backend_with(behaviour, **kw):
+    from app.gemini import GenAIBackend
+
+    models = FakeModels(behaviour)
+    client = type("C", (), {"aio": type("A", (), {"models": models})()})()
+    return GenAIBackend("k", "primary", "embed", client=client, **kw), models
+
+
+async def test_overloaded_primary_model_falls_back_once():
+    async def behaviour(model):
+        if model == "primary":
+            raise server_error()
+        return Reply("from fallback")
+
+    backend, models = backend_with(behaviour, fallback_models=["backup"])
+    assert await backend.generate_text("hi", None) == "from fallback" and models.used == ["primary", "backup"]
+
+
+async def test_slow_primary_model_falls_back_once():
+    async def behaviour(model):
+        if model == "primary":
+            await asyncio.sleep(10)
+        return Reply("from fallback")
+
+    backend, models = backend_with(behaviour, fallback_models=["backup"], primary_timeout=0.1)
+    assert await backend.generate_text("hi", None) == "from fallback" and models.used == ["primary", "backup"]
+
+
+async def test_no_fallback_when_disabled_and_none_for_bad_requests():
+    async def overloaded(model):
+        raise server_error()
+
+    backend, models = backend_with(overloaded, fallback_models=[])
+    with pytest.raises(errors.ServerError):
+        await backend.generate_text("hi", None)
+    assert models.used == ["primary"]
+
+    async def invalid(model):
+        raise bad_request()
+
+    backend, models = backend_with(invalid, fallback_models=["backup"])
+    with pytest.raises(errors.ClientError):
+        await backend.generate_text("hi", None)
+    assert models.used == ["primary"], "a bad request would fail on the fallback too"
+
+
+def daily_quota_error():
+    return errors.ClientError(429, {"error": {
+        "code": 429, "status": "RESOURCE_EXHAUSTED",
+        "message": "Quota exceeded for metric generate_content_free_tier_requests, limit: 20, model: m",
+        "details": [{"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}, {"retryDelay": "29714s"}],
+    }})
+
+
+def test_daily_quota_is_recognised_and_never_retried():
+    from app.gemini import _cooldown_seconds, is_daily_quota
+
+    assert is_daily_quota(daily_quota_error()) and not is_daily_quota(rate_error())
+    assert not is_retryable(daily_quota_error()) and is_retryable(rate_error())
+    assert _cooldown_seconds(daily_quota_error()) == 6 * 3600, "Google said 29714 s; capped at 6 h so a bad parse can't lock a model out for a day"
+    assert _cooldown_seconds(rate_error()) == 15 and _cooldown_seconds(server_error()) == 30
+
+
+async def test_spent_daily_quota_moves_down_the_chain_and_the_model_is_skipped_afterwards():
+    async def behaviour(model):
+        if model == "primary":
+            raise daily_quota_error()
+        return Reply(f"from {model}")
+
+    backend, models = backend_with(behaviour, fallback_models=["lite", "lite2"])
+    assert await backend.generate_text("a", None) == "from lite"
+    assert await backend.generate_text("b", None) == "from lite"
+    assert models.used == ["primary", "lite", "lite"], "the exhausted model must not be called again"
+
+
+async def test_cooldown_expires():
+    now = [0.0]
+
+    async def behaviour(model):
+        if model == "primary" and now[0] < 100:
+            raise server_error()
+        return Reply(f"from {model}")
+
+    backend, models = backend_with(behaviour, fallback_models=["lite"], clock=lambda: now[0])
+    assert await backend.generate_text("a", None) == "from lite"
+    now[0] = 500.0
+    assert await backend.generate_text("b", None) == "from primary"
+
+
+async def test_every_model_exhausted_fails_fast_without_retries():
+    async def behaviour(model):
+        raise daily_quota_error()
+
+    backend, models = backend_with(behaviour, fallback_models=["lite"])
+    gw = GeminiGateway(backend, rpm=6000, backoff=(0.01, 0.02))
+    with pytest.raises(errors.ClientError):
+        await gw.generate_text("x")
+    assert models.used == ["primary", "lite"], "daily quota must not trigger gateway retries"
+    with pytest.raises(errors.ServerError, match="cooling down"):
+        await gw.generate_text("y")
+    assert models.used == ["primary", "lite"], "cooling models are not called at all"
     await gw.aclose()
 
 

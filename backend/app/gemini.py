@@ -6,11 +6,13 @@ Retries (429 / 5xx / network) go back through the same queue, so they respect th
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
+import re
 import time
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Awaitable, Callable, Protocol, TypeVar
+from typing import Any, Awaitable, Callable, Protocol, Sequence, TypeVar
 
 import httpx
 from google import genai
@@ -19,15 +21,33 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 
+log = logging.getLogger(__name__)
+
 M = TypeVar("M", bound=BaseModel)
 
 
+def is_daily_quota(exc: BaseException) -> bool:
+    """A 429 that says the per-day quota is spent: retrying cannot help until the quota resets."""
+    return isinstance(exc, errors.ClientError) and getattr(exc, "code", None) == 429 and "PerDay" in str(exc)
+
+
 def is_retryable(exc: BaseException) -> bool:
+    if is_daily_quota(exc):
+        return False
     if isinstance(exc, errors.ServerError):
         return True
     if isinstance(exc, errors.ClientError):
         return getattr(exc, "code", None) == 429
     return isinstance(exc, (asyncio.TimeoutError, httpx.TransportError))
+
+
+def _cooldown_seconds(exc: BaseException) -> float:
+    if is_daily_quota(exc):
+        match = re.search(r"retryDelay'?\"?: ?'?\"?(\d+)", str(exc))
+        return min(float(match.group(1)), 6 * 3600) if match else 3600.0
+    if isinstance(exc, errors.ClientError):
+        return 15.0
+    return 30.0
 
 
 class GeminiBackend(Protocol):
@@ -40,19 +60,52 @@ class GeminiBackend(Protocol):
 class GenAIBackend:
     """Real calls through the google-genai SDK."""
 
-    def __init__(self, api_key: str, model: str, embed_model: str, embed_dim: int = 768):
-        self._client = genai.Client(api_key=api_key)
-        self._model, self._embed_model, self._dim = model, embed_model, embed_dim
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        embed_model: str,
+        embed_dim: int = 768,
+        *,
+        fallback_models: Sequence[str] = (),
+        primary_timeout: float = 20.0,
+        client: Any = None,
+        clock: Callable[[], float] = time.monotonic,
+    ):
+        self._client = client or genai.Client(api_key=api_key)
+        self._models = [model, *[m for m in fallback_models if m and m != model]]
+        self._embed_model, self._dim = embed_model, embed_dim
+        self._timeout = primary_timeout
+        self._clock = clock
+        self._skip_until: dict[str, float] = {}
+
+    async def _generate(self, **kwargs: Any):
+        """Use the first model in the chain that is not cooling down; move down the chain on overload, slowness or quota."""
+        last: BaseException | None = None
+        for index, model in enumerate(self._models):
+            if self._skip_until.get(model, 0) > self._clock():
+                continue
+            is_last = index == len(self._models) - 1
+            try:
+                # The last model gets no extra timeout of its own; the gateway's request timeout covers it.
+                call = self._client.aio.models.generate_content(model=model, **kwargs)
+                return await (call if is_last else asyncio.wait_for(call, self._timeout))
+            except (errors.ServerError, errors.ClientError, asyncio.TimeoutError) as exc:
+                if isinstance(exc, errors.ClientError) and not is_daily_quota(exc) and getattr(exc, "code", None) != 429:
+                    raise  # a bad request would fail on every model
+                last = exc
+                self._skip_until[model] = self._clock() + _cooldown_seconds(exc)
+                log.warning("%s unavailable (%s); trying the next model", model, type(exc).__name__)
+        if last is not None:
+            raise last
+        raise errors.ServerError(503, {"error": {"message": "every configured Gemini model is cooling down", "status": "UNAVAILABLE"}})
 
     async def generate_text(self, prompt: str, system: str | None) -> str:
-        res = await self._client.aio.models.generate_content(
-            model=self._model, contents=prompt, config=types.GenerateContentConfig(system_instruction=system)
-        )
+        res = await self._generate(contents=prompt, config=types.GenerateContentConfig(system_instruction=system))
         return res.text or ""
 
     async def generate_structured(self, prompt: str, schema: type[M], system: str | None) -> M:
-        res = await self._client.aio.models.generate_content(
-            model=self._model,
+        res = await self._generate(
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system, response_mime_type="application/json", response_schema=schema
@@ -63,10 +116,7 @@ class GenAIBackend:
         return res.parsed
 
     async def transcribe_audio(self, audio: bytes, mime_type: str, prompt: str) -> str:
-        res = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=[types.Part.from_bytes(data=audio, mime_type=mime_type), prompt],
-        )
+        res = await self._generate(contents=[types.Part.from_bytes(data=audio, mime_type=mime_type), prompt])
         return res.text or ""
 
     async def embed(self, texts: list[str], task_type: str) -> list[list[float]]:
@@ -93,10 +143,12 @@ class GeminiGateway:
         max_attempts: int = 4,
         backoff: tuple[float, float] = (2.0, 5.0),
         clock: Callable[[], float] = time.monotonic,
+        request_timeout: float = 45.0,
     ):
         if rpm <= 0:
             raise ValueError("rpm must be positive")
         self._backend = backend
+        self._timeout = request_timeout
         self._interval = 60.0 / rpm
         self._max_attempts = max_attempts
         self._backoff = backoff
@@ -134,7 +186,8 @@ class GeminiGateway:
 
     async def _run(self, job: _Job) -> None:
         try:
-            result = await job.factory()
+            # A hung request is treated like any other transient failure: it is retried through the queue.
+            result = await asyncio.wait_for(job.factory(), self._timeout)
         except asyncio.CancelledError:
             job.future.cancel()
             raise
@@ -191,5 +244,8 @@ class GeminiGateway:
 @lru_cache
 def get_gateway() -> GeminiGateway:
     s = get_settings()
-    backend = GenAIBackend(s.gemini_api_key, s.gemini_model, s.gemini_embed_model)
-    return GeminiGateway(backend, rpm=s.gemini_rpm)
+    backend = GenAIBackend(
+        s.gemini_api_key, s.gemini_model, s.gemini_embed_model,
+        fallback_models=s.fallback_models, primary_timeout=s.gemini_primary_timeout_seconds,
+    )
+    return GeminiGateway(backend, rpm=s.gemini_rpm, request_timeout=s.gemini_timeout_seconds)

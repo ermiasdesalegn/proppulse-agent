@@ -55,18 +55,12 @@ def test_health_endpoint():
     assert r.status_code == 200 and r.json()["status"] == "ok"
 
 
-def test_gemini_text_model_responds():
-    from google import genai
-    from google.genai.errors import ServerError
-    from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+async def test_gemini_text_model_responds():
+    from app.gemini import GenAIBackend
 
     s = get_settings()
-
-    @retry(retry=retry_if_exception_type(ServerError), stop=stop_after_attempt(4), wait=wait_fixed(5), reraise=True)
-    def call():
-        return genai.Client(api_key=s.gemini_api_key).models.generate_content(model=s.gemini_model, contents="Say ok")
-
-    assert (call().text or "").strip()
+    backend = GenAIBackend(s.gemini_api_key, s.gemini_model, s.gemini_embed_model, fallback_models=s.fallback_models)
+    assert (await backend.generate_text("Say ok", None)).strip()
 
 
 def test_embedding_has_768_dimensions():

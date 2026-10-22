@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from google import genai
 from google.genai import types
 
@@ -6,7 +8,9 @@ from app.config import get_settings
 DIM = 768
 
 
+@lru_cache
 def _client() -> genai.Client:
+    # One long-lived client: the SDK closes its HTTP session when a client object is garbage collected.
     return genai.Client(api_key=get_settings().gemini_api_key)
 
 
