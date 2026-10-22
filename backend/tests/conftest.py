@@ -32,3 +32,19 @@ async def db_conn():
 @pytest_asyncio.fixture
 async def repo(db_conn):
     return Repository(SingleConnectionPool(db_conn))
+
+
+@pytest_asyncio.fixture
+async def spy_repo(db_conn):
+    from tests.agent_helpers import SpyRepo
+
+    return SpyRepo(SingleConnectionPool(db_conn))
+
+
+@pytest_asyncio.fixture
+async def vector_of(db_conn):
+    async def get(title_like: str) -> list[float]:
+        cur = await db_conn.execute("select embedding::text as e from properties where title like %s", (title_like,))
+        return [float(x) for x in (await cur.fetchone())["e"].strip("[]").split(",")]
+
+    return get
