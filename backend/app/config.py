@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    telegram_mode: str = "auto"  # auto/polling: fetch updates (no public URL needed); webhook: Telegram calls us; off
+    public_base_url: str = ""  # https URL used only by scripts/telegram_webhook.py
     resend_api_key: str = ""
     email_from: str = ""
 

@@ -113,6 +113,38 @@ class Repository:
             raise LookupError(f"buyer {buyer_id} not found")
         return row
 
+    async def get_buyer_by_thread(self, thread_id: str) -> dict | None:
+        return await self._one("select * from buyers_crm where thread_id = %s", (thread_id,))
+
+    async def list_buyers(self, limit: int = 100) -> list[dict]:
+        return await self._fetch(
+            "select id, thread_id, telegram_id, full_name, phone, email, max_budget_etb, min_bedrooms, preferred_sub_cities, "
+            "lead_score, deal_stage, human_takeover, preference_summary, created_at, updated_at "
+            "from buyers_crm order by updated_at desc limit %s",
+            (limit,),
+        )
+
+    # ---- transcript ----
+
+    async def add_message(
+        self, buyer_id: UUID | str, role: str, content: str, *, source: str = "text", telegram_file_id: str | None = None
+    ) -> dict:
+        row = await self._one(
+            "insert into chat_messages (buyer_id, role, content, source, telegram_file_id) values (%s, %s, %s, %s, %s) returning *",
+            (str(buyer_id), role, content, source, telegram_file_id),
+        )
+        assert row is not None
+        return row
+
+    async def list_messages(self, buyer_id: UUID | str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
+        return await self._fetch(
+            "select * from (select * from chat_messages where buyer_id = %s and id > %s order by id limit %s) m order by id",
+            (str(buyer_id), after_id, limit),
+        )
+
+    async def update_message_content(self, message_id: int, content: str) -> None:
+        await self._fetch("update chat_messages set content = %s where id = %s returning id", (content, message_id))
+
     async def set_human_takeover(self, buyer_id: UUID | str, on: bool) -> dict:
         row = await self._one("update buyers_crm set human_takeover = %s where id = %s returning *", (on, str(buyer_id)))
         if row is None:
