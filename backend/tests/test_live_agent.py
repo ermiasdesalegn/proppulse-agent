@@ -16,6 +16,7 @@ async def gateway():
     backend = GenAIBackend(
         s.gemini_api_key, s.gemini_model, s.gemini_embed_model,
         fallback_models=s.fallback_models, primary_timeout=s.gemini_primary_timeout_seconds,
+        thinking_budget=s.gemini_thinking_budget,
     )
     gw = GeminiGateway(backend, rpm=s.gemini_rpm, request_timeout=s.gemini_timeout_seconds)
     yield gw

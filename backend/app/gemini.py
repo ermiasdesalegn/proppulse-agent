@@ -1,4 +1,4 @@
-"""Single entry point for every Gemini call.
+﻿"""Single entry point for every Gemini call.
 
 All requests pass through one leaky-bucket queue so the free-tier rate limit is never exceeded.
 Retries (429 / 5xx / network) go back through the same queue, so they respect the cap too.
@@ -71,13 +71,34 @@ class GenAIBackend:
         primary_timeout: float = 20.0,
         client: Any = None,
         clock: Callable[[], float] = time.monotonic,
+        thinking_budget: int = -1,
     ):
         self._client = client or genai.Client(api_key=api_key)
         self._models = [model, *[m for m in fallback_models if m and m != model]]
         self._embed_model, self._dim = embed_model, embed_dim
         self._timeout = primary_timeout
         self._clock = clock
+        self._thinking_budget = thinking_budget  # 0 turns reasoning off (about 7x faster here); negative leaves the model default
         self._skip_until: dict[str, float] = {}
+        self._rejects_thinking: set[str] = set()
+
+    async def _call(self, model: str, kwargs: dict[str, Any]):
+        """One request to one model, with reasoning switched off where configured and the model allows it."""
+        if self._thinking_budget < 0 or model in self._rejects_thinking:
+            return await self._client.aio.models.generate_content(model=model, **kwargs)
+        config = (kwargs.get("config") or types.GenerateContentConfig()).model_copy(
+            update={"thinking_config": types.ThinkingConfig(thinking_budget=self._thinking_budget)}
+        )
+        try:
+            return await self._client.aio.models.generate_content(model=model, **{**kwargs, "config": config})
+        except errors.ClientError as exc:
+            if getattr(exc, "code", None) != 400:
+                raise
+            # Some models refuse the setting with a generic 400 that never mentions it, so retry on any 400.
+            result = await self._client.aio.models.generate_content(model=model, **kwargs)
+            self._rejects_thinking.add(model)  # only remembered once the plain request has worked
+            log.warning("%s does not accept thinking_budget=%s; using its default from now on", model, self._thinking_budget)
+            return result
 
     async def _generate(self, **kwargs: Any):
         """Use the first model in the chain that is not cooling down; move down the chain on overload, slowness or quota."""
@@ -88,7 +109,7 @@ class GenAIBackend:
             is_last = index == len(self._models) - 1
             try:
                 # The last model gets no extra timeout of its own; the gateway's request timeout covers it.
-                call = self._client.aio.models.generate_content(model=model, **kwargs)
+                call = self._call(model, kwargs)
                 return await (call if is_last else asyncio.wait_for(call, self._timeout))
             except (errors.ServerError, errors.ClientError, asyncio.TimeoutError) as exc:
                 if isinstance(exc, errors.ClientError) and not is_daily_quota(exc) and getattr(exc, "code", None) != 429:
@@ -128,11 +149,25 @@ class GenAIBackend:
         return [e.values for e in res.embeddings]
 
 
+
 @dataclass
 class _Job:
     factory: Callable[[], Awaitable[Any]]
     future: asyncio.Future
+    lane: "_Lane"
     attempt: int = 0
+
+
+class _Lane:
+    """An independent rate-limited queue. Generation and embeddings have separate quotas, so they get separate lanes."""
+
+    def __init__(self, name: str, rpm: int):
+        if rpm <= 0:
+            raise ValueError(f"{name} rpm must be positive")
+        self.name, self.interval = name, 60.0 / rpm
+        self.queue: asyncio.Queue[_Job] | None = None
+        self.worker: asyncio.Task | None = None
+        self.next_slot = 0.0
 
 
 class GeminiGateway:
@@ -144,47 +179,50 @@ class GeminiGateway:
         backoff: tuple[float, float] = (2.0, 5.0),
         clock: Callable[[], float] = time.monotonic,
         request_timeout: float = 45.0,
+        embed_rpm: int = 60,
     ):
-        if rpm <= 0:
-            raise ValueError("rpm must be positive")
         self._backend = backend
         self._timeout = request_timeout
-        self._interval = 60.0 / rpm
+        self._generate = _Lane("generate", rpm)
+        self._embed = _Lane("embed", embed_rpm)
         self._max_attempts = max_attempts
         self._backoff = backoff
         self._clock = clock
-        self._queue: asyncio.Queue[_Job] | None = None
-        self._worker: asyncio.Task | None = None
         self._inflight: set[asyncio.Task] = set()
         self._retrying = 0
-        self._next_slot = 0.0
+
+    @property
+    def _interval(self) -> float:
+        return self._generate.interval
 
     @property
     def pending(self) -> int:
         """Requests waiting for a slot (including ones sleeping before a retry)."""
-        return (self._queue.qsize() if self._queue else 0) + self._retrying
+        queued = sum(lane.queue.qsize() for lane in (self._generate, self._embed) if lane.queue)
+        return queued + self._retrying
 
-    def _ensure_started(self) -> None:
-        if self._worker is None or self._worker.done():
-            self._queue = asyncio.Queue()
-            self._next_slot = 0.0
-            self._worker = asyncio.create_task(self._drain())
+    def _ensure_started(self, lane: _Lane) -> None:
+        if lane.worker is None or lane.worker.done():
+            lane.queue = asyncio.Queue()
+            lane.next_slot = 0.0
+            lane.worker = asyncio.create_task(self._drain(lane))
 
-    async def _drain(self) -> None:
-        assert self._queue is not None
+    async def _drain(self, lane: _Lane) -> None:
+        assert lane.queue is not None
         while True:
-            job = await self._queue.get()
+            job = await lane.queue.get()
             if job.future.cancelled():
                 continue
-            wait = self._next_slot - self._clock()
+            wait = lane.next_slot - self._clock()
             if wait > 0:
                 await asyncio.sleep(wait)
-            self._next_slot = max(self._clock(), self._next_slot) + self._interval
+            lane.next_slot = max(self._clock(), lane.next_slot) + lane.interval
             task = asyncio.create_task(self._run(job))
             self._inflight.add(task)
             task.add_done_callback(self._inflight.discard)
 
     async def _run(self, job: _Job) -> None:
+        started = self._clock()
         try:
             # A hung request is treated like any other transient failure: it is retried through the queue.
             result = await asyncio.wait_for(job.factory(), self._timeout)
@@ -200,30 +238,34 @@ class GeminiGateway:
                 finally:
                     self._retrying -= 1
                 job.attempt += 1
-                assert self._queue is not None
-                await self._queue.put(job)
+                assert job.lane.queue is not None
+                await job.lane.queue.put(job)  # retries re-enter the same lane, so they respect its rate cap
             elif not job.future.done():
                 job.future.set_exception(exc)
         else:
+            log.info("gemini %s call finished in %.1fs (attempt %d)", job.lane.name, self._clock() - started, job.attempt + 1)
             if not job.future.done():
                 job.future.set_result(result)
 
-    async def _submit(self, factory: Callable[[], Awaitable[Any]]) -> Any:
-        self._ensure_started()
-        assert self._queue is not None
+    async def _submit(self, factory: Callable[[], Awaitable[Any]], lane: _Lane | None = None) -> Any:
+        lane = lane or self._generate
+        self._ensure_started(lane)
+        assert lane.queue is not None
         future = asyncio.get_running_loop().create_future()
-        await self._queue.put(_Job(factory, future))
+        await lane.queue.put(_Job(factory, future, lane))
         return await future
 
     async def aclose(self) -> None:
-        tasks = [t for t in [self._worker, *self._inflight] if t is not None]
+        lanes = (self._generate, self._embed)
+        tasks = [t for t in [*(lane.worker for lane in lanes), *self._inflight] if t is not None]
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        while self._queue is not None and not self._queue.empty():
-            job = self._queue.get_nowait()
-            if not job.future.done():
-                job.future.cancel()
+        for lane in lanes:
+            while lane.queue is not None and not lane.queue.empty():
+                job = lane.queue.get_nowait()
+                if not job.future.done():
+                    job.future.cancel()
 
     async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
         return await self._submit(lambda: self._backend.generate_text(prompt, system))
@@ -235,10 +277,10 @@ class GeminiGateway:
         return await self._submit(lambda: self._backend.transcribe_audio(audio, mime_type, prompt))
 
     async def embed_query(self, text: str) -> list[float]:
-        return (await self._submit(lambda: self._backend.embed([text], "RETRIEVAL_QUERY")))[0]
+        return (await self._submit(lambda: self._backend.embed([text], "RETRIEVAL_QUERY"), self._embed))[0]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return await self._submit(lambda: self._backend.embed(texts, "RETRIEVAL_DOCUMENT"))
+        return await self._submit(lambda: self._backend.embed(texts, "RETRIEVAL_DOCUMENT"), self._embed)
 
 
 @lru_cache
@@ -247,5 +289,6 @@ def get_gateway() -> GeminiGateway:
     backend = GenAIBackend(
         s.gemini_api_key, s.gemini_model, s.gemini_embed_model,
         fallback_models=s.fallback_models, primary_timeout=s.gemini_primary_timeout_seconds,
+        thinking_budget=s.gemini_thinking_budget,
     )
-    return GeminiGateway(backend, rpm=s.gemini_rpm, request_timeout=s.gemini_timeout_seconds)
+    return GeminiGateway(backend, rpm=s.gemini_rpm, request_timeout=s.gemini_timeout_seconds, embed_rpm=s.gemini_embed_rpm)

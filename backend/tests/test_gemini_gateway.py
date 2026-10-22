@@ -68,6 +68,25 @@ async def test_calls_are_spaced_by_the_rate_interval():
     await gw.aclose()
 
 
+async def test_embeddings_do_not_wait_behind_text_calls():
+    backend = FakeBackend()
+    gw = GeminiGateway(backend, rpm=6, embed_rpm=6000)  # text calls 10 s apart, embeddings effectively unlimited
+    t0 = time.monotonic()
+    await gw.generate_text("first")  # takes the first (immediate) text slot
+    await asyncio.gather(*(gw.embed_query(f"q{i}") for i in range(5)))
+    assert time.monotonic() - t0 < 1.0, "five embeddings must not queue behind the 10 s text spacing"
+    await gw.aclose()
+
+
+async def test_text_and_embedding_lanes_each_keep_their_own_rate_cap():
+    backend = FakeBackend()
+    gw = GeminiGateway(backend, rpm=600, embed_rpm=600)  # 0.1 s apart in each lane
+    await asyncio.gather(*(gw.embed_query(f"q{i}") for i in range(4)))
+    starts = [t for n, t in backend.calls if n == "embed"]
+    assert all(b - a >= 0.08 for a, b in zip(starts, starts[1:])), "the embedding lane still spaces its own requests"
+    await gw.aclose()
+
+
 async def test_each_caller_gets_its_own_result():
     gw = GeminiGateway(FakeBackend(), rpm=6000)
     results = await asyncio.gather(*(gw.generate_text(str(i)) for i in range(6)))
@@ -136,10 +155,11 @@ class FakeModels:
     """Mimics client.aio.models, recording which model each call used."""
 
     def __init__(self, behaviour):
-        self.behaviour, self.used = behaviour, []
+        self.behaviour, self.used, self.configs = behaviour, [], []
 
     async def generate_content(self, *, model, **kw):
         self.used.append(model)
+        self.configs.append(kw.get("config"))
         return await self.behaviour(model)
 
     @property
@@ -196,6 +216,74 @@ async def test_no_fallback_when_disabled_and_none_for_bad_requests():
     with pytest.raises(errors.ClientError):
         await backend.generate_text("hi", None)
     assert models.used == ["primary"], "a bad request would fail on the fallback too"
+
+
+async def test_reasoning_is_switched_off_for_every_text_call():
+    async def ok(model):
+        return Reply("fine")
+
+    backend, models = backend_with(ok, thinking_budget=0)
+    await backend.generate_text("hi", "be brief")
+    await backend.transcribe_audio(b"x", "audio/ogg", "transcribe")
+    assert [c.thinking_config.thinking_budget for c in models.configs] == [0, 0]
+    assert models.configs[0].system_instruction == "be brief", "the caller's own settings are kept"
+
+
+async def test_a_negative_budget_leaves_the_model_default_alone():
+    async def ok(model):
+        return Reply("fine")
+
+    backend, models = backend_with(ok, thinking_budget=-1)
+    await backend.generate_text("hi", None)
+    assert models.configs[0].thinking_config is None
+
+
+async def test_a_model_that_rejects_the_thinking_setting_is_retried_without_it():
+    attempts = []
+
+    async def picky(model):
+        attempts.append(model)
+        if len(attempts) == 1:
+            raise errors.ClientError(400, {"error": {"code": 400, "message": "This model only works in thinking mode.", "status": "INVALID_ARGUMENT"}})
+        return Reply("fine")
+
+    backend, models = backend_with(picky, thinking_budget=0)
+    assert await backend.generate_text("hi", None) == "fine"
+    assert attempts == ["primary", "primary"]
+    assert models.configs[0].thinking_config.thinking_budget == 0 and models.configs[1].thinking_config is None
+
+
+async def test_a_generic_400_on_the_thinking_setting_is_retried_and_remembered():
+    """gemini-3.5-flash-lite answers this with 'Request contains an invalid argument' and never mentions thinking."""
+    seen = []
+
+    async def picky(model):
+        return Reply("fine")
+
+    backend, models = backend_with(picky, thinking_budget=0)
+    original = models.generate_content
+
+    async def reject_thinking(*, model, **kw):
+        cfg = kw.get("config")
+        seen.append(cfg is not None and cfg.thinking_config is not None)
+        if seen[-1]:
+            raise errors.ClientError(400, {"error": {"code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT"}})
+        return Reply("fine")
+
+    models.generate_content = reject_thinking
+    assert await backend.generate_text("a", None) == "fine"
+    assert await backend.generate_text("b", None) == "fine"
+    assert seen == [True, False, False], "after one rejection the model is called without the setting straight away"
+
+
+async def test_a_genuinely_bad_request_still_fails_and_does_not_poison_the_model():
+    async def always_bad(model):
+        raise bad_request()
+
+    backend, models = backend_with(always_bad, thinking_budget=0)
+    with pytest.raises(errors.ClientError):
+        await backend.generate_text("hi", None)
+    assert "primary" not in backend._rejects_thinking, "a failed retry must not mark the model as rejecting the setting"
 
 
 def daily_quota_error():
