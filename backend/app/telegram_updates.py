@@ -57,8 +57,11 @@ class TelegramUpdateHandler:
     async def process(self, update: dict) -> None:
         try:
             inbound = parse_update(update)
-            if inbound is not None:
-                await self._chat.handle_inbound(inbound)
+            if inbound is None:
+                log.info("Telegram update %s ignored (%s)", update.get("update_id"), ", ".join(k for k in update if k != "update_id"))
+                return
+            log.info("Telegram update %s: %s from user %s", update.get("update_id"), inbound.kind, inbound.external_id)
+            await self._chat.handle_inbound(inbound)
         except Exception:
             log.exception("failed to process Telegram update %s", update.get("update_id"))
 
