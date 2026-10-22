@@ -24,10 +24,10 @@ class BotApiTelegramService:
         self._token = token
         self._transport = transport
 
-    async def _request(self, method: str, **params: Any) -> Any:
+    async def _request(self, method: str, _timeout: float = 30, **params: Any) -> Any:
         url = f"https://api.telegram.org/bot{self._token}/{method}"
         try:
-            async with httpx.AsyncClient(transport=self._transport, timeout=30) as client:
+            async with httpx.AsyncClient(transport=self._transport, timeout=_timeout) as client:
                 res = await client.post(url, json=params)
             body = res.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -49,6 +49,26 @@ class BotApiTelegramService:
 
     async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> None:
         await self._request("sendChatAction", chat_id=chat_id, action=action)
+
+    async def get_updates(self, offset: int | None, timeout: int = 25) -> list[dict]:
+        params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
+        if offset is not None:
+            params["offset"] = offset
+        return await self._request("getUpdates", _timeout=timeout + 10, **params)
+
+    async def delete_webhook(self, drop_pending_updates: bool = False) -> None:
+        await self._request("deleteWebhook", drop_pending_updates=drop_pending_updates)
+
+    async def set_webhook(self, url: str, secret_token: str) -> None:
+        await self._request(
+            "setWebhook", url=url, secret_token=secret_token, allowed_updates=["message"], drop_pending_updates=False
+        )
+
+    async def get_webhook_info(self) -> dict:
+        return await self._request("getWebhookInfo")
+
+    async def get_me(self) -> dict:
+        return await self._request("getMe")
 
     async def download_file(self, file_id: str) -> bytes:
         file_path = (await self._request("getFile", file_id=file_id))["file_path"]
