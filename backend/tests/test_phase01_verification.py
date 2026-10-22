@@ -17,7 +17,7 @@ from app.main import app
 REPO = Path(__file__).resolve().parents[2]
 TABLES = {
     "developers", "properties", "price_history", "buyers_crm",
-    "tours_and_appointments", "tour_properties", "commission_ledger",
+    "tours_and_appointments", "tour_properties", "commission_ledger", "chat_messages",
 }
 
 
@@ -128,7 +128,7 @@ def test_row_level_security_enabled_everywhere(conn):
 def test_migrations_recorded_and_rerun_is_a_noop(conn):
     from scripts import migrate
     before = conn.execute("select count(*) from schema_migrations").fetchone()[0]
-    assert before == 2
+    assert before == len(list((REPO / "backend" / "migrations").glob("*.sql")))
     migrate.main()
     assert conn.execute("select count(*) from schema_migrations").fetchone()[0] == before
 
