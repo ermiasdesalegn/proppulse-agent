@@ -31,6 +31,22 @@ class Settings(BaseSettings):
     cron_secret: str = ""
     frontend_origin: str = "http://localhost:3000"
 
+    demo_fallback_email: str = ""
+    demo_fallback_telegram_chat_id: str = ""
+
+    timezone: str = "Africa/Addis_Ababa"
+    business_hours_start: int = 9
+    business_hours_end: int = 18
+    working_days: str = "Mon,Tue,Wed,Thu,Fri,Sat"
+    tour_duration_minutes: int = 60
+    tour_buffer_minutes: int = 30
+
+    # "mock" or the live implementation; "auto" picks live when credentials exist.
+    calendar_backend: str = "mock"
+    routing_backend: str = "mock"
+    email_backend: str = "auto"
+    telegram_backend: str = "auto"
+
     high_value_threshold_etb: float = 20_000_000
     similarity_threshold: float = 0.64  # tuned on seed data: negatives <= 0.606, positives >= 0.666
 
