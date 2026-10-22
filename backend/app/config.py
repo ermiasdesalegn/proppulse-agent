@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     gemini_embed_model: str = "gemini-embedding-001"
     gemini_rpm: int = Field(14, description="Leaky-bucket ceiling for Gemini calls per minute")
+    # Tried in order when the primary is overloaded, slow or out of daily quota (the free tier gives gemini-3.8-flash only 20 a day).
+    gemini_fallback_models: str = "gemini-3.1-flash-lite,gemini-3.5-flash-lite"
+    gemini_primary_timeout_seconds: float = 20.0
+    gemini_timeout_seconds: float = 60.0  # whole request, including the fallback attempt
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
@@ -47,8 +51,18 @@ class Settings(BaseSettings):
     email_backend: str = "auto"
     telegram_backend: str = "auto"
 
+    broker_name: str = "Ermias Desalegn"
+    relax_budget_step_pct: float = 12.0  # step 1 widens by this, step 2 by twice this
+    max_relaxation_steps: int = 2
+    recursion_limit: int = 10
+
     high_value_threshold_etb: float = 20_000_000
     similarity_threshold: float = 0.64  # tuned on seed data: negatives <= 0.606, positives >= 0.666
+
+
+    @property
+    def fallback_models(self) -> list[str]:
+        return [m.strip() for m in self.gemini_fallback_models.split(",") if m.strip()]
 
 
 @lru_cache

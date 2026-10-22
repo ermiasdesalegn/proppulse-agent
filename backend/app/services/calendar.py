@@ -24,6 +24,8 @@ class Slot:
 
 
 class CalendarService(Protocol):
+    async def is_available(self, start: datetime, end: datetime) -> bool: ...
+
     async def find_slots(self, *, after: datetime, days: int, duration: timedelta, limit: int = 5) -> list[Slot]: ...
 
     async def book(self, *, start: datetime, end: datetime, summary: str, description: str = "", location: str = "") -> str:
@@ -52,6 +54,15 @@ class MockCalendarService:
             start < ev["end"] + self._buffer and end + self._buffer > ev["start"] for ev in self.events.values()
         )
 
+    def _within_hours(self, start: datetime, end: datetime) -> bool:
+        start, end = start.astimezone(self._tz), end.astimezone(self._tz)
+        opens = datetime.combine(start.date(), time(self._start_hour), tzinfo=self._tz)
+        closes = datetime.combine(start.date(), time(self._end_hour), tzinfo=self._tz)
+        return start.weekday() in self._working_days and start >= opens and end <= closes
+
+    async def is_available(self, start: datetime, end: datetime) -> bool:
+        return self._within_hours(start, end) and not self._conflicts(start, end)
+
     async def find_slots(self, *, after: datetime, days: int, duration: timedelta, limit: int = 5) -> list[Slot]:
         after = after.astimezone(self._tz)
         found: list[Slot] = []
@@ -71,7 +82,7 @@ class MockCalendarService:
         return found
 
     async def book(self, *, start: datetime, end: datetime, summary: str, description: str = "", location: str = "") -> str:
-        if self._conflicts(start, end):
+        if not await self.is_available(start, end):
             raise SlotUnavailable(f"{start.isoformat()} is not available")
         event_id = f"mock-evt-{uuid.uuid4().hex[:12]}"
         self.events[event_id] = dict(start=start, end=end, summary=summary, description=description, location=location)
