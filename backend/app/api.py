@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import hmac
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.chat import ChatService, Conflict, Inbound
 from app.config import Settings
+from app.events import sse_frames
 from app.repository import Repository
 from app.telegram_updates import TelegramUpdateHandler
 
@@ -159,6 +162,72 @@ async def change_price(property_id: UUID, body: PriceIn, repo: Repository = Depe
         return await repo.update_property_price(property_id, body.price_etb)
     except LookupError:
         raise HTTPException(404, "Property not found") from None
+
+
+# ---------------- live activity stream ----------------
+
+@router.get("/api/stream/events", dependencies=[Depends(require_admin)])
+async def stream_events(request: Request, last_event_id: str | None = Header(default=None), after: int = 0):
+    """Server-Sent Events: every agent node transition, message, takeover and proactive send, live.
+    Reconnecting clients send Last-Event-ID and receive what they missed."""
+    resume = int(last_event_id) if last_event_id and last_event_id.isdigit() else after
+    frames = sse_frames(request.app.state.events, after_id=resume, is_disconnected=request.is_disconnected)
+    return StreamingResponse(frames, media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
+
+
+# ---------------- dashboard data ----------------
+
+class DealMoveIn(BaseModel):
+    status: str
+    contract_value_etb: float | None = Field(default=None, gt=0, lt=1e13)
+    next_buyer_milestone_date: date | None = None
+
+
+@router.get("/api/board", dependencies=[Depends(require_admin)])
+async def deal_board(repo: Repository = Depends(repo_of)):
+    return await repo.board()
+
+
+@router.patch("/api/ledger/{ledger_id}", dependencies=[Depends(require_admin)])
+async def move_deal(ledger_id: UUID, body: DealMoveIn, repo: Repository = Depends(repo_of)):
+    try:
+        return await repo.move_deal(ledger_id, body.status, contract_value_etb=body.contract_value_etb,
+                                    next_buyer_milestone_date=body.next_buyer_milestone_date)
+    except LookupError:
+        raise HTTPException(404, "Deal not found") from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.get("/api/properties", dependencies=[Depends(require_admin)])
+async def list_properties(repo: Repository = Depends(repo_of)):
+    return await repo.list_properties_for_map()
+
+
+@router.get("/api/tours", dependencies=[Depends(require_admin)])
+async def list_tours(limit: int = 100, repo: Repository = Depends(repo_of)):
+    return await repo.list_tours(min(max(limit, 1), 500))
+
+
+@router.get("/api/stats", dependencies=[Depends(require_admin)])
+async def stats(request: Request, repo: Repository = Depends(repo_of)):
+    s = request.app.state.settings
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    return {**await repo.stats(since), "high_value_threshold_etb": s.high_value_threshold_etb}
+
+
+@router.get("/api/messages/{message_id}/audio", dependencies=[Depends(require_admin)])
+async def message_audio(message_id: int, request: Request, repo: Repository = Depends(repo_of)):
+    """Stream a buyer's voice note so the broker can play it in the console."""
+    row = await repo.get_message(message_id)
+    if row is None or not row["telegram_file_id"]:
+        raise HTTPException(404, "No audio for this message")
+    try:
+        audio = await request.app.state.chat.services.telegram.download_file(row["telegram_file_id"])
+    except Exception:
+        raise HTTPException(502, "The voice note could not be fetched from Telegram") from None
+    return Response(audio, media_type="audio/ogg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 # ---------------- broker console ----------------

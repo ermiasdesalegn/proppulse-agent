@@ -10,6 +10,12 @@ from uuid import UUID
 from psycopg import sql
 from pydantic import BaseModel
 
+LEDGER_STATUSES = (
+    "LEAD_REGISTERED", "TOUR_COMPLETED", "CONTRACT_SIGNED", "COMMISSION_PENDING", "COMMISSION_PAID", "CLOSED_LOST",
+)
+# Moving a deal forward carries the buyer's own stage with it; losing one deal does not (the buyer may still sign another).
+BUYER_STAGE_FOLLOWS = {"TOUR_COMPLETED", "CONTRACT_SIGNED", "COMMISSION_PENDING", "COMMISSION_PAID"}
+
 BUYER_FIELDS = {
     "full_name", "phone", "email", "max_budget_etb", "min_bedrooms",
     "preferred_sub_cities", "lead_score", "deal_stage",
@@ -360,9 +366,82 @@ class Repository:
 
     async def list_ledger(self, status: str | None = None) -> list[dict]:
         return await self._fetch(
-            "select l.*, b.full_name as buyer_name, d.name as developer_name, p.title as property_title "
+            "select l.*, b.full_name as buyer_name, b.lead_score, d.name as developer_name, d.slug as developer_slug, "
+            "p.title as property_title, p.price_etb as property_price_etb "
             "from commission_ledger l join buyers_crm b on b.id = l.buyer_id "
             "join developers d on d.id = l.developer_id join properties p on p.id = l.property_id "
             "where (%s::text is null or l.status = %s) order by l.created_at desc",
             (status, status),
         )
+
+    async def move_deal(
+        self, ledger_id: UUID | str, status: str, *, contract_value_etb: float | None = None,
+        next_buyer_milestone_date: date | None = None,
+    ) -> dict:
+        """Move a deal to another stage and keep the buyer's own stage in step. Signing needs a payment milestone date,
+        because the reminder job runs on it."""
+        if status not in LEDGER_STATUSES:
+            raise ValueError(f"unknown status {status!r}")
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("select * from commission_ledger where id = %s for update", (str(ledger_id),))
+                row = await cur.fetchone()
+                if row is None:
+                    raise LookupError(f"ledger row {ledger_id} not found")
+                milestone = next_buyer_milestone_date or row["next_buyer_milestone_date"]
+                if status == "CONTRACT_SIGNED" and milestone is None:
+                    raise ValueError("a payment milestone date is required when a contract is signed")
+                cur = await conn.execute(
+                    "update commission_ledger set status = %s, contract_value_etb = coalesce(%s, contract_value_etb), "
+                    "next_buyer_milestone_date = %s where id = %s returning *",
+                    (status, contract_value_etb, milestone, str(ledger_id)),
+                )
+                updated = await cur.fetchone()
+                if status in BUYER_STAGE_FOLLOWS:
+                    await conn.execute("update buyers_crm set deal_stage = %s where id = %s", (status, row["buyer_id"]))
+        return updated
+
+    async def board(self) -> dict:
+        """Everything the deal board shows: qualified buyers with no deal yet, and every deal row."""
+        qualified = await self._fetch(
+            "select b.id, b.full_name, b.thread_id, b.max_budget_etb, b.min_bedrooms, b.preferred_sub_cities, b.lead_score, "
+            "b.deal_stage, b.human_takeover from buyers_crm b "
+            "where b.deal_stage in ('QUALIFIED', 'INVENTORY_PENDING') "
+            "and not exists (select 1 from commission_ledger l where l.buyer_id = b.id) order by b.lead_score desc, b.updated_at desc"
+        )
+        return {"qualified": qualified, "deals": await self.list_ledger()}
+
+    async def list_properties_for_map(self) -> list[dict]:
+        return await self._fetch(
+            "select p.id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, p.bedrooms, p.sqm, p.status, "
+            "d.name as developer_name, d.slug as developer_slug from properties p join developers d on d.id = p.developer_id "
+            "order by d.slug, p.price_etb"
+        )
+
+    async def list_tours(self, limit: int = 100) -> list[dict]:
+        return await self._fetch(
+            "select t.id, t.scheduled_start, t.mapbox_route_json, t.reminder_sent, b.id as buyer_id, b.full_name, b.thread_id, "
+            "(select coalesce(json_agg(json_build_object('stop_order', tp.stop_order, 'property_id', p.id, 'title', p.title, "
+            "'lat', p.lat, 'lng', p.lng, 'sub_city', p.sub_city) order by tp.stop_order), '[]'::json) "
+            "from tour_properties tp join properties p on p.id = tp.property_id where tp.tour_id = t.id) as stops "
+            "from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id order by t.scheduled_start desc limit %s",
+            (limit,),
+        )
+
+    async def get_message(self, message_id: int) -> dict | None:
+        return await self._one("select * from chat_messages where id = %s", (message_id,))
+
+    async def stats(self, since: datetime) -> dict:
+        row = await self._one(
+            "select (select count(*) from buyers_crm) as buyers, "
+            "(select count(*) from buyers_crm where human_takeover) as in_takeover, "
+            "(select count(*) from buyers_crm where deal_stage in ('QUALIFIED', 'INVENTORY_PENDING')) as qualified, "
+            "(select count(*) from commission_ledger where status in ('LEAD_REGISTERED', 'TOUR_COMPLETED', 'CONTRACT_SIGNED', 'COMMISSION_PENDING')) as open_deals, "
+            "(select coalesce(sum(expected_commission_etb), 0) from commission_ledger where status in ('LEAD_REGISTERED', 'TOUR_COMPLETED', 'CONTRACT_SIGNED', 'COMMISSION_PENDING')) as pipeline_commission_etb, "
+            "(select coalesce(sum(expected_commission_etb), 0) from commission_ledger where status = 'COMMISSION_PENDING') as commission_pending_etb, "
+            "(select count(*) from tours_and_appointments where scheduled_start > now()) as upcoming_tours, "
+            "(select count(*) from proactive_events where status = 'sent' and created_at >= %s) as proactive_sent",
+            (since,),
+        )
+        assert row is not None
+        return row
