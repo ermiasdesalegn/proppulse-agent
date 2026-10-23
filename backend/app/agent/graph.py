@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.deps import AgentDeps
 from app.agent.nodes import AgentNodes, should_relax_constraints
 from app.agent.state import BrokerAgentState
+from app.events import summarize_update
 
 ROUTES = {"search": "discovery", "compare": "analyst", "book_tour": "scheduler", "small_talk": "smalltalk", "error": END}
 
@@ -69,5 +71,23 @@ class BrokerAgent:
         self, *, buyer_id: str, thread_id: str, inbound: dict, chat_id: int | str | None = None
     ) -> TurnResult:
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": self._deps.settings.recursion_limit}
-        state = await self.graph.ainvoke({"buyer_id": buyer_id, "chat_id": chat_id, "inbound": inbound}, config)
+        bus, ident = self._deps.events, {"thread_id": thread_id, "buyer_id": buyer_id}
+        started = last = time.monotonic()
+        if bus:
+            bus.publish("turn_started", **ident, inbound_kind=inbound.get("kind"))
+        try:
+            # "updates" mode reports each node as it finishes, which is what the live inspector draws.
+            async for chunk in self.graph.astream({"buyer_id": buyer_id, "chat_id": chat_id, "inbound": inbound}, config, stream_mode="updates"):
+                for node, update in chunk.items():
+                    now = time.monotonic()
+                    if bus:
+                        bus.publish("node", **ident, node=node, ms=round((now - last) * 1000), **summarize_update(update if isinstance(update, dict) else None))
+                    last = now
+            state = (await self.graph.aget_state(config)).values
+        except Exception as exc:
+            if bus:
+                bus.publish("turn_failed", **ident, error=type(exc).__name__)
+            raise
+        if bus:
+            bus.publish("turn_finished", **ident, ms=round((time.monotonic() - started) * 1000))
         return TurnResult(reply=state.get("reply"), state=state)

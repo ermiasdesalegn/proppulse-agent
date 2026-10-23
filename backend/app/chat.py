@@ -8,13 +8,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agent.graph import BrokerAgent
 from app.agent.nodes import TROUBLE
 from app.config import Settings
+from app.events import excerpt
 from app.repository import Repository
 from app.services import Services
 
@@ -60,9 +61,13 @@ def chunks(text: str, size: int = TELEGRAM_LIMIT) -> list[str]:
 
 
 class ChatService:
-    def __init__(self, repo: Repository, agent: BrokerAgent, services: Services, settings: Settings):
-        self.repo, self.agent, self.services, self.settings = repo, agent, services, settings
+    def __init__(self, repo: Repository, agent: BrokerAgent, services: Services, settings: Settings, events: Any = None):
+        self.repo, self.agent, self.services, self.settings, self.events = repo, agent, services, settings, events
         self._locks: dict[str, asyncio.Lock] = {}
+
+    def _emit(self, kind: str, **data: Any) -> None:
+        if self.events:
+            self.events.publish(kind, **data)
 
     def _lock(self, thread_id: str) -> asyncio.Lock:
         return self._locks.setdefault(thread_id, asyncio.Lock())
@@ -78,6 +83,8 @@ class ChatService:
             stored = await self.repo.add_message(
                 buyer["id"], "buyer", shown, source=inbound.kind, telegram_file_id=inbound.file_id
             )
+            self._emit("message", role="buyer", buyer_id=str(buyer["id"]), message_id=stored["id"], source=inbound.kind,
+                       channel=inbound.channel, text=excerpt(shown))
             if buyer["human_takeover"]:
                 return await self._while_broker_has_the_chat(buyer, inbound, shown)
             return await self._agent_turn(buyer, inbound, stored)
@@ -118,7 +125,8 @@ class ChatService:
                 await self.repo.update_message_content(stored["id"], str(spoken.content))
 
         if reply:
-            await self.repo.add_message(buyer_id, "agent", reply)
+            sent = await self.repo.add_message(buyer_id, "agent", reply)
+            self._emit("message", role="agent", buyer_id=buyer_id, message_id=sent["id"], source="text", channel=inbound.channel, text=excerpt(reply))
             if inbound.channel == "telegram" and inbound.chat_id is not None:
                 await self._send_telegram(inbound.chat_id, reply)
         return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state)
@@ -145,6 +153,7 @@ class ChatService:
         buyer = await self.repo.set_human_takeover(buyer_id, on)
         note = "Broker took over this chat." if on else "Broker handed the chat back to the assistant."
         await self.repo.add_message(buyer_id, "broker", note, source="system")
+        self._emit("takeover", buyer_id=str(buyer_id), on=on, name=buyer.get("full_name"))
         return buyer
 
     async def broker_reply(self, buyer_id: str, text: str) -> dict:
@@ -159,4 +168,6 @@ class ChatService:
                 for part in chunks(text):
                     await self.services.telegram.send_message(buyer["telegram_id"], part)
             await self.agent.add_message(buyer["thread_id"], AIMessage(content=text, name="human_broker"))
-            return await self.repo.add_message(buyer_id, "broker", text)
+            row = await self.repo.add_message(buyer_id, "broker", text)
+            self._emit("message", role="broker", buyer_id=str(buyer_id), message_id=row["id"], source="text", channel="telegram" if buyer["telegram_id"] else "web", text=excerpt(text))
+            return row

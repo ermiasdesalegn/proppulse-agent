@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage
 from app import proactive_messages as msg
 from app.agent.graph import BrokerAgent
 from app.config import Settings
+from app.events import excerpt
 from app.repository import Repository
 from app.services import Services
 
@@ -28,8 +29,8 @@ def _result(job: str, dry_run: bool) -> dict:
 
 class ProactiveService:
     def __init__(self, repo: Repository, agent: BrokerAgent, services: Services, settings: Settings,
-                 now: Callable[[], datetime] | None = None):
-        self.repo, self.agent, self.services, self.settings = repo, agent, services, settings
+                 now: Callable[[], datetime] | None = None, events: Any = None):
+        self.repo, self.agent, self.services, self.settings, self.events = repo, agent, services, settings, events
         tz = ZoneInfo(settings.timezone)
         self.now = now or (lambda: datetime.now(tz))
 
@@ -42,6 +43,12 @@ class ProactiveService:
         return {"dry_run": dry_run, "jobs": jobs, **{k: sum(j[k] for j in jobs) for k in ("sent", "skipped", "failed")}}
 
     # ---------------- delivery ----------------
+
+    async def _finish(self, claim: dict, message: str, channel: str) -> None:
+        await self.repo.finish_event(claim["id"], message, channel)
+        if self.events:
+            self.events.publish("proactive", what=claim["kind"], audience=claim["audience"], channel=channel, text=excerpt(message),
+                                buyer_id=None if claim["buyer_id"] is None else str(claim["buyer_id"]))
 
     async def _deliver_to_buyer(self, buyer: dict, text: str, *, email: tuple[str, str] | None = None) -> str | None:
         """Send on every channel the buyer has. Returns the channels used, or None if nothing got through."""
@@ -85,7 +92,7 @@ class ProactiveService:
                 channel = "telegram"
             except Exception:
                 log.exception("broker notice could not be sent to Telegram; kept in the notice feed")
-        await self.repo.finish_event(event["id"], text, channel)
+        await self._finish(event, text, channel)
         return True
 
     # ---------------- A: reverse-RAG alerts ----------------
@@ -153,7 +160,7 @@ class ProactiveService:
                 out["failed"] += 1
                 continue
             for _, claim in claims:
-                await self.repo.finish_event(claim["id"], text, channel)
+                await self._finish(claim, text, channel)
             await self._remember(buyer, text, [self._slim(i) for i in items])
             out["sent"] += 1
             out["details"].append({"buyer": buyer["full_name"] or buyer["thread_id"], "channel": channel, "properties": [i["title"] for i in items]})
@@ -193,7 +200,7 @@ class ProactiveService:
                     await self.services.telegram.send_location(buyer["telegram_id"], first["lat"], first["lng"])
                 except Exception:
                     log.exception("location pin could not be sent")
-            await self.repo.finish_event(claim["id"], text, channel)
+            await self._finish(claim, text, channel)
             await self.repo.mark_reminder_sent(tour["id"])
             await self._remember(buyer, text)
             out["sent"] += 1
@@ -237,7 +244,7 @@ class ProactiveService:
                 await self.repo.release_event(claim["id"])
                 out["failed"] += 1
                 continue
-            await self.repo.finish_event(claim["id"], text, channel)
+            await self._finish(claim, text, channel)
             await self._remember(buyer, text)
             out["sent"] += 1
             out["details"].append({"buyer": buyer["full_name"] or buyer["thread_id"], "channel": channel, "days": days})

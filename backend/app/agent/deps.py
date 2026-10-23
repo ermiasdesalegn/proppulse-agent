@@ -17,6 +17,7 @@ class AgentDeps:
     services: Services
     settings: Settings
     now: Callable[[], datetime] = field(default=None)  # type: ignore[assignment]
+    events: Any = None  # EventBus for the live dashboard; optional
 
     def __post_init__(self) -> None:
         if self.now is None:
