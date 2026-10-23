@@ -63,7 +63,7 @@ export default function OverviewPage() {
             <ul className="max-h-[28rem] overflow-y-auto">
               {notices.data!.map((n) => (
                 <li key={n.id} className="flex items-start gap-3 border-t border-[#222] px-5 py-3.5 text-sm">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent/10 text-accent"><Icon name={KIND_ICON[n.kind] ?? "bell"} className="h-4 w-4" /></span>
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/5 text-zinc-400"><Icon name={KIND_ICON[n.kind] ?? "bell"} className="h-4 w-4" /></span>
                   <div className="min-w-0 flex-1">
                     <p className="break-words font-medium text-white">{n.message}</p>
                     <p className="mt-0.5 text-xs text-muted">{n.audience === "broker" ? "to you" : `to ${n.buyer_name ?? "a buyer"}`} via {n.channel} - {timeAgo(n.created_at)}</p>

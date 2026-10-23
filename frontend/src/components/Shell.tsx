@@ -77,9 +77,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   return (
                     <Link
                       key={item.href} href={item.href} aria-current={active ? "page" : undefined}
-                      className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-accent/10 text-accent" : "text-muted hover:bg-white/[0.04] hover:text-white")}
+                      className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-white/5 text-white" : "text-muted hover:bg-white/[0.04] hover:text-white")}
                     >
-                      {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-accent md:block" />}
+                      {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-white/50 md:block" />}
                       <Icon name={item.icon} />
                       {item.label}
                     </Link>

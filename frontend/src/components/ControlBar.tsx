@@ -48,7 +48,7 @@ export default function ControlBar() {
         <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Run now</span>
         {JOBS.map((job) => (
           <Button key={job.key} variant={job.key === "scraper" ? "default" : "glow"} disabled={running !== null} onClick={() => run(job)}>
-            <span className="inline-flex items-center gap-2"><Icon name={job.icon} className="h-4 w-4 text-accent" />{running === job.key ? "Running..." : job.label}</span>
+            <span className="inline-flex items-center gap-2"><Icon name={job.icon} className="h-4 w-4 text-zinc-500" />{running === job.key ? "Running..." : job.label}</span>
           </Button>
         ))}
         <ResetDemo />

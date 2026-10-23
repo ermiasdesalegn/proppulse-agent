@@ -20,12 +20,12 @@ export function Card({ title, subtitle, action, children, className }: { title?:
 
 /** The orange "View all" link in a panel's corner. */
 export function CardLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return <a href={href} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent hover:underline">{children}<Icon name="arrow" className="h-3.5 w-3.5" /></a>;
+  return <a href={href} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-zinc-300 hover:text-white hover:underline">{children}<Icon name="arrow" className="h-3.5 w-3.5" /></a>;
 }
 
 const TONES = {
   neutral: "bg-white/[0.04] text-muted border-[#2a2a2a]",
-  accent: "bg-accent/10 text-accent border-accent/30",
+  accent: "bg-white/5 text-zinc-300 border-white/10",
   good: "bg-good/10 text-good border-good/30",
   warn: "bg-warn/10 text-warn border-warn/30",
   bad: "bg-bad/10 text-bad border-bad/30",
@@ -58,13 +58,13 @@ export function Stat({ label, value, hint, icon, trend }: { label: string; value
     <div className="card flex flex-col rounded-xl border p-4 transition-colors hover:border-[#333] sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <p className="truncate text-sm text-muted" title={label}>{label}</p>
-        {icon && <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-accent/20 bg-accent/10 text-accent"><Icon name={icon} className="h-4 w-4" /></span>}
+        {icon && <span className="shrink-0 text-zinc-500"><Icon name={icon} className="h-5 w-5" /></span>}
       </div>
       <p className="tnum mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p>
       <div className="mt-2 flex items-start justify-between gap-2 text-xs">
         <span className="leading-snug text-muted">{hint ?? (trend ? "vs previous 30 days" : "")}</span>
         {trend && (
-          <span title="Compared with the previous 30 days" className={clsx("tnum shrink-0 font-semibold", pct !== null && pct < 0 ? "text-bad" : isNew || (pct !== null && pct > 0) ? "text-accent" : "text-muted")}>
+          <span title="Compared with the previous 30 days" className={clsx("tnum shrink-0 font-semibold", pct !== null && pct < 0 ? "text-bad" : isNew || (pct !== null && pct > 0) ? "text-zinc-300" : "text-muted")}>
             {isNew ? "New" : flat || pct === 0 ? "+0.0%" : pct !== null ? `${pct > 0 ? "↑ " : "↓ "}${Math.abs(pct)}%` : ""}
           </span>
         )}
@@ -118,8 +118,8 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
 
 export function Button({ variant = "default", className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "primary" | "danger" | "ghost" | "glow" }) {
   const styles = {
-    default: "border border-[#2a2a2a] bg-transparent text-white hover:border-[#444] hover:bg-white/[0.04]",
-    glow: "border border-accent/40 bg-transparent text-accent hover:bg-accent/10",
+    default: "border border-white/10 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white",
+    glow: "border border-white/10 bg-transparent text-zinc-300 hover:bg-white/5 hover:text-white",
     primary: "bg-accent font-semibold text-[#111] hover:brightness-110",
     danger: "border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20",
     ghost: "hover:bg-white/[0.05]",
