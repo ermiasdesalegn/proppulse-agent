@@ -2,8 +2,8 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 import { LiveProvider, useLive, type LiveStatus } from "@/lib/live";
 import clsx from "./clsx";
 import ControlBar from "./ControlBar";
@@ -46,6 +46,14 @@ function LiveBadge() {
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  // The clicked link lights up at once; the page follows when it is ready. useTransition keeps the sidebar responsive while the next page loads.
+  const [target, setTarget] = useState<string | null>(null);
+  const [navigating, startNavigation] = useTransition();
+  useEffect(() => { if (!navigating) setTarget(null); }, [navigating, pathname]);
+  // Ahead of the click: fetch every page's code (a production build does this on its own for visible links; this also covers the rest).
+  useEffect(() => { for (const g of GROUPS) for (const i of g.items) router.prefetch(i.href); }, [router]);
+  const current = target ?? pathname;
   const here = GROUPS.flatMap((g) => g.items).find((i) => (i.href === "/" ? pathname === "/" : pathname.startsWith(i.href)));
   useEffect(() => { document.title = here ? `${here.label} | PropPulse AI` : pathname.startsWith("/tours") ? "Pre-tour dossier | PropPulse AI" : "PropPulse AI | Command Center"; }, [here, pathname]);
 
@@ -73,10 +81,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <div key={group.label} className="flex gap-1 md:mb-4 md:flex-col">
                 <p className="hidden px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted/70 md:block">{group.label}</p>
                 {group.items.map((item) => {
-                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  const active = item.href === "/" ? current === "/" : current.startsWith(item.href);
                   return (
                     <Link
-                      key={item.href} href={item.href} aria-current={active ? "page" : undefined}
+                      key={item.href} href={item.href} prefetch aria-current={active ? "page" : undefined}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return; // let "open in a new tab" work as usual
+                        e.preventDefault();
+                        if (item.href === pathname) return;
+                        setTarget(item.href);
+                        startNavigation(() => router.push(item.href));
+                      }}
                       className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-white/5 text-white" : "text-muted hover:bg-white/[0.04] hover:text-white")}
                     >
                       {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-white/50 md:block" />}
@@ -97,7 +112,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {navigating && <div role="progressbar" aria-label="Loading the page" className="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden bg-white/5"><div className="nav-progress h-full w-1/3 bg-white/60" /></div>}
           <ControlBar />
           <motion.main key={pathname} className="mx-auto w-full max-w-[1500px] flex-1 p-4 md:p-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
             {children}

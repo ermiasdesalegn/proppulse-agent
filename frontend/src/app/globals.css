@@ -80,3 +80,7 @@ input[type="checkbox"]:hover { border-color: #666; }
 input[type="checkbox"]:checked { background: rgb(var(--accent)); border-color: rgb(var(--accent)); }
 input[type="checkbox"]:checked::after { content: ""; width: .28rem; height: .55rem; border: solid #111; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
 input[type="checkbox"]:disabled { opacity: .45; cursor: not-allowed; }
+
+@keyframes nav-progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+.nav-progress { animation: nav-progress 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .nav-progress { animation: none; width: 100%; } }
