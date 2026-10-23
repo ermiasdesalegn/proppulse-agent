@@ -131,7 +131,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
         return {
             "status": "ok",
             "gemini_model": s.gemini_model,
-            "gemini_key_configured": bool(s.gemini_api_key),
+            "gemini_key_configured": bool(s.gemini_key_list), "gemini_keys": len(s.gemini_key_list),
             "database_configured": bool(s.database_url),
             "checkpointer": getattr(app.state, "checkpointer_kind", None),
             "telegram": getattr(app.state, "telegram_mode", None),

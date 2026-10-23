@@ -11,7 +11,7 @@ DIM = 768
 @lru_cache
 def _client() -> genai.Client:
     # One long-lived client: the SDK closes its HTTP session when a client object is garbage collected.
-    return genai.Client(api_key=get_settings().gemini_api_key)
+    return genai.Client(api_key=(get_settings().gemini_key_list or [""])[0])
 
 
 def _embed(texts: list[str], task_type: str) -> list[list[float]]:

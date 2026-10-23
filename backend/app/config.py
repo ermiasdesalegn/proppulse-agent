@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     )
 
     gemini_api_key: str = ""
+    gemini_api_keys: str = ""  # more keys, comma separated: when every model on one key is out of quota, the next key is used
+
     gemini_model: str = "gemini-2.5-flash"
     gemini_embed_model: str = "gemini-embedding-001"
     gemini_rpm: int = Field(14, description="Leaky-bucket ceiling for Gemini calls per minute")
@@ -102,6 +104,12 @@ class Settings(BaseSettings):
     high_value_threshold_etb: float = 20_000_000
     similarity_threshold: float = 0.64  # tuned on seed data: negatives <= 0.606, positives >= 0.666
 
+
+    @property
+    def gemini_key_list(self) -> list[str]:
+        """Every configured key, in order of use, without repeats: GEMINI_API_KEY first, then GEMINI_API_KEYS."""
+        keys = [self.gemini_api_key, *self.gemini_api_keys.replace("\n", ",").split(",")]
+        return list(dict.fromkeys(k.strip().strip('"').strip("'") for k in keys if k.strip()))
 
     @property
     def fallback_models(self) -> list[str]:

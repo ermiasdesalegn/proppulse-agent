@@ -132,7 +132,7 @@ def make_backend(mode: str, settings: Settings, recording: Path):
     if mode == "replay":
         return ReplayBackend(store)
     live = GenAIBackend(
-        settings.gemini_api_key, settings.gemini_model, settings.gemini_embed_model,
+        (settings.gemini_key_list or [""])[0], settings.gemini_model, settings.gemini_embed_model, extra_keys=settings.gemini_key_list,
         fallback_models=settings.fallback_models, primary_timeout=settings.gemini_primary_timeout_seconds, thinking_budget=settings.gemini_thinking_budget,
     )
     return RecordingBackend(PacedBackend(live, settings.gemini_rpm, settings.gemini_embed_rpm), store)

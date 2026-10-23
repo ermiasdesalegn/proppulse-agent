@@ -88,6 +88,9 @@ npm install && npm run dev    # http://localhost:3000
 
 Or everything in containers: `cp .env.docker.example .env && docker compose up --build`.
 
+## Several Gemini keys
+Set `GEMINI_API_KEYS` in `backend/.env` to a comma-separated list (the first key is `GEMINI_API_KEY`). Each key runs the whole model chain; when every model on a key is out of quota or rate-limited, the next key takes over, the same request is retried, and the first key is tried again after six hours. Text, structured output, voice, images and embeddings all rotate, so the agent and the market sweep share it. `/health` shows how many keys are loaded. Keys are redacted from logs.
+
 ## Checks
 ```bash
 cd backend

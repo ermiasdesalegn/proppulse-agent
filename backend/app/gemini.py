@@ -94,44 +94,81 @@ class GenAIBackend:
         client: Any = None,
         clock: Callable[[], float] = time.monotonic,
         thinking_budget: int = -1,
+        extra_keys: Sequence[str] = (),
+        clients: Sequence[Any] | None = None,
     ):
-        self._client = client or genai.Client(api_key=api_key)
+        # One client per API key, in order of use. When every model on the current key is out of quota, the next key takes over.
+        self._clients: list[Any] = list(clients) if clients else [client] if client else [genai.Client(api_key=k) for k in dict.fromkeys([api_key, *extra_keys]) if k]
+        self._client = self._clients[0]
+        self._key_index, self._switched_at = 0, 0.0
         self._models = [model, *[m for m in fallback_models if m and m != model]]
         self._embed_model, self._dim = embed_model, embed_dim
         self._timeout = primary_timeout
         self._clock = clock
         self._thinking_budget = thinking_budget  # 0 turns reasoning off (about 7x faster here); negative leaves the model default
-        self._skip_until: dict[str, float] = {}
+        self._skip_until: dict[tuple[int, str], float] = {}
         self._rejects_thinking: set[str] = set()
 
-    async def _call(self, model: str, kwargs: dict[str, Any]):
+    async def _call(self, model: str, kwargs: dict[str, Any], client: Any = None):
         """One request to one model, with reasoning switched off where configured and the model allows it."""
+        client = client or self._client
         if self._thinking_budget < 0 or model in self._rejects_thinking:
-            return await self._client.aio.models.generate_content(model=model, **kwargs)
+            return await client.aio.models.generate_content(model=model, **kwargs)
         config = (kwargs.get("config") or types.GenerateContentConfig()).model_copy(
             update={"thinking_config": types.ThinkingConfig(thinking_budget=self._thinking_budget)}
         )
         try:
-            return await self._client.aio.models.generate_content(model=model, **{**kwargs, "config": config})
+            return await client.aio.models.generate_content(model=model, **{**kwargs, "config": config})
         except errors.ClientError as exc:
             if getattr(exc, "code", None) != 400:
                 raise
             # Some models refuse the setting with a generic 400 that never mentions it, so retry on any 400.
-            result = await self._client.aio.models.generate_content(model=model, **kwargs)
+            result = await client.aio.models.generate_content(model=model, **kwargs)
             self._rejects_thinking.add(model)  # only remembered once the plain request has worked
             log.warning("%s does not accept thinking_budget=%s; using its default from now on", model, self._thinking_budget)
             return result
 
+    def _key_order(self) -> list[int]:
+        """The key in use first, then the others. After six hours on a later key, the first is tried again (daily quotas reset)."""
+        count = len(self._clients)
+        if self._key_index and self._clock() - self._switched_at > 6 * 3600:
+            self._key_index = 0
+        return [(self._key_index + offset) % count for offset in range(count)]
+
+    def _switch_to(self, index: int) -> None:
+        if index != self._key_index:
+            log.warning("Gemini key %d is out of quota; now using key %d of %d", self._key_index + 1, index + 1, len(self._clients))
+            self._key_index, self._switched_at = index, self._clock()
+
     async def _generate(self, **kwargs: Any):
+        """Run on the current API key; if every model on it is out of quota, move to the next key, and so on."""
+        last: BaseException | None = None
+        for position, key in enumerate(self._key_order()):
+            try:
+                result = await self._generate_on(key, **kwargs)
+            except (errors.ClientError, errors.ServerError) as exc:
+                quota_spent = (isinstance(exc, errors.ClientError) and getattr(exc, "code", None) == 429) or (
+                    isinstance(exc, errors.ServerError) and "cooling down" in str(exc))
+                if not quota_spent or position == len(self._clients) - 1:
+                    raise
+                last = exc
+                continue
+            if position:
+                self._switch_to(key)
+            return result
+        raise last if last is not None else errors.ServerError(503, {"error": {"message": "no Gemini API key is configured", "status": "UNAVAILABLE"}})
+
+    async def _generate_on(self, key: int, **kwargs: Any):
         """Use the first model in the chain that is not cooling down; move down the chain on overload, slowness or quota."""
         last: BaseException | None = None
+        client = self._clients[key]
         for index, model in enumerate(self._models):
-            if self._skip_until.get(model, 0) > self._clock():
+            if self._skip_until.get((key, model), 0) > self._clock():
                 continue
             is_last = index == len(self._models) - 1
             try:
                 # The last model gets no extra timeout of its own; the gateway's request timeout covers it.
-                call = self._call(model, kwargs)
+                call = self._call(model, kwargs, client)
                 result = await (call if is_last else asyncio.wait_for(call, self._timeout))
                 if info := CALL_INFO.get():
                     usage = getattr(result, "usage_metadata", None)
@@ -144,7 +181,7 @@ class GenAIBackend:
                 last = exc
                 if info := CALL_INFO.get():
                     info.fallbacks.append(model)
-                self._skip_until[model] = self._clock() + _cooldown_seconds(exc)
+                self._skip_until[(key, model)] = self._clock() + _cooldown_seconds(exc)
                 log.warning("%s unavailable (%s); trying the next model", model, type(exc).__name__)
         if last is not None:
             raise last
@@ -179,11 +216,22 @@ class GenAIBackend:
         return res.parsed
 
     async def embed(self, texts: list[str], task_type: str) -> list[list[float]]:
-        res = await self._client.aio.models.embed_content(
-            model=self._embed_model,
-            contents=texts,
-            config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=self._dim),
-        )
+        res = None
+        for position, key in enumerate(self._key_order()):
+            try:
+                res = await self._clients[key].aio.models.embed_content(
+                    model=self._embed_model,
+                    contents=texts,
+                    config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=self._dim),
+                )
+            except errors.ClientError as exc:
+                if getattr(exc, "code", None) != 429 or position == len(self._clients) - 1:
+                    raise
+                continue  # this key's embedding quota is spent: try the next
+            if position:
+                self._switch_to(key)
+            break
+        assert res is not None
         if info := CALL_INFO.get():
             info.model = self._embed_model
         return [e.values for e in res.embeddings]
@@ -373,9 +421,9 @@ def get_gateway() -> GeminiGateway:
         backend = ReplayBackend(RecordingStore(s.gemini_recording_path))
     else:
         backend = GenAIBackend(
-            s.gemini_api_key, s.gemini_model, s.gemini_embed_model,
+            s.gemini_api_key or (s.gemini_key_list[0] if s.gemini_key_list else ""), s.gemini_model, s.gemini_embed_model,
             fallback_models=s.fallback_models, primary_timeout=s.gemini_primary_timeout_seconds,
-            thinking_budget=s.gemini_thinking_budget,
+            thinking_budget=s.gemini_thinking_budget, extra_keys=s.gemini_key_list,
         )
         if s.gemini_mode == "record":
             from app.gemini_replay import RecordingBackend, RecordingStore

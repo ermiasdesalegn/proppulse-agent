@@ -29,10 +29,11 @@ PATTERNS = [
     re.compile(r"(?i)(postgres(?:ql)?://[^:/\s]+:)[^@\s]+(@)"),   # the password inside a database URL
     re.compile(r"\b(?:sk|pk)\.[A-Za-z0-9._-]{20,}"),              # Mapbox tokens
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),                      # Google API keys
+    re.compile(r"\bAQ\.[0-9A-Za-z_-]{30,}"),                       # Google API keys in the newer format
     re.compile(r"\bre_[A-Za-z0-9_]{20,}"),                        # Resend keys
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
 ]
-SECRET_FIELDS = ("gemini_api_key", "supabase_service_role_key", "telegram_bot_token", "telegram_webhook_secret", "resend_api_key", "admin_api_key",
+SECRET_FIELDS = ("gemini_api_key", "gemini_api_keys", "supabase_service_role_key", "telegram_bot_token", "telegram_webhook_secret", "resend_api_key", "admin_api_key",
                  "cron_secret", "ingest_webhook_secret", "mapbox_token", "database_url", "google_service_account_json")
 REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 
@@ -52,7 +53,11 @@ def redact(text: str, secrets: Sequence[str] = ()) -> str:
 
 
 def secrets_from(settings: Any) -> list[str]:
-    return [str(getattr(settings, f, "") or "") for f in SECRET_FIELDS if getattr(settings, f, "")]
+    found: list[str] = []
+    for f in SECRET_FIELDS:
+        value = str(getattr(settings, f, "") or "")
+        found += [part.strip() for part in value.split(",")] if f == "gemini_api_keys" else [value]  # a list of keys: each key is a secret on its own
+    return [v for v in found if v]
 
 
 class RedactingFilter(logging.Filter):

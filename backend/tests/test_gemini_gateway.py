@@ -353,3 +353,120 @@ async def test_pending_counts_waiting_requests_and_close_is_clean():
     for t in tasks:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
+
+
+# ---------------- several API keys: the next key takes over when one is out of quota ----------------
+
+def keyed_backend(behaviours, **kw):
+    """One fake client per key; `behaviours` maps the key's position to an async function of the model name."""
+    from app.gemini import GenAIBackend
+
+    all_models, clients = [], []
+    for position in range(len(behaviours)):
+        models = FakeModels(behaviours[position])
+        all_models.append(models)
+        clients.append(type("C", (), {"aio": type("A", (), {"models": models})()})())
+    return GenAIBackend("unused", "primary", "embed", clients=clients, **kw), all_models
+
+
+async def test_when_every_model_on_a_key_is_out_of_quota_the_next_key_is_used_and_stays_in_use():
+    async def spent(model):
+        raise daily_quota_error()
+
+    async def fine(model):
+        return Reply(f"key two answered with {model}")
+
+    backend, (first, second) = keyed_backend([spent, fine], fallback_models=["lite"])
+    assert await backend.generate_text("a", None) == "key two answered with primary"
+    assert first.used == ["primary", "lite"], "the whole chain on key one was tried first"
+    assert await backend.generate_text("b", None) == "key two answered with primary"
+    assert first.used == ["primary", "lite"], "key one is not asked again while it is spent"
+    assert second.used == ["primary", "primary"]
+
+
+async def test_a_rate_limit_also_moves_to_the_next_key_and_the_whole_pool_can_run_dry():
+    async def limited(model):
+        raise rate_error()
+
+    async def fine(model):
+        return Reply("third key")
+
+    backend, models = keyed_backend([limited, limited, fine])
+    assert await backend.generate_text("a", None) == "third key" and [len(m.used) for m in models] == [1, 1, 1]
+
+    dry, _ = keyed_backend([limited, limited])
+    with pytest.raises(errors.ClientError):
+        await dry.generate_text("a", None)
+
+
+async def test_a_bad_request_does_not_burn_through_the_keys():
+    async def bad(model):
+        raise bad_request()
+
+    async def fine(model):
+        return Reply("never reached")
+
+    backend, (first, second) = keyed_backend([bad, fine])
+    with pytest.raises(errors.ClientError):
+        await backend.generate_text("a", None)
+    assert second.used == [], "a request that is wrong would be wrong on every key"
+
+
+async def test_the_first_key_is_tried_again_after_six_hours():
+    now = [0.0]
+    calls = {"first_ok": False}
+
+    async def first_key(model):
+        if not calls["first_ok"]:
+            raise daily_quota_error()
+        return Reply("first key again")
+
+    async def second_key(model):
+        return Reply("second key")
+
+    backend, _ = keyed_backend([first_key, second_key], clock=lambda: now[0])
+    assert await backend.generate_text("a", None) == "second key"
+    calls["first_ok"] = True
+    now[0] = 6 * 3600 + 10
+    assert await backend.generate_text("b", None) == "first key again"
+
+
+async def test_embeddings_rotate_keys_too():
+    from app.gemini import GenAIBackend
+
+    class Embed:
+        def __init__(self, fail):
+            self.fail, self.calls = fail, 0
+
+        @property
+        def aio(self):
+            return self
+
+        @property
+        def models(self):
+            return self
+
+        async def embed_content(self, **kw):
+            self.calls += 1
+            if self.fail:
+                raise rate_error()
+            return type("R", (), {"embeddings": [type("E", (), {"values": [0.5] * 3})()]})()
+
+    one, two = Embed(True), Embed(False)
+    clients = [type("C", (), {"aio": one})(), type("C", (), {"aio": two})()]
+    backend = GenAIBackend("k", "primary", "embed", clients=clients, embed_dim=3)
+    assert await backend.embed(["x"], "RETRIEVAL_QUERY") == [[0.5] * 3] and (one.calls, two.calls) == (1, 1)
+    await backend.embed(["y"], "RETRIEVAL_QUERY")
+    assert (one.calls, two.calls) == (1, 2), "the second key stays in use"
+
+
+def test_the_key_list_is_read_from_the_environment_and_every_key_is_redacted():
+    from app.config import Settings
+    from app.observability import redact, secrets_from
+
+    s = Settings(gemini_api_key="AQ.first-key-0000000000000000000000000000000", gemini_api_keys="AQ.second-key-000000000000000000000000000000, \"AQ.third-key-0000000000000000000000000000000\",AQ.first-key-0000000000000000000000000000000")
+    assert s.gemini_key_list == ["AQ.first-key-0000000000000000000000000000000", "AQ.second-key-000000000000000000000000000000", "AQ.third-key-0000000000000000000000000000000"]
+    text = redact("keys: " + " ".join(s.gemini_key_list), secrets_from(s))
+    assert "AQ." not in text and text.count("[redacted]") == 3
+    assert redact("a stray AQ.Ab8RN6JWddG9GfzHt186BsDKyvOQ8naigqWLQm9gOb6cQmCfAA in a log") == "a stray [redacted] in a log", "the newer key format is recognised even when it is not configured"
+    assert Settings(gemini_api_key="", gemini_api_keys="").gemini_key_list == []
