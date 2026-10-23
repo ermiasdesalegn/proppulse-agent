@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "@/components/clsx";
-import { Button, Card, ErrorNote, Pill } from "@/components/ui";
+import { PageHeader, Button, Card, ErrorNote, Pill } from "@/components/ui";
 import { api, errorMessage, post } from "@/lib/api";
 import { fmtEtb, fmtTime } from "@/lib/format";
 import type { ChatMessage } from "@/lib/types";
@@ -116,14 +116,8 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Chat Simulator</h1>
-          <p className="text-sm text-muted">Talk to the agent as a buyer, without Telegram. Open Agent Brain in another tab to watch it think.</p>
-        </div>
-        <Button onClick={reset}>New conversation</Button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Try it" title="Chat Simulator" description={<>Talk to the agent as a buyer, without Telegram. Open Agent Brain in another tab to watch it think.</>} actions={<><Button onClick={reset}>New conversation</Button></>} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
         <Card className="flex h-[70vh] min-h-[28rem] flex-col">

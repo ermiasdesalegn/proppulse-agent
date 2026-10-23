@@ -7,16 +7,23 @@ import { LiveProvider, useLive, type LiveStatus } from "@/lib/live";
 import clsx from "./clsx";
 import ControlBar from "./ControlBar";
 import { Icon, Logo, type IconName } from "./icons";
+import { Avatar } from "./ui";
 
-const NAV: { href: string; label: string; icon: IconName }[] = [
-  { href: "/", icon: "overview", label: "Overview" },
-  { href: "/crm", icon: "crm", label: "CRM & Takeover" },
-  { href: "/board", icon: "board", label: "Deal Board" },
-  { href: "/brain", icon: "brain", label: "Agent Brain" },
-  { href: "/map", icon: "map", label: "Map & Tours" },
-  { href: "/analytics", icon: "analytics", label: "Analytics" },
-  { href: "/studio", icon: "studio", label: "Studio" },
-  { href: "/chat", icon: "chat", label: "Chat Simulator" },
+const GROUPS: { label: string; items: { href: string; label: string; icon: IconName }[] }[] = [
+  { label: "Workspace", items: [
+    { href: "/", icon: "overview", label: "Overview" },
+    { href: "/crm", icon: "crm", label: "CRM & Takeover" },
+    { href: "/board", icon: "board", label: "Deal Board" },
+    { href: "/map", icon: "map", label: "Map & Tours" },
+  ] },
+  { label: "Intelligence", items: [
+    { href: "/brain", icon: "brain", label: "Agent Brain" },
+    { href: "/analytics", icon: "analytics", label: "Analytics" },
+  ] },
+  { label: "Tools", items: [
+    { href: "/studio", icon: "studio", label: "Studio" },
+    { href: "/chat", icon: "chat", label: "Chat Simulator" },
+  ] },
 ];
 
 const STATUS: Record<LiveStatus, { dot: string; text: string }> = {
@@ -57,30 +64,39 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="md:mt-4"><LiveBadge /></div>
           </div>
-          <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:overflow-visible md:px-3 md:pb-0">
-            {NAV.map((item) => {
-              const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-              return (
-                <Link
-                  key={item.href} href={item.href} aria-current={active ? "page" : undefined}
-                  className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-white/[0.06] text-white" : "text-muted hover:bg-[#12122a] hover:text-white")}
-                >
-                  {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-accent md:block" />}
-                  <span className={active ? "text-accent" : ""}><Icon name={item.icon} /></span>
-                  {item.label}
-                </Link>
-              );
-            })}
+          <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0 md:overflow-visible md:px-3 md:pb-0">
+            {GROUPS.map((group) => (
+              <div key={group.label} className="flex gap-1 md:mb-4 md:flex-col">
+                <p className="hidden px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted/70 md:block">{group.label}</p>
+                {group.items.map((item) => {
+                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  return (
+                    <Link
+                      key={item.href} href={item.href} aria-current={active ? "page" : undefined}
+                      className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-white/[0.06] text-white" : "text-muted hover:bg-[#12122a] hover:text-white")}
+                    >
+                      {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-accent md:block" />}
+                      <span className={active ? "text-accent" : ""}><Icon name={item.icon} /></span>
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
-          <div className="hidden px-3 py-4 md:absolute md:bottom-0 md:block md:w-56">
-            <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-[#12122a] hover:text-white"><Icon name="signout" />Sign out</button>
+          <div className="hidden border-t border-[#26264a] p-3 md:absolute md:bottom-0 md:block md:w-56">
+            <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+              <Avatar name="Broker" className="h-8 w-8" />
+              <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">Broker</p><p className="truncate text-xs text-muted">Addis Ababa</p></div>
+              <button onClick={signOut} aria-label="Sign out" title="Sign out" className="rounded-md p-1.5 text-muted transition hover:bg-[#12122a] hover:text-white"><Icon name="signout" /></button>
+            </div>
           </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <ControlBar />
           <AnimatePresence mode="wait" initial={false}>
-            <motion.main key={pathname} className="flex-1 p-4 md:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
+            <motion.main key={pathname} className="mx-auto w-full max-w-[1500px] flex-1 p-4 md:p-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
               {children}
             </motion.main>
           </AnimatePresence>

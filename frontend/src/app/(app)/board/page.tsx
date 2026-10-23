@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import clsx from "@/components/clsx";
-import { Button, Card, DEVELOPER_COLOR, ErrorNote, Pill, ScoreBar } from "@/components/ui";
+import { PageHeader, Button, Card, DEVELOPER_COLOR, DEVELOPER_VAR, ErrorNote, Pill, ScoreBar } from "@/components/ui";
 import { errorMessage, patch } from "@/lib/api";
 import { COLUMNS, applyMove, canMove, dealsByStatus, expectedCommission, needsContractDetails, qualifiedLabel, type ColumnId } from "@/lib/board";
 import { displayName, fmtDate, fmtEtb } from "@/lib/format";
@@ -12,6 +12,8 @@ import type { BoardData, Deal, LedgerStatus } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
 interface Extra { contract_value_etb?: number; next_buyer_milestone_date?: string }
+
+const STAGE_COLORS = ["#7682f4", "#a078f5", "#fbbf24", "#34d399", "#60a5fa", "#f87171"];
 
 export default function BoardPage() {
   const { dataVersion } = useLive();
@@ -48,17 +50,14 @@ export default function BoardPage() {
   const findDeal = (id: string) => data?.deals.find((d) => d.id === id);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">Deal Board</h1>
-        <p className="text-sm text-muted">One card per developer opportunity. Drag a card to move it, or use the menu on the card. Moving the winner forward does not close the others; drag those to Lost yourself.</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Pipeline" title="Deal Board" description={<>One card per developer opportunity. Drag a card to move it, or use the menu on the card. Moving the winner forward does not close the others; drag those to Lost yourself.</>} />
       {(board.error || error) && <ErrorNote>{error ?? board.error}</ErrorNote>}
 
       {/* relative: keeps the hidden (sr-only) labels inside this scroller instead of widening the whole page */}
       <div className="relative -mx-4 overflow-x-auto px-4 pb-4 md:-mx-6 md:px-6">
         <div className="flex min-w-max gap-3">
-          {COLUMNS.map((col) => {
+          {COLUMNS.map((col, colIndex) => {
             const deals = col.id === "QUALIFIED" ? [] : grouped[col.id as LedgerStatus];
             const count = col.id === "QUALIFIED" ? data?.qualified.length ?? 0 : deals.length;
             return (
@@ -72,11 +71,11 @@ export default function BoardPage() {
                   setDragging(null);
                   if (deal && col.accepts) requestMove(deal, col.id as LedgerStatus);
                 }}
-                className={clsx("flex w-64 shrink-0 flex-col rounded-xl border bg-panel", over === col.id ? "border-accent ring-2 ring-accent/30" : "border-line")}
+                className={clsx("card flex w-72 shrink-0 flex-col rounded-2xl border", over === col.id ? "border-accent ring-2 ring-accent/30" : "border-line")}
               >
-                <header className="border-b border-line px-3 py-2.5">
+                <header className="border-b border-line px-4 py-3" style={{ boxShadow: `inset 0 3px 0 ${STAGE_COLORS[colIndex % STAGE_COLORS.length]}` }}>
                   <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold">{col.title}</h2>
+                    <h2 className="flex items-center gap-2 text-sm font-semibold"><span className="h-2 w-2 rounded-full" style={{ background: STAGE_COLORS[colIndex % STAGE_COLORS.length] }} />{col.title}</h2>
                     <Pill>{count}</Pill>
                   </div>
                   <p className="text-xs text-muted">{col.hint}</p>
@@ -85,7 +84,7 @@ export default function BoardPage() {
                 <div className="min-h-[6rem] flex-1 space-y-2 p-2">
                   {col.id === "QUALIFIED"
                     ? (data?.qualified ?? []).map((b) => (
-                        <article key={b.id} className="rounded-lg border border-line bg-raised p-3 text-sm">
+                        <article key={b.id} className="rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#3a3a62]">
                           <div className="flex items-center justify-between gap-2">
                             <Link href="/crm" className="truncate font-medium hover:text-accent">{displayName(b)}</Link>
                             {b.human_takeover && <Pill tone="warn">You</Pill>}
@@ -101,7 +100,8 @@ export default function BoardPage() {
                           key={d.id} draggable
                           onDragStart={(e) => { e.dataTransfer.setData("text/plain", d.id); e.dataTransfer.effectAllowed = "move"; setDragging(d.id); }}
                           onDragEnd={() => { setDragging(null); setOver(null); }}
-                          className={clsx("cursor-grab rounded-lg border border-line bg-raised p-3 text-sm active:cursor-grabbing", dragging === d.id && "opacity-40")}
+                          style={{ borderLeft: `3px solid ${DEVELOPER_VAR[d.developer_slug] ? `rgb(${DEVELOPER_VAR[d.developer_slug]})` : "transparent"}` }}
+                          className={clsx("cursor-grab rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#3a3a62] active:cursor-grabbing", dragging === d.id && "opacity-40")}
                         >
                           <p className="font-medium">{d.buyer_name ?? "Buyer"}</p>
                           <p className={clsx("text-xs font-medium", DEVELOPER_COLOR[d.developer_slug])}>{d.developer_name}</p>

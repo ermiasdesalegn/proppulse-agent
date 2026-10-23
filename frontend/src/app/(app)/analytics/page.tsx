@@ -3,7 +3,7 @@
 import { useState } from "react";
 import clsx from "@/components/clsx";
 import { Columns, HBars } from "@/components/charts";
-import { Card, Empty, ErrorNote, Pill, Stat } from "@/components/ui";
+import { PageHeader, Card, Empty, ErrorNote, Pill, Stat } from "@/components/ui";
 import { STAGE_LABEL, fallbackRate, messageSeries, scoreBandLabel, scoreBands } from "@/lib/analytics";
 import { fmtDuration, fmtEtb, fmtPct } from "@/lib/format";
 import type { Analytics } from "@/lib/types";
@@ -17,19 +17,13 @@ export default function AnalyticsPage() {
   const a = data.data;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Analytics</h1>
-          <p className="text-sm text-muted">How the pipeline, the conversations and the AI are doing. Everything here is counted from the database.</p>
-        </div>
-        <div role="group" aria-label="Time window" className="flex gap-1">
+    <div className="space-y-6">
+      <PageHeader eyebrow="Insight" title="Analytics" description={<>How the pipeline, the conversations and the AI are doing. Everything here is counted from the database.</>} actions={<><div role="group" aria-label="Time window" className="inline-flex rounded-lg border border-line bg-raised p-0.5">
           {WINDOWS.map((w) => (
             <button key={w} onClick={() => setDays(w)} aria-pressed={days === w}
-              className={clsx("rounded-full border px-3 py-1 text-xs font-medium", days === w ? "border-accent bg-accent/10 text-accent" : "border-line hover:bg-raised")}>Last {w} days</button>
+              className={clsx("rounded-md px-3 py-1 text-xs font-medium transition-colors", days === w ? "bg-accent text-[#0a0a1f]" : "text-muted hover:text-white")}>Last {w} days</button>
           ))}
-        </div>
-      </div>
+        </div></>} />
       {data.error && <ErrorNote>{data.error}</ErrorNote>}
       {data.loading && !a ? <Empty>Counting...</Empty> : a && <Body a={a} />}
     </div>

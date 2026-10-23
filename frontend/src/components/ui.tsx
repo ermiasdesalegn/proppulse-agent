@@ -40,8 +40,44 @@ export function Stat({ label, value, hint, icon }: { label: string; value: React
   );
 }
 
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={clsx("skeleton", className)} aria-hidden="true" />;
+}
+
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-4 py-8 text-center text-sm text-muted">{children}</p>;
+  if (children === "Loading...") {
+    return (
+      <div className="space-y-2.5 px-4 py-5" role="status" aria-label="Loading">
+        <Skeleton className="h-4 w-2/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" />
+      </div>
+    );
+  }
+  return <p className="px-4 py-10 text-center text-sm text-muted">{children}</p>;
+}
+
+/** The same top of every page: the section it belongs to, the title, one sentence of help, and the page's own actions on the right. */
+export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: React.ReactNode; actions?: React.ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#26264a] pb-5">
+      <div className="min-w-0">
+        {eyebrow && <p className="text-xs font-semibold uppercase tracking-widest text-accent">{eyebrow}</p>}
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h1>
+        {description && <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted">{description}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </header>
+  );
+}
+
+/** Initials on a tinted disc, so a list of buyers is scannable by shape and colour as well as by name. */
+export function Avatar({ name, className }: { name: string; className?: string }) {
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?";
+  const hue = [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 0);
+  return (
+    <span aria-hidden="true" className={clsx("grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white", className)} style={{ background: `hsl(${hue} 45% 38%)` }}>
+      {initials}
+    </span>
+  );
 }
 
 export function ErrorNote({ children }: { children: React.ReactNode }) {

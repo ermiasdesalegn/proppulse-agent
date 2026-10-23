@@ -69,7 +69,7 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
     mapboxgl.accessToken = token;
     const pills = markers.current; // the same Map for the life of the component; copied so the cleanup below does not read a changed ref
     const stops = stopMarkers;
-    const map = new mapboxgl.Map({ container: container.current, style: styleFor(prefersDark()), center: CENTER, zoom: 11.2, attributionControl: true });
+    const map = new mapboxgl.Map({ container: container.current, style: styleFor(true), center: CENTER, zoom: 11.2, attributionControl: true });
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
 
@@ -204,5 +204,5 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
     if (map.loaded()) fit(); else map.once("load", fit);
   }, [route, properties]);
 
-  return <div ref={container} className="h-[34rem] w-full" role="application" aria-label="Map of available units in Addis Ababa. Price pins are buttons; the list beside the map offers the same units." />;
+  return <div ref={container} className="h-[calc(100vh-19rem)] min-h-[28rem] w-full" role="application" aria-label="Map of available units in Addis Ababa. Price pins are buttons; the list beside the map offers the same units." />;
 }

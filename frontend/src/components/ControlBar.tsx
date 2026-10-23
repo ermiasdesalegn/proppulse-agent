@@ -4,14 +4,15 @@ import { useState } from "react";
 import { errorMessage, post } from "@/lib/api";
 import type { JobSummary, Stats } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
+import { Icon, type IconName } from "./icons";
 import { Button, ErrorNote } from "./ui";
 
 type JobKey = "scraper" | "alerts" | "reminders";
 
-const JOBS: { key: JobKey; label: string; path: string }[] = [
-  { key: "scraper", label: "Run Market Scraper", path: "cron/scrape-market" },
-  { key: "alerts", label: "Trigger Reverse-RAG Price-Drop Alerts", path: "cron/reverse-rag-alerts" },
-  { key: "reminders", label: "Send 24h Tour & Milestone Reminders", path: "cron/reminders" },
+const JOBS: { key: JobKey; label: string; path: string; icon: IconName }[] = [
+  { key: "scraper", label: "Run Market Scraper", path: "cron/scrape-market", icon: "refresh" },
+  { key: "alerts", label: "Trigger Reverse-RAG Price-Drop Alerts", path: "cron/reverse-rag-alerts", icon: "bell" },
+  { key: "reminders", label: "Send 24h Tour & Milestone Reminders", path: "cron/reminders", icon: "clock" },
 ];
 
 const JOB_TITLES: Record<string, string> = {
@@ -42,12 +43,12 @@ export default function ControlBar() {
   }
 
   return (
-    <div className="sticky top-0 z-20 border-b border-[#26264a] bg-[#0c0c20]">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
+    <div className="z-20 border-b border-[#26264a] bg-[#0c0c20] md:sticky md:top-0">
+      <div className="flex items-center gap-2 overflow-x-auto px-4 py-2.5 md:flex-wrap md:overflow-visible md:px-8 [&>*]:shrink-0 [&>button]:whitespace-nowrap">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Run now</span>
         {JOBS.map((job) => (
           <Button key={job.key} variant={job.key === "scraper" ? "default" : "glow"} disabled={running !== null} onClick={() => run(job)}>
-            {running === job.key ? "Running..." : job.label}
+            <span className="inline-flex items-center gap-2"><Icon name={job.icon} className="h-4 w-4 text-accent" />{running === job.key ? "Running..." : job.label}</span>
           </Button>
         ))}
         <ResetDemo />

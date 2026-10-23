@@ -4,7 +4,7 @@ import { useState } from "react";
 import AdPanel from "@/components/AdPanel";
 import IngestPanel from "@/components/IngestPanel";
 import ScrapeHealth from "@/components/ScrapeHealth";
-import { Button, Card, Empty, ErrorNote, Pill } from "@/components/ui";
+import { PageHeader, Button, Card, Empty, ErrorNote, Pill } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { fmtEtb, timeAgo } from "@/lib/format";
 import type { IngestRun, Property } from "@/lib/types";
@@ -42,10 +42,7 @@ export default function StudioPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Studio</h1>
-        <p className="text-sm text-muted">Bring in developer listings, advertise units, and simulate what developers do to watch the agent react.</p>
-      </div>
+      <PageHeader eyebrow="Workbench" title="Studio" description={<>Bring in developer listings, advertise units, and simulate what developers do to watch the agent react.</>} />
 
       <IngestPanel onChanged={() => { void properties.reload(); void runs.reload(); }} />
       <ScrapeHealth />

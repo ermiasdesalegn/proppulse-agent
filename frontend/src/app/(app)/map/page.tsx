@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import clsx from "@/components/clsx";
-import { Card, DEVELOPER_COLOR, DEVELOPER_VAR, Empty, ErrorNote, Pill } from "@/components/ui";
+import { PageHeader, Card, DEVELOPER_COLOR, DEVELOPER_VAR, Empty, ErrorNote, Pill } from "@/components/ui";
 import { makeProjection, spreadPins } from "@/lib/geo";
 import { fmtDateTime, fmtEtb, kmFromMeters } from "@/lib/format";
 import { decodePolyline, type LatLng } from "@/lib/polyline";
@@ -73,11 +73,8 @@ export default function MapPage() {
   const routeXY = route.map(([lat, lng]) => projection.project(lat, lng));
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">Map & Tours</h1>
-        <p className="text-sm text-muted">Inventory across Addis Ababa, coloured by developer. Pick a tour to see its route, the order of the stops, the distance and the driving time. {liveMap ? "Nearby units gather into a numbered cluster; zoom in or click one to open it." : HAS_LIVE_MAP ? "Showing the simple map." : "This map is drawn locally. Add a public Mapbox token to get live tiles."}</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Inventory" title="Map & Tours" description={<>Inventory across Addis Ababa, coloured by developer. Pick a tour to see its route, the order of the stops, the distance and the driving time. {liveMap ? "Nearby units gather into a numbered cluster; zoom in or click one to open it." : HAS_LIVE_MAP ? "Showing the simple map." : "This map is drawn locally. Add a public Mapbox token to get live tiles."}</>} />
       {(properties.error || tours.error) && <ErrorNote>{properties.error ?? tours.error}</ErrorNote>}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_20rem]">

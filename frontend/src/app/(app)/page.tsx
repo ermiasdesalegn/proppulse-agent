@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 import { ActivityList, useBuyerNames } from "@/components/Activity";
-import { Card, Empty, ErrorNote, Pill, Stat } from "@/components/ui";
+import Link from "next/link";
+import { Card, Empty, ErrorNote, PageHeader, Pill, Stat } from "@/components/ui";
 import { fmtEtb, timeAgo } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import type { ProactiveEvent, Stats } from "@/lib/types";
@@ -29,14 +30,11 @@ export default function OverviewPage() {
   const s = stats.data;
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#26264a] pb-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">Overview</h1>
-          <p className="mt-1 text-sm text-muted">
-            {s ? <>{s.buyers} buyers and <span className="tnum text-white">{fmtEtb(Number(s.pipeline_commission_etb))}</span> in the commission pipeline.</> : "Your buyers, deals and the agent at a glance."}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Overview" title="Good to see you"
+        description={s ? <>{s.buyers} buyers and <span className="tnum text-white">{fmtEtb(Number(s.pipeline_commission_etb))}</span> in the commission pipeline, {s.upcoming_tours} upcoming {s.upcoming_tours === 1 ? "tour" : "tours"}.</> : "Your buyers, deals and the agent at a glance."}
+        actions={<><Link href="/chat" className="rounded-lg border border-[#2e2e52] px-3.5 py-1.5 text-sm font-medium hover:border-[#4a4a74]">Open chat simulator</Link><Link href="/board" className="rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-[#0a0a1f] hover:brightness-110">View deal board</Link></>}
+      />
 
       {stats.error && <ErrorNote>{stats.error}</ErrorNote>}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6">

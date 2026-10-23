@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useBuyerNames } from "@/components/Activity";
 import clsx from "@/components/clsx";
-import { Card, Empty, Pill } from "@/components/ui";
+import { PageHeader, Card, Empty, Pill } from "@/components/ui";
 import { GRAPH_NODES, buildTimeline, chip, describeNode, foldTurns, nodeTimings, turnModelSummary, type TimelineRow, type Turn } from "@/lib/events";
 import { fmtDuration, fmtEtb, fmtTime } from "@/lib/format";
 import { useLive } from "@/lib/live";
@@ -111,7 +111,7 @@ function Detail({ events, row }: { events: NodeEvent[]; row: TimelineRow[] }) {
   const calls = row.flatMap((r) => r.calls);
   const tools = row.flatMap((r) => r.tools);
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <ul className="space-y-3">
         {events.map((e) => (
           <li key={e.id} className="rounded-lg border border-line bg-raised p-3 text-sm">
@@ -204,13 +204,7 @@ export default function BrainPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Agent Brain</h1>
-          <p className="text-sm text-muted">Every step the agent takes while a buyer chats, live: which model answered, how long each step took, and what the tools were asked.</p>
-        </div>
-        <Pill tone={status === "live" ? "good" : "warn"}>{status === "live" ? "Streaming" : status === "connecting" ? "Connecting" : "Reconnecting"}</Pill>
-      </div>
+      <PageHeader eyebrow="Insight" title="Agent Brain" description={<>Every step the agent takes while a buyer chats, live: which model answered, how long each step took, and what the tools were asked.</>} actions={<><Pill tone={status === "live" ? "good" : "warn"}>{status === "live" ? "Streaming" : status === "connecting" ? "Connecting" : "Reconnecting"}</Pill></>} />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
         <div className="space-y-4">

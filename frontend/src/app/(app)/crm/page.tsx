@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "@/components/clsx";
 import ScorePanel from "@/components/ScorePanel";
-import { Button, Card, Empty, ErrorNote, Pill, ScoreBar } from "@/components/ui";
+import { Avatar, PageHeader, Button, Card, Empty, ErrorNote, Pill, ScoreBar } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { displayName, fmtDateTime, fmtEtb, stageLabel, timeAgo } from "@/lib/format";
 import { useLive } from "@/lib/live";
@@ -33,11 +33,8 @@ export default function CrmPage() {
   const selected = (buyers.data ?? []).find((b) => b.id === selectedId) ?? list[0] ?? null;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">CRM & Takeover</h1>
-        <p className="text-sm text-muted">Every buyer the agent has talked to. Take over a chat to reply yourself.</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Buyers" title="CRM & Takeover" description={<>Every buyer the agent has talked to. Take over a chat to reply yourself.</>} />
       {buyers.error && <ErrorNote>{buyers.error}</ErrorNote>}
 
       <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
@@ -52,16 +49,21 @@ export default function CrmPage() {
               {list.map((b) => (
                 <li key={b.id}>
                   <button onClick={() => setSelectedId(b.id)} aria-pressed={selected?.id === b.id}
-                    className={clsx("w-full border-b border-line/60 px-4 py-3 text-left hover:bg-raised", selected?.id === b.id && "bg-accent/10")}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{displayName(b)}</span>
-                      {b.human_takeover && <Pill tone="warn">You</Pill>}
+                    className={clsx("w-full border-b border-line/60 px-4 py-3 text-left hover:bg-raised", selected?.id === b.id && "bg-accent/10 shadow-[inset_3px_0_0_rgb(var(--accent))]")}>
+                    <div className="flex items-start gap-3">
+                      <Avatar name={displayName(b)} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium">{displayName(b)}</span>
+                          {b.human_takeover && <Pill tone="warn">You</Pill>}
+                        </div>
+                        <p className="text-xs text-muted">Updated {timeAgo(b.updated_at)}</p>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <Pill tone={STAGE_TONE[b.deal_stage] ?? "neutral"}>{stageLabel(b.deal_stage)}</Pill>
+                          <ScoreBar score={b.lead_score} />
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <Pill tone={STAGE_TONE[b.deal_stage] ?? "neutral"}>{stageLabel(b.deal_stage)}</Pill>
-                      <ScoreBar score={b.lead_score} />
-                    </div>
-                    <p className="mt-1 text-xs text-muted">Updated {timeAgo(b.updated_at)}</p>
                   </button>
                 </li>
               ))}
