@@ -29,14 +29,14 @@ export default function OverviewPage() {
   const s = stats.data;
   return (
     <div className="space-y-6">
-      <section className="card relative overflow-hidden rounded-2xl border border-line bg-panel/90 px-6 py-6">
-        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full btn-gradient opacity-20 blur-3xl" />
-        <p className="text-xs font-semibold uppercase tracking-widest text-accent">Overview</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
-          {s ? <>{s.buyers} buyers, <span className="gradient-text">{fmtEtb(Number(s.pipeline_commission_etb))}</span> in the pipeline</> : "Your buyers, deals and the agent"}
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted">The agent is answering buyers on Telegram and the web in English and Amharic. Everything it does appears below as it happens.</p>
-      </section>
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#222] pb-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Overview</h1>
+          <p className="mt-1 text-sm text-muted">
+            {s ? <>{s.buyers} buyers and <span className="tnum text-white">{fmtEtb(Number(s.pipeline_commission_etb))}</span> in the commission pipeline.</> : "Your buyers, deals and the agent at a glance."}
+          </p>
+        </div>
+      </div>
 
       {stats.error && <ErrorNote>{stats.error}</ErrorNote>}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6">

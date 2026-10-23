@@ -46,12 +46,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <LiveProvider>
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-white/[0.07] bg-white/[0.02] backdrop-blur-xl md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-white/[0.07]">
+        <aside className="shrink-0 border-b border-[#222] bg-[#0a0a0a] md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-[#222]">
           <div className="flex items-center justify-between px-4 py-3 md:block md:py-5">
             <div className="flex items-center gap-3">
               <Logo />
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest gradient-text">PropPulse AI</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
                 <p className="text-sm font-semibold leading-tight">Command Center</p>
               </div>
             </div>
@@ -63,28 +63,24 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               return (
                 <Link
                   key={item.href} href={item.href} aria-current={active ? "page" : undefined}
-                  className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200", active ? "text-ink" : "text-muted hover:text-ink")}
+                  className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors", active ? "bg-[#161616] text-accent" : "text-muted hover:bg-[#111] hover:text-white")}
                 >
-                  {active && (
-                    <motion.span layoutId="nav-pill" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                      className="absolute inset-0 rounded-xl border border-white/10 bg-gradient-to-r from-accent/20 to-accent2/10 shadow-[0_0_24px_-8px_rgb(var(--accent)/0.6)]" />
-                  )}
-                  {!active && <span className="absolute inset-0 rounded-xl bg-white/[0.04] opacity-0 transition-opacity duration-200 group-hover:opacity-100" />}
-                  <span className={clsx("relative transition-transform duration-200 group-hover:translate-x-0.5", active && "text-accent")}><Icon name={item.icon} /></span>
-                  <span className="relative">{item.label}</span>
+                  {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-0.5 bg-accent md:block" />}
+                  <Icon name={item.icon} />
+                  {item.label}
                 </Link>
               );
             })}
           </nav>
           <div className="hidden px-3 py-4 md:absolute md:bottom-0 md:block md:w-56">
-            <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-white/[0.05] hover:text-ink"><Icon name="signout" />Sign out</button>
+            <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-[#111] hover:text-white"><Icon name="signout" />Sign out</button>
           </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <ControlBar />
           <AnimatePresence mode="wait" initial={false}>
-            <motion.main key={pathname} className="flex-1 p-4 md:p-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
+            <motion.main key={pathname} className="flex-1 p-4 md:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
               {children}
             </motion.main>
           </AnimatePresence>

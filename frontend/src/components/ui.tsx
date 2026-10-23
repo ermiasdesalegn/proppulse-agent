@@ -3,9 +3,9 @@ import { Icon, type IconName } from "./icons";
 
 export function Card({ title, action, children, className }: { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={clsx("card rounded-2xl border", className)}>
+    <section className={clsx("card rounded-md border", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-[#222] px-4 py-3">
           <h2 className="text-sm font-semibold">{title}</h2>
           {action}
         </header>
@@ -29,13 +29,12 @@ export function Pill({ tone = "neutral", children, title }: { tone?: keyof typeo
 
 export function Stat({ label, value, hint, icon }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName }) {
   return (
-    <div className="card group relative overflow-hidden rounded-2xl border px-4 py-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_32px_-8px_rgb(var(--accent)/0.5)]">
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" />
+    <div className="card rounded-md border p-4 transition-colors hover:border-[#333]">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
-        {icon && <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent"><Icon name={icon} /></span>}
+        <p className="text-xs font-medium text-muted">{label}</p>
+        {icon && <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-[#222] text-muted"><Icon name={icon} className="h-4 w-4" /></span>}
       </div>
-      <p className="tnum mt-2 text-3xl font-semibold tracking-tight">{value}</p>
+      <p className="tnum mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p>
       {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   );
@@ -51,16 +50,16 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
 
 export function Button({ variant = "default", className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "primary" | "danger" | "ghost" | "glow" }) {
   const styles = {
-    default: "border border-white/10 bg-white/[0.03] text-ink/90 backdrop-blur hover:border-white/20 hover:bg-white/[0.07]",
-    glow: "glow-border bg-accent/[0.07] text-ink backdrop-blur hover:bg-accent/[0.14]",
-    primary: "btn-gradient text-white shadow-[0_0_20px_-6px_rgb(var(--accent)/0.7)] hover:opacity-90",
+    default: "border border-[#2a2a2a] bg-[#111] text-white hover:border-[#444] hover:bg-[#161616]",
+    glow: "border border-[#2a2a2a] bg-[#111] text-white hover:border-accent hover:text-accent",
+    primary: "bg-accent font-semibold text-black hover:brightness-110",
     danger: "border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20",
     ghost: "hover:bg-raised",
   } as const;
   return (
     <button
       {...props}
-      className={clsx("rounded-lg px-3.5 py-1.5 text-sm font-medium transition duration-200 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent", styles[variant], className)}
+      className={clsx("rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent", styles[variant], className)}
     />
   );
 }

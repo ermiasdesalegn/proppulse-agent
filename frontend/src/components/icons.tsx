@@ -27,16 +27,13 @@ export function Icon({ name, className = "h-[18px] w-[18px]" }: { name: IconName
   );
 }
 
-/** The brand mark: a pulse line through a house outline. */
-export function Logo({ className = "h-9 w-9" }: { className?: string }) {
+/** The brand mark: a pulse line through a house outline, on the accent colour. */
+export function Logo({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
-      <defs>
-        <linearGradient id="pp-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="rgb(var(--accent))" /><stop offset="1" stopColor="rgb(var(--accent2))" /></linearGradient>
-      </defs>
-      <rect width="40" height="40" rx="11" fill="url(#pp-logo)" />
-      <path d="M9 21 20 11l11 10v9a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1v-9Z" fill="none" stroke="#fff" strokeWidth="2" strokeLinejoin="round" opacity=".95" />
-      <path d="M12.5 24.5h4l2-4 3 7 2-3h4" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <rect width="40" height="40" rx="4" fill="rgb(var(--accent))" />
+      <path d="M9 21 20 11l11 10v9a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1v-9Z" fill="none" stroke="#000" strokeWidth="2.2" strokeLinejoin="round" />
+      <path d="M12.5 24.5h4l2-4 3 7 2-3h4" fill="none" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

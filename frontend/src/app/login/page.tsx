@@ -28,10 +28,9 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen md:grid-cols-2">
       <section className="relative hidden flex-col justify-between overflow-hidden border-r border-white/[0.07] p-12 md:flex">
-        <div className="pointer-events-none absolute -bottom-32 -left-24 h-96 w-96 rounded-full btn-gradient opacity-25 blur-3xl" />
         <div className="flex items-center gap-3"><Logo className="h-10 w-10" /><span className="text-sm font-semibold uppercase tracking-widest">PropPulse AI</span></div>
         <div>
-          <h2 className="text-4xl font-semibold leading-tight tracking-tight"><span className="gradient-text">Every buyer answered.</span><br />Every deal in view.</h2>
+          <h2 className="text-4xl font-semibold leading-tight tracking-tight">Every buyer answered.<br /><span className="text-accent">Every deal in view.</span></h2>
           <ul className="mt-6 space-y-3 text-sm text-muted">
             <li>Telegram agent in English and Amharic</li>
             <li>Live view of every step the agent takes</li>
@@ -41,7 +40,7 @@ export default function LoginPage() {
         <p className="text-xs text-muted">Addis Ababa real estate, run by one broker and one agent.</p>
       </section>
       <div className="flex items-center justify-center px-4 py-10">
-        <form onSubmit={submit} className="card w-full max-w-sm rounded-2xl border border-line bg-panel p-7">
+        <form onSubmit={submit} className="card w-full max-w-sm rounded-md border border-line bg-panel p-7">
           <div className="mb-4 md:hidden"><Logo /></div>
           <p className="text-xs font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Command Center</h1>
@@ -50,10 +49,10 @@ export default function LoginPage() {
           <input
             id="password" name="password" type="password" autoFocus autoComplete="current-password" required
             value={password} onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
           />
           {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
-          <button type="submit" disabled={busy || !password} className="btn-gradient mt-5 w-full rounded-lg px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50">
+          <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-black transition hover:brightness-110 disabled:opacity-50">
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
