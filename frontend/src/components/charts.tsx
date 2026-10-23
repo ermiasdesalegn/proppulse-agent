@@ -17,8 +17,8 @@ export function HBars({ rows, format = (v) => v.toLocaleString("en-US"), title, 
         {rows.map((r) => (
           <li key={r.label} className="group grid grid-cols-[minmax(6rem,11rem)_1fr_auto] items-center gap-3 text-sm" title={`${r.label}: ${format(r.value)}${r.note ? ` (${r.note})` : ""}`}>
             <span className="truncate text-ink">{r.label}</span>
-            <span className="relative block h-3.5 rounded-sm bg-raised">
-              <span className="absolute inset-y-0 left-0 rounded-r-[4px] bg-accent transition-opacity group-hover:opacity-80" style={{ width: `${r.value === 0 ? 0 : Math.max(1.5, (r.value / max) * 100)}%` }} />
+            <span className="hatch relative block h-3.5 rounded-md">
+              <span className="absolute inset-y-0 left-0 rounded-md bg-accent transition-opacity group-hover:opacity-80" style={{ width: `${r.value === 0 ? 0 : Math.max(1.5, (r.value / max) * 100)}%` }} />
             </span>
             <span className="tnum min-w-[3.5rem] text-right text-xs text-muted">{format(r.value)}</span>
           </li>

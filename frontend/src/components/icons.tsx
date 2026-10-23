@@ -27,13 +27,13 @@ export function Icon({ name, className = "h-[18px] w-[18px]" }: { name: IconName
   );
 }
 
-/** The brand mark: a pulse line through a house outline, on the accent colour. */
+/** The brand mark: two overlapping circles, a pulse and its echo. */
 export function Logo({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
-      <rect width="40" height="40" rx="4" fill="rgb(var(--accent))" />
-      <path d="M9 21 20 11l11 10v9a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1v-9Z" fill="none" stroke="#000" strokeWidth="2.2" strokeLinejoin="round" />
-      <path d="M12.5 24.5h4l2-4 3 7 2-3h4" fill="none" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <defs><linearGradient id="pp-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="rgb(var(--accent))" /><stop offset="1" stopColor="rgb(var(--accent2))" /></linearGradient></defs>
+      <circle cx="15" cy="20" r="11" fill="url(#pp-logo)" />
+      <circle cx="26" cy="20" r="11" fill="url(#pp-logo)" opacity=".55" />
     </svg>
   );
 }

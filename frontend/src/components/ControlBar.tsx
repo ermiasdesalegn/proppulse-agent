@@ -42,7 +42,7 @@ export default function ControlBar() {
   }
 
   return (
-    <div className="sticky top-0 z-20 border-b border-[#222] bg-[#0a0a0a]">
+    <div className="sticky top-0 z-20 border-b border-[#26264a] bg-[#0c0c20]">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Run now</span>
         {JOBS.map((job) => (

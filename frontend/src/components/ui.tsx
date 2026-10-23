@@ -3,9 +3,9 @@ import { Icon, type IconName } from "./icons";
 
 export function Card({ title, action, children, className }: { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={clsx("card rounded-md border", className)}>
+    <section className={clsx("card rounded-2xl border", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-[#222] px-4 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-[#26264a] px-4 py-3">
           <h2 className="text-sm font-semibold">{title}</h2>
           {action}
         </header>
@@ -29,10 +29,10 @@ export function Pill({ tone = "neutral", children, title }: { tone?: keyof typeo
 
 export function Stat({ label, value, hint, icon }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName }) {
   return (
-    <div className="card rounded-md border p-4 transition-colors hover:border-[#333]">
+    <div className="card rounded-2xl border p-5 transition-colors hover:border-[#3a3a62]">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-medium text-muted">{label}</p>
-        {icon && <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-[#222] text-muted"><Icon name={icon} className="h-4 w-4" /></span>}
+        {icon && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#2e2e52] text-muted"><Icon name={icon} className="h-4 w-4" /></span>}
       </div>
       <p className="tnum mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p>
       {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
@@ -50,16 +50,16 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
 
 export function Button({ variant = "default", className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "primary" | "danger" | "ghost" | "glow" }) {
   const styles = {
-    default: "border border-[#2a2a2a] bg-[#111] text-white hover:border-[#444] hover:bg-[#161616]",
-    glow: "border border-[#2a2a2a] bg-[#111] text-white hover:border-accent hover:text-accent",
-    primary: "bg-accent font-semibold text-black hover:brightness-110",
+    default: "border border-[#2e2e52] bg-[#12122a] text-white hover:border-[#4a4a74] hover:bg-[#1b1b38]",
+    glow: "border border-[#2e2e52] bg-[#12122a] text-white hover:border-accent hover:text-accent",
+    primary: "bg-accent font-semibold text-[#0a0a1f] hover:brightness-110",
     danger: "border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20",
     ghost: "hover:bg-raised",
   } as const;
   return (
     <button
       {...props}
-      className={clsx("rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent", styles[variant], className)}
+      className={clsx("rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent", styles[variant], className)}
     />
   );
 }

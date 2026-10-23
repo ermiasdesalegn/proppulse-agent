@@ -5,7 +5,6 @@ const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
-    borderRadius: { none: "0", sm: "2px", DEFAULT: "3px", md: "4px", lg: "4px", xl: "4px", "2xl": "4px", "3xl": "4px", full: "2px" },
     extend: {
       colors: {
         bg: token("bg"),

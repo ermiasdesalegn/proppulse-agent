@@ -46,12 +46,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <LiveProvider>
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-[#222] bg-[#0a0a0a] md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-[#222]">
+        <aside className="shrink-0 border-b border-[#26264a] bg-[#0c0c20] md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-[#26264a]">
           <div className="flex items-center justify-between px-4 py-3 md:block md:py-5">
             <div className="flex items-center gap-3">
               <Logo />
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">PropPulse AI</p>
                 <p className="text-sm font-semibold leading-tight">Command Center</p>
               </div>
             </div>
@@ -63,17 +63,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               return (
                 <Link
                   key={item.href} href={item.href} aria-current={active ? "page" : undefined}
-                  className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors", active ? "bg-[#161616] text-accent" : "text-muted hover:bg-[#111] hover:text-white")}
+                  className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-white/[0.06] text-white" : "text-muted hover:bg-[#12122a] hover:text-white")}
                 >
-                  {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-0.5 bg-accent md:block" />}
-                  <Icon name={item.icon} />
+                  {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-accent md:block" />}
+                  <span className={active ? "text-accent" : ""}><Icon name={item.icon} /></span>
                   {item.label}
                 </Link>
               );
             })}
           </nav>
           <div className="hidden px-3 py-4 md:absolute md:bottom-0 md:block md:w-56">
-            <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-[#111] hover:text-white"><Icon name="signout" />Sign out</button>
+            <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-[#12122a] hover:text-white"><Icon name="signout" />Sign out</button>
           </div>
         </aside>
 

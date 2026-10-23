@@ -40,7 +40,7 @@ export default function LoginPage() {
         <p className="text-xs text-muted">Addis Ababa real estate, run by one broker and one agent.</p>
       </section>
       <div className="flex items-center justify-center px-4 py-10">
-        <form onSubmit={submit} className="card w-full max-w-sm rounded-md border border-line bg-panel p-7">
+        <form onSubmit={submit} className="card w-full max-w-sm rounded-xl border border-line bg-panel p-7">
           <div className="mb-4 md:hidden"><Logo /></div>
           <p className="text-xs font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Command Center</h1>
@@ -52,7 +52,7 @@ export default function LoginPage() {
             className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
           />
           {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
-          <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-black transition hover:brightness-110 disabled:opacity-50">
+          <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-[#0a0a1f] transition hover:brightness-110 disabled:opacity-50">
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
