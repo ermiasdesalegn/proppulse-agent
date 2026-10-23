@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { LiveProvider, useLive, type LiveStatus } from "@/lib/live";
 import clsx from "./clsx";
 import ControlBar from "./ControlBar";
@@ -44,6 +45,8 @@ function LiveBadge() {
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const here = GROUPS.flatMap((g) => g.items).find((i) => (i.href === "/" ? pathname === "/" : pathname.startsWith(i.href)));
+  useEffect(() => { document.title = here ? `${here.label} | PropPulse AI` : pathname.startsWith("/tours") ? "Pre-tour dossier | PropPulse AI" : "PropPulse AI | Command Center"; }, [here, pathname]);
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });

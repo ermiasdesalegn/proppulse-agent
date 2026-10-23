@@ -187,6 +187,7 @@ export interface AdResult {
   preview?: string;
   buttons?: string[];
   has_photo?: boolean;
+  photo_url?: string | null;
   message_id?: number;
   text?: string;
   reason?: string;

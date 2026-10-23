@@ -139,6 +139,26 @@ async def test_a_unit_with_a_floor_plan_is_posted_as_a_photo_and_falls_back_to_t
     assert (await ads2.publish(pid, dry_run=False))["posted"] and len(failing.telegram.messages) == 1
 
 
+async def test_a_picture_telegram_cannot_fetch_is_downloaded_and_uploaded(repo, db_conn):
+    pid = await prop(db_conn)
+    await db_conn.execute("update properties set floor_plan_image_url = 'https://cdn.example/blocked.jpg' where id = %s", (pid,))
+
+    class CannotFetch(MockTelegramService):
+        async def send_photo(self, *a, **k):
+            raise TelegramError("failed to get HTTP URL content")
+
+    class Fetcher:
+        async def get_bytes(self, url, **k):
+            return b"JPEGDATA", "image/jpeg"
+
+    failing = make_services()
+    failing.telegram = CannotFetch()
+    ads, _ = make_ads(repo, services=failing)
+    ads.fetcher = Fetcher()
+    assert (await ads.publish(pid, dry_run=False))["posted"]
+    assert failing.telegram.photos[0]["photo_bytes"] == len(b"JPEGDATA") and failing.telegram.messages == [], "posted as a photo, not as plain text"
+
+
 async def test_a_refused_post_is_reported_and_can_be_retried(repo, db_conn):
     class Refuses(MockTelegramService):
         async def send_message(self, *a, **k):

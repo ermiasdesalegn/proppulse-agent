@@ -32,12 +32,13 @@ export function Icon({ name, className = "h-[18px] w-[18px]" }: { name: IconName
   );
 }
 
-/** The brand mark: two overlapping circles, a pulse and its echo. */
+/** The brand mark: a house with a pulse line through it, on the accent colour. Same drawing as app/icon.svg. */
 export function Logo({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
-      <circle cx="15" cy="20" r="11" fill="rgb(var(--accent))" />
-      <circle cx="26" cy="20" r="11" fill="rgb(var(--accent))" opacity=".5" />
+      <rect width="40" height="40" rx="9.5" fill="rgb(var(--accent))" />
+      <path d="M9 21 20 11l11 10v9H9v-9Z" fill="none" stroke="#0a0a0a" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+      <path d="M12.5 24.5h4l2-4 3 7 2-3h4" fill="none" stroke="#0a0a0a" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

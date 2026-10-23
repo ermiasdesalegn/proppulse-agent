@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Protocol
 
 import httpx
@@ -21,6 +22,8 @@ class TelegramService(Protocol):
     async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int: ...
 
     async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int: ...
+
+    async def send_photo_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int: ...
 
     async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int: ...
 
@@ -58,6 +61,22 @@ class BotApiTelegramService:
         if parse_mode:
             params["parse_mode"] = parse_mode
         return (await self._request("sendMessage", **params))["message_id"]
+
+    async def send_photo_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int:
+        """Uploads the picture itself. Used when Telegram cannot fetch the address (a site that blocks hotlinking, or a private address)."""
+        url = f"https://api.telegram.org/bot{self._token}/sendPhoto"
+        data: dict[str, str] = {"chat_id": str(chat_id), "caption": caption[:1024]}
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
+        try:
+            async with httpx.AsyncClient(transport=self._transport, timeout=60) as client:
+                res = await client.post(url, data=data, files={"photo": ("photo.jpg", content)})
+            body = res.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise TelegramError(f"sendPhoto failed: {type(exc).__name__}") from None
+        if not body.get("ok"):
+            raise TelegramError(f"sendPhoto rejected: {body.get('description', 'unknown error')}")
+        return body["result"]["message_id"]
 
     async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int:
         url = f"https://api.telegram.org/bot{self._token}/sendDocument"
@@ -146,6 +165,10 @@ class MockTelegramService:
 
     async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int:
         self.photos.append(dict(chat_id=chat_id, photo_url=photo_url, caption=caption, reply_markup=reply_markup))
+        return 1000 + len(self.photos)
+
+    async def send_photo_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int:
+        self.photos.append(dict(chat_id=chat_id, photo_bytes=len(content), caption=caption, reply_markup=reply_markup))
         return 1000 + len(self.photos)
 
     async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int:

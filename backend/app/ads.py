@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.nodes import fmt_etb
 from app.config import Settings
+from app.ingest.fetch import HttpFetcher
 from app.repository import Repository
 from app.services import Services
 
@@ -70,6 +71,7 @@ class AdService:
     def __init__(self, repo: Repository, gateway: Any, services: Services, settings: Settings, events: Any = None):
         self.repo, self.gateway, self.services, self.settings, self.events = repo, gateway, services, settings, events
         self._username: str | None = None
+        self.fetcher: Any = HttpFetcher()  # replaced in tests
 
     async def bot_username(self) -> str:
         if self._username is None:
@@ -107,7 +109,7 @@ class AdService:
         text = await self.compose(p, kind=kind, old_price=old_price)
         markup = keyboard(username, p["id"])
         if dry_run:
-            return {"posted": False, "preview": text, "buttons": [b["text"] for row in markup["inline_keyboard"] for b in row], "has_photo": bool(p.get("floor_plan_image_url"))}
+            return {"posted": False, "preview": text, "buttons": [b["text"] for row in markup["inline_keyboard"] for b in row], "has_photo": bool(p.get("floor_plan_image_url")), "photo_url": p.get("floor_plan_image_url")}
 
         claim = await self.repo.claim_channel_post(property_id=p["id"], kind=kind, price_etb=float(p["price_etb"]), chat_id=channel, text=text)
         if claim is None:
@@ -118,7 +120,12 @@ class AdService:
                 try:
                     message_id = await self.services.telegram.send_photo(channel, p["floor_plan_image_url"], text, reply_markup=markup)
                 except Exception:
-                    log.warning("the floor plan could not be posted as a photo; posting the text only")
+                    # Telegram could not fetch the address itself (hotlink protection, a private address): download the picture here and upload it.
+                    try:
+                        data, _ = await self.fetcher.get_bytes(p["floor_plan_image_url"])
+                        message_id = await self.services.telegram.send_photo_bytes(channel, data, text, reply_markup=markup)
+                    except Exception:
+                        log.warning("the picture could not be posted; posting the text only")
             if message_id is None:
                 message_id = await self.services.telegram.send_message(channel, text, reply_markup=markup)
         except Exception as exc:

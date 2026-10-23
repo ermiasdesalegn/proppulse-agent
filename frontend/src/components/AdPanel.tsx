@@ -47,6 +47,10 @@ export default function AdPanel() {
         {ad?.preview && (
           <div className="rounded-lg border border-line bg-raised p-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Preview {ad.has_photo ? "(posted with the floor plan)" : ""}</p>
+            {ad.photo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={ad.photo_url} alt="The picture that will be posted with the ad" className="mb-3 max-h-64 rounded-lg border border-line object-contain" />
+            )}
             <p className="whitespace-pre-wrap break-words text-sm">{ad.preview}</p>
             <div className="mt-3 flex flex-wrap gap-2">{ad.buttons?.map((b) => <span key={b} className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">{b}</span>)}</div>
             <div className="mt-3 flex flex-wrap items-center gap-2">

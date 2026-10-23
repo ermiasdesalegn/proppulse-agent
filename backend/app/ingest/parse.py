@@ -5,6 +5,7 @@ import calendar
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -125,6 +126,15 @@ _ALIASES = {"price": "price_etb", "image": "floor_plan_image_url", "down_payment
             "construction_stage": "construction_stage_pct", "rental_yield": "est_rental_yield_pct"}
 
 
+def _first_picture(item: Any) -> str | None:
+    """With no image selector in the profile, use the first real picture inside the card (lazy-loaded ones keep their address in data-src)."""
+    for img in item.find_all("img"):
+        src = (img.get("src") or img.get("data-src") or img.get("data-lazy-src") or "").strip()
+        if src and not src.startswith("data:") and not src.lower().split("?")[0].endswith((".svg", ".gif")):
+            return src
+    return None
+
+
 def parse_listing_html(html: str, profile: ScrapeProfile, base_url: str = "") -> ParseResult:
     """Read every card matching profile.item. A card that cannot be read is reported and skipped, never fatal."""
     soup = BeautifulSoup(html, "html.parser")
@@ -156,7 +166,7 @@ def parse_listing_html(html: str, profile: ScrapeProfile, base_url: str = "") ->
         if problems:
             result.errors.append(f"item {index}: missing or unreadable {', '.join(problems)}")
             continue
-        image = raw.get("floor_plan_image_url")
+        image = raw.get("floor_plan_image_url") or _first_picture(item)
         try:
             result.units.append(ListingUnit(
                 project_name=raw["project_name"].strip(), unit_type=raw["unit_type"].strip(), sub_city=normalize_sub_city(raw["sub_city"]),

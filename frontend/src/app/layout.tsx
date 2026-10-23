@@ -2,8 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PropPulse Command Center",
-  description: "Broker console for the PropPulse AI agent",
+  title: { default: "PropPulse AI | Command Center", template: "%s | PropPulse AI" },
+  description: "Broker console for the PropPulse AI real-estate agent",
+  applicationName: "PropPulse AI",
   robots: { index: false, follow: false },
 };
 

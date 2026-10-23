@@ -1,6 +1,6 @@
 # Evaluation report
 
-Run on 2026-10-23T15:47:19+00:00 in `replay` mode. Everything runs against the demo catalogue (15 units, 3 developers) with the model's recorded answers, so a replay run is repeatable and free; `--mode record` refreshes the recording from the live model.
+Run on 2026-10-23T16:26:24+00:00 in `replay` mode. Everything runs against the demo catalogue (15 units, 3 developers) with the model's recorded answers, so a replay run is repeatable and free; `--mode record` refreshes the recording from the live model.
 
 ## Retrieval
 

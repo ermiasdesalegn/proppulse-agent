@@ -81,6 +81,13 @@ def test_a_full_card_is_read_completely():
     assert u.display_title == "Ayat Garden Residences 3BR Townhouse"
 
 
+def test_the_cards_own_picture_is_used_when_the_profile_names_no_image_selector():
+    no_image = ScrapeProfile(item=PROFILE.item, fields={k: v for k, v in PROFILE.fields.items() if k != "image"}, defaults=PROFILE.defaults)
+    card = CARD.replace('<img class="plan" src="/plans/garden.png">', '<img src="data:image/gif;base64,AAAA"><img data-src="/photos/front.jpg">')
+    (u,) = parse_listing_html(card, no_image, base_url="https://dev.example/listings").units
+    assert u.floor_plan_image_url == "https://dev.example/photos/front.jpg", "inline placeholders are skipped; lazy-loaded pictures are found"
+
+
 def test_defaults_fill_a_missing_area_and_bedrooms_come_from_the_unit_type():
     card = CARD.replace('<span class="area">ayat</span>', "")
     (u,) = parse_listing_html(card, PROFILE).units
