@@ -64,6 +64,7 @@ class HttpFetcher:
                  resolver: Resolver = system_resolver, max_redirects: int = 3, timeout: float = 20.0):
         self._allow_private, self._transport, self._resolver = allow_private, transport, resolver
         self._max_redirects, self._timeout = max_redirects, timeout
+        self.politeness = None  # set by the application: robots.txt and a pause between requests to one site
 
     async def _get(self, url: str, max_bytes: int) -> tuple[bytes, str]:
         async with httpx.AsyncClient(transport=self._transport, timeout=self._timeout, follow_redirects=False,
@@ -89,7 +90,9 @@ class HttpFetcher:
                     raise FetchError(f"could not fetch the page: {type(exc).__name__}") from None
         raise FetchError("too many redirects")
 
-    async def get_text(self, url: str) -> str:
+    async def get_text(self, url: str, *, polite: bool = True) -> str:
+        if polite and self.politeness is not None:
+            await self.politeness.wait_turn(url)
         body, kind = await self._get(url, MAX_PAGE_BYTES)
         if kind and not (kind.startswith("text/") or "html" in kind or "xml" in kind):
             raise FetchError(f"expected a web page but got {kind}")

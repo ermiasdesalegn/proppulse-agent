@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.db import make_pool
 from app.calllog import ModelCallLog
 from app.events import DurableEventBus
+from app.ingest.browser import BrowserFetcher, Politeness
 from app.tracing import trace_repo, trace_services
 from app.gemini import get_gateway
 from app.ingest.fetch import HttpFetcher
@@ -63,7 +64,11 @@ async def lifespan(app: FastAPI):
     agent = BrokerAgent(AgentDeps(gateway=gateway, repo=trace_repo(repo, events), services=services, settings=s, events=events), checkpointer.saver)
     chat = ChatService(repo, agent, services, s, events=events)
     proactive = ProactiveService(repo, agent, services, s, events=events)
-    ingest = IngestionService(repo, gateway, HttpFetcher(allow_private=s.scrape_allow_private_hosts), s, events=events)
+    http_fetcher = HttpFetcher(allow_private=s.scrape_allow_private_hosts)
+    politeness = Politeness(lambda u: http_fetcher.get_text(u, polite=False), min_interval=s.scrape_min_interval_seconds) if s.scrape_polite else None
+    http_fetcher.politeness = politeness
+    browser_fetcher = BrowserFetcher(http=http_fetcher, allow_private=s.scrape_allow_private_hosts, politeness=politeness)  # starts Chromium on first use
+    ingest = IngestionService(repo, gateway, http_fetcher, s, events=events, browser=browser_fetcher)
     ads = AdService(repo, gateway, services, s, events=events)
     handler = TelegramUpdateHandler(chat)
 
@@ -91,6 +96,7 @@ async def lifespan(app: FastAPI):
         if poller:
             await poller.stop()
         await handler.drain()
+        await browser_fetcher.aclose()
         await calls.stop()
         await events.stop()
         await gateway.aclose()

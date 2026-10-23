@@ -3,6 +3,7 @@
 import { useState } from "react";
 import AdPanel from "@/components/AdPanel";
 import IngestPanel from "@/components/IngestPanel";
+import ScrapeHealth from "@/components/ScrapeHealth";
 import { Button, Card, Empty, ErrorNote, Pill } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { fmtEtb, timeAgo } from "@/lib/format";
@@ -47,6 +48,7 @@ export default function StudioPage() {
       </div>
 
       <IngestPanel onChanged={() => { void properties.reload(); void runs.reload(); }} />
+      <ScrapeHealth />
       <AdPanel />
 
       <Card title="Price change simulator">

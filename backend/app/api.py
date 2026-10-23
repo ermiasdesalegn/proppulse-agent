@@ -215,6 +215,7 @@ class IngestIn(BaseModel):
 class ScrapeConfigIn(BaseModel):
     url: str | None = Field(default=None, max_length=2048)
     profile: ScrapeProfile | None = None
+    fetch_mode: Literal["static", "browser", "auto"] | None = None  # auto: plain HTTP first, a browser only if no unit cards are found
 
     @field_validator("url")
     @classmethod
@@ -336,14 +337,90 @@ async def list_developers(repo: Repository = Depends(repo_of)):
     return await repo.list_developers()
 
 
+async def _record_scrape_failure(request: Request, repo: Repository, dev: dict, error: str) -> None:
+    """Keep a failed read in the run history and tell the broker once, when it has failed enough times in a row to be worth a message."""
+    from app.ingest.health import judge
+
+    await repo.record_ingest_run(developer_id=dev["id"], source="url", dry_run=False, full_sync=True,
+                                 counts={"created": 0, "price_changed": 0, "removed": 0, "unchanged": 0, "skipped": 0}, report={"error": error}, error=error[:500])
+    s = request.app.state.settings
+    verdict = judge(await repo.recent_page_runs(dev["id"]), failures_before_alert=s.scrape_failures_before_alert)
+    chat = s.broker_telegram_chat_id or s.demo_fallback_telegram_chat_id
+    if chat and verdict["consecutive_failures"] == s.scrape_failures_before_alert:  # exactly once, on the run that crosses the line
+        try:
+            await request.app.state.chat.services.telegram.send_message(
+                chat, f"Scraper alert: {dev['name']}'s page could not be read {verdict['consecutive_failures']} times in a row. Last error: {error[:200]}")
+        except Exception:
+            pass
+
+
 @router.put("/api/developers/{slug}/scrape", dependencies=[Depends(require_admin)])
 async def set_scrape_source(slug: str, body: ScrapeConfigIn, repo: Repository = Depends(repo_of)):
     if (body.url is None) != (body.profile is None):
         raise HTTPException(422, "give both the address and the selectors, or neither to clear them")
     try:
-        return await repo.set_developer_scrape(slug, body.url, body.profile.model_dump() if body.profile else None)
+        return await repo.set_developer_scrape(slug, body.url, body.profile.model_dump() if body.profile else None, body.fetch_mode)
     except LookupError:
         raise HTTPException(404, "Developer not found") from None
+
+
+class SuggestIn(BaseModel):
+    url: str | None = Field(default=None, max_length=2048)
+    html: str | None = Field(default=None, max_length=500_000)
+
+
+@router.post("/api/developers/{slug}/suggest-profile", dependencies=[Depends(require_admin)])
+async def suggest_scrape_profile(slug: str, body: SuggestIn, service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of)):
+    """Let the language model propose selectors for a developer's page and test them. Nothing is saved: the broker reviews the preview."""
+    from app.ingest.onboard import suggest_profile
+
+    developer = await repo.get_developer_by_slug(slug)
+    if developer is None:
+        raise HTTPException(404, "Developer not found")
+    if not (body.url or body.html):
+        raise HTTPException(422, "give a page address or its HTML")
+    try:
+        html = body.html
+        if html is None:
+            fetcher = service.browser if developer.get("fetch_mode") == "browser" and service.browser else service.fetcher
+            html = await fetcher.get_text(body.url)
+        result = await suggest_profile(service.gateway, html, developer["name"], body.url or "")
+        if not result["usable"] and body.html is None and service.browser is not None and developer.get("fetch_mode") != "static" and fetcher is not service.browser:
+            try:  # the cards may be built by JavaScript: propose again from the rendered page
+                retry = await suggest_profile(service.gateway, await service.browser.get_text(body.url), developer["name"], body.url or "")
+                if retry["usable"]:
+                    return {**retry, "rendered_in_browser": True}
+            except FetchError:
+                pass
+        return result
+    except FetchError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except Exception:
+        raise HTTPException(502, "The language model could not propose selectors right now") from None
+
+
+@router.get("/api/scrape/health", dependencies=[Depends(require_admin)])
+async def scrape_health_report(request: Request, repo: Repository = Depends(repo_of)):
+    from app.ingest.health import scrape_health
+
+    return await scrape_health(repo, failures_before_alert=request.app.state.settings.scrape_failures_before_alert)
+
+
+@router.get("/demo/js-listing", response_class=Response, include_in_schema=False)
+async def demo_js_listing():
+    """A page whose unit cards exist only after its script runs: a plain fetch sees none. For trying the browser renderer locally
+    (the scraper must be allowed to reach this machine: SCRAPE_ALLOW_PRIVATE_HOSTS=true)."""
+    import json as _json
+
+    from app.ingest.sample import PROFILE, sample_units
+
+    units = [dict(zip(("project", "type", "area", "price", "size", "down", "delivery", "desc"), u)) for u in sample_units(1)]
+    page = ("<!doctype html><html><head><meta charset='utf-8'><title>Ayat units</title></head><body><h1>Ayat Real Estate</h1><div id='list'>Loading...</div>"
+            "<script>const units=" + _json.dumps(units) + ";document.getElementById('list').innerHTML=units.map(u=>`<article class=\"unit\">"
+            "<h3 class=\"project\">${u.project}</h3><p class=\"type\">${u.type}</p><p class=\"area\">${u.area}</p><p class=\"price\">${u.price}</p>"
+            "<p class=\"size\">${u.size}</p><p class=\"down\">${u.down} down payment</p><p class=\"delivery\">Delivery ${u.delivery}</p>"
+            "<p class=\"desc\">${u.desc}</p></article>`).join('');</script></body></html>")
+    return Response(page, media_type="text/html")
 
 
 @router.post("/api/cron/scrape-market", dependencies=[Depends(require_cron_or_admin)])
@@ -358,6 +435,8 @@ async def scrape_market(request: Request, dry_run: bool = False, publish_ads: bo
         except (ValueError, FetchError, ExtractionError, LookupError) as exc:
             totals["failed"] += 1
             details.append({"developer": dev["name"], "error": str(exc)})
+            if not dry_run:
+                await _record_scrape_failure(request, repo, dev, str(exc))
             continue
         c = report["counts"]
         totals["sent"] += c["created"] + c["price_changed"] + c["removed"]

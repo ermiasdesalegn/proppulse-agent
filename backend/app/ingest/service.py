@@ -45,8 +45,9 @@ def _pct(old: float, new: float) -> float:
 
 
 class IngestionService:
-    def __init__(self, repo: Repository, gateway: Any, fetcher: Fetcher, settings: Settings, events: Any = None):
+    def __init__(self, repo: Repository, gateway: Any, fetcher: Fetcher, settings: Settings, events: Any = None, browser: Fetcher | None = None):
         self.repo, self.gateway, self.fetcher, self.settings, self.events = repo, gateway, fetcher, settings, events
+        self.browser = browser  # renders JavaScript; None when Playwright is not set up
 
     # ---------------- reading the source ----------------
 
@@ -81,20 +82,33 @@ class IngestionService:
             raise LookupError(f"developer {developer_slug} not found")
         notes: list[str] = []
         parse_errors: list[str] = []
+        items_found: int | None = None
         base_url = url or ""
 
         if source == "url":
             base_url = url or developer.get("scrape_url") or ""
             if not base_url:
                 raise ValueError("no address given and the developer has no scrape address saved")
-            html = await self.fetcher.get_text(base_url)
+            mode = developer.get("fetch_mode") or "auto"
+            if mode == "browser" and self.browser is None:
+                raise FetchError("this developer needs the browser renderer, which is not set up (see the README)")
+            html = await (self.browser if mode == "browser" else self.fetcher).get_text(base_url)
         if source in ("html", "url"):
             if not html:
                 raise ValueError("there is no page content to read")
             profile = profile or (ScrapeProfile(**developer["scrape_profile"]) if developer.get("scrape_profile") else None)
             if profile:
                 parsed: ParseResult = parse_listing_html(html, profile, base_url)
-                units, parse_errors = parsed.units, parsed.errors
+                units, parse_errors, items_found = parsed.units, parsed.errors, parsed.items_found
+                if parsed.items_found == 0 and source == "url" and (developer.get("fetch_mode") or "auto") == "auto" and self.browser is not None:
+                    try:  # the cards may be built by JavaScript: look again after the page has run its scripts
+                        rendered = await self.browser.get_text(base_url)
+                        again = parse_listing_html(rendered, profile, base_url)
+                        if again.items_found:
+                            parsed, notes = again, [*notes, "The page builds its listings with JavaScript, so it was read in a browser."]
+                            units, parse_errors, items_found = again.units, again.errors, again.items_found
+                    except FetchError as exc:
+                        notes.append(f"The page had no unit cards and the browser could not be used ({exc}).")
                 if parsed.items_found == 0:
                     notes.append("The selectors matched no unit cards on this page; the page layout may have changed.")
             else:
@@ -107,7 +121,7 @@ class IngestionService:
         else:
             raise ValueError(f"unknown source {source!r}")
 
-        report = await self.apply(developer, units, source=source, full_sync=full_sync, dry_run=dry_run, floor_plan=floor_plan)
+        report = await self.apply(developer, units, source=source, full_sync=full_sync, dry_run=dry_run, floor_plan=floor_plan, items_found=items_found)
         report["parse_errors"] = parse_errors
         report["notes"] = notes + report["notes"]
         return report
@@ -115,7 +129,7 @@ class IngestionService:
     # ---------------- applying units ----------------
 
     async def apply(self, developer: dict, units: list[ListingUnit], *, source: str, full_sync: bool, dry_run: bool,
-                    floor_plan: tuple[bytes, str] | None = None) -> dict:
+                    floor_plan: tuple[bytes, str] | None = None, items_found: int | None = None) -> dict:
         report: dict[str, Any] = {
             "developer": developer["slug"], "source": source, "dry_run": dry_run, "full_sync": full_sync, "found": len(units),
             "created": [], "price_changed": [], "image_updated": [], "reactivated": [], "removed": [], "skipped": [],
@@ -174,7 +188,7 @@ class IngestionService:
                   "unchanged": report["unchanged"], "skipped": len(report["skipped"])}
         report["counts"] = counts
         if not dry_run:
-            report["run_id"] = await self.repo.record_ingest_run(developer_id=developer["id"], source=source, dry_run=False, full_sync=full_sync, counts=counts, report=report)
+            report["run_id"] = await self.repo.record_ingest_run(developer_id=developer["id"], source=source, dry_run=False, full_sync=full_sync, counts=counts, report=report, items_found=items_found)
             if self.events:
                 self.events.publish("ingest", developer=developer["slug"], source=source, **counts)
         return report

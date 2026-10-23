@@ -1,0 +1,2 @@
+# Optional: renders JavaScript pages for the scraper (Phase 13). After installing, run: playwright install chromium
+playwright==1.49.1

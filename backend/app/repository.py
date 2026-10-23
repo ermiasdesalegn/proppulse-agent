@@ -142,14 +142,15 @@ class Repository:
     # ---- ingestion ----
 
     async def list_developers(self) -> list[dict]:
-        return await self._fetch("select id, name, slug, sales_email, scrape_url, scrape_profile from developers order by name")
+        return await self._fetch("select id, name, slug, sales_email, scrape_url, scrape_profile, fetch_mode from developers order by name")
 
-    async def set_developer_scrape(self, slug: str, url: str | None, profile: dict | None) -> dict:
+    async def set_developer_scrape(self, slug: str, url: str | None, profile: dict | None, fetch_mode: str | None = None) -> dict:
         from psycopg.types.json import Jsonb
 
         row = await self._one(
-            "update developers set scrape_url = %s, scrape_profile = %s where slug = %s returning id, name, slug, scrape_url, scrape_profile",
-            (url, Jsonb(profile) if profile else None, slug),
+            "update developers set scrape_url = %s, scrape_profile = %s, fetch_mode = coalesce(%s, fetch_mode) where slug = %s "
+            "returning id, name, slug, scrape_url, scrape_profile, fetch_mode",
+            (url, Jsonb(profile) if profile else None, fetch_mode, slug),
         )
         if row is None:
             raise LookupError(f"developer {slug} not found")
@@ -195,16 +196,23 @@ class Repository:
             row = await self._one("select avg(lat) as lat, avg(lng) as lng from properties where sub_city = %s and lat is not null", (sub_city,))
         return (float(row["lat"]), float(row["lng"])) if row and row["lat"] is not None else None
 
-    async def record_ingest_run(self, *, developer_id: UUID | str | None, source: str, dry_run: bool, full_sync: bool, counts: dict, report: dict) -> int:
+    async def record_ingest_run(self, *, developer_id: UUID | str | None, source: str, dry_run: bool, full_sync: bool, counts: dict, report: dict,
+                                error: str | None = None, items_found: int | None = None) -> int:
         from psycopg.types.json import Jsonb
 
         row = await self._one(
-            "insert into ingest_runs (developer_id, source, dry_run, full_sync, created, price_changed, removed, unchanged, skipped, report) "
-            "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
+            "insert into ingest_runs (developer_id, source, dry_run, full_sync, created, price_changed, removed, unchanged, skipped, report, error, items_found) "
+            "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
             (None if developer_id is None else str(developer_id), source, dry_run, full_sync, counts["created"], counts["price_changed"],
-             counts["removed"], counts["unchanged"], counts["skipped"], Jsonb(report, dumps=lambda o: json.dumps(o, default=str))),
+             counts["removed"], counts["unchanged"], counts["skipped"], Jsonb(report, dumps=lambda o: json.dumps(o, default=str)), error, items_found),
         )
         return row["id"]
+
+    async def recent_page_runs(self, developer_id: UUID | str, limit: int = 10) -> list[dict]:
+        """The latest real (not preview) runs that read a developer's page, newest first."""
+        return await self._fetch(
+            "select id, created_at, error, items_found, created, price_changed, removed, unchanged from ingest_runs "
+            "where developer_id = %s and not dry_run and source in ('url', 'html') order by id desc limit %s", (str(developer_id), limit))
 
     async def list_ingest_runs(self, limit: int = 20) -> list[dict]:
         return await self._fetch(

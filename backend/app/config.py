@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     email_backend: str = "auto"
     telegram_backend: str = "auto"
 
+    scrape_polite: bool = True  # obey robots.txt and wait between requests to the same site
+    scrape_min_interval_seconds: float = 2.0
+    scrape_failures_before_alert: int = 3
     scrape_allow_private_hosts: bool = False  # only for pointing the scraper at a page on this machine while developing
     ingest_max_vision_per_run: int = 10  # floor-plan images read per run; each costs a model call
     ads_auto_publish: bool = False  # post new listings and price drops to the channel without being asked
