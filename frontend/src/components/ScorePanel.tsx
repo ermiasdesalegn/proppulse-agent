@@ -64,12 +64,12 @@ export default function ScorePanel({ buyerId }: { buyerId: string }) {
   const unexplained = score.total - score.explained;
 
   return (
-    <div className="grid gap-5 px-4 py-4 md:grid-cols-2">
+    <div className="grid gap-6 px-4 py-5 min-[1400px]:grid-cols-2">
       <section aria-labelledby="why-score">
         <h3 id="why-score" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Why {score.total} out of 100</h3>
         <ul className="space-y-1.5">
           {score.components.map((c) => (
-            <li key={c.key} className="grid grid-cols-[1fr_5rem_3rem] items-center gap-3 text-sm">
+            <li key={c.key} className="grid grid-cols-[minmax(0,1fr)_5rem_3rem] items-center gap-3 text-sm">
               <span className={clsx(!c.earned && "text-muted")}>{c.label}</span>
               <span className="h-2 overflow-hidden rounded-full bg-raised"><span className="block h-full rounded-full bg-accent" style={{ width: `${(c.points / c.max) * 100}%` }} /></span>
               <span className="tnum text-right text-xs text-muted">{c.points}/{c.max}</span>

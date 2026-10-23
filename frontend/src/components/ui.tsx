@@ -29,12 +29,12 @@ export function Pill({ tone = "neutral", children, title }: { tone?: keyof typeo
 
 export function Stat({ label, value, hint, icon }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName }) {
   return (
-    <div className="card rounded-2xl border p-5 transition-colors hover:border-[#3a3a62]">
+    <div className="card rounded-2xl border p-4 transition-colors hover:border-[#3a3a62] sm:p-5">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-medium text-muted">{label}</p>
         {icon && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#2e2e52] text-muted"><Icon name={icon} className="h-4 w-4" /></span>}
       </div>
-      <p className="tnum mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p>
+      <p className="tnum mt-2 text-2xl font-semibold tracking-tight text-white sm:mt-3 sm:text-3xl">{value}</p>
       {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   );

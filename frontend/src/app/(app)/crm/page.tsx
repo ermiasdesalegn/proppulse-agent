@@ -143,8 +143,11 @@ function BuyerPanel({ buyer, onChanged }: { buyer: Buyer; onChanged: () => void 
         </dl>
       </header>
 
-      <details className="border-b border-line">
-        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium hover:bg-raised">Lead score, worries and bookings</summary>
+      <details className="group border-b border-line">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:bg-white/[0.03] [&::-webkit-details-marker]:hidden">
+          Lead score, worries and bookings
+          <svg viewBox="0 0 20 20" className="h-4 w-4 text-muted transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 8 5 5 5-5" /></svg>
+        </summary>
         <ScorePanel buyerId={buyer.id} />
       </details>
 
@@ -177,7 +180,7 @@ function Bubble({ message }: { message: ChatMessage }) {
   const mine = message.role !== "buyer";
   return (
     <div className={clsx("flex", mine ? "justify-end" : "justify-start")}>
-      <div className={clsx("max-w-[85%] rounded-xl border px-3 py-2 text-sm", message.role === "buyer" ? "border-line bg-raised" : message.role === "agent" ? "border-accent/30 bg-accent/10" : "border-warn/40 bg-warn/10")}>
+      <div className={clsx("max-w-[85%] rounded-2xl border px-3.5 py-2.5 text-sm", mine ? "rounded-br-md" : "rounded-bl-md", message.role === "buyer" ? "border-line bg-raised" : message.role === "agent" ? "border-accent/30 bg-accent/10" : "border-warn/40 bg-warn/10")}>
         <p className="mb-1 flex items-center gap-2 text-xs text-muted">
           <span className="font-semibold">{message.role === "buyer" ? "Buyer" : message.role === "agent" ? "Agent" : "You"}</span>
           {message.source === "voice" && <Pill>Voice note</Pill>}

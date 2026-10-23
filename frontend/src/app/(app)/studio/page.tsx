@@ -4,6 +4,7 @@ import { useState } from "react";
 import AdPanel from "@/components/AdPanel";
 import IngestPanel from "@/components/IngestPanel";
 import ScrapeHealth from "@/components/ScrapeHealth";
+import Select from "@/components/Select";
 import { PageHeader, Button, Card, Empty, ErrorNote, Pill } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { fmtEtb, timeAgo } from "@/lib/format";
@@ -57,11 +58,8 @@ export default function StudioPage() {
           <div className="grid gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
             <div>
               <label htmlFor="unit" className="block text-sm font-medium">Unit</label>
-              <select id="unit" value={propertyId} onChange={(e) => { setPropertyId(e.target.value); setResult(null); setPrice(""); }}
-                className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm">
-                <option value="">Choose a unit...</option>
-                {(properties.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.title} ({p.sub_city}) - {fmtEtb(Number(p.price_etb))}</option>)}
-              </select>
+              <div className="mt-1"><Select id="unit" value={propertyId} placeholder="Choose a unit..." onChange={(v) => { setPropertyId(v); setResult(null); setPrice(""); }}
+                options={(properties.data ?? []).map((p) => ({ value: p.id, label: p.title, hint: `${p.sub_city} - ${fmtEtb(Number(p.price_etb))}` }))} /></div>
             </div>
             <div>
               <label htmlFor="new-price" className="block text-sm font-medium">New price (ETB)</label>

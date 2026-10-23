@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, Empty, ErrorNote, Pill, ScoreBar, Stat } from "@/components/ui";
+import { PageHeader, Button, Card, Empty, ErrorNote, Pill, ScoreBar, Stat } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { fmtDateTime, fmtEtb } from "@/lib/format";
 import type { Dossier } from "@/lib/types";
@@ -38,18 +38,13 @@ export default function DossierPage() {
   const b = d.buyer;
   const call = d.kind === "CONSULTATION";
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-accent">{call ? "Phone consultation" : "Site visit"} - pre-tour dossier</p>
-          <h1 className="text-xl font-semibold">{b.name ?? "Unnamed buyer"}</h1>
-          <p className="text-sm text-muted">{fmtDateTime(d.starts_at)}{d.route ? ` - ${d.route.distance_km} km, about ${d.route.minutes} min of driving` : ""}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={() => void copy()}>Copy as text</Button>
-          <Button variant="primary" disabled={busy} onClick={() => void send()}>Send to my Telegram</Button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <Link href="/board" className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-white">&larr; Deal Board</Link>
+      <PageHeader
+        eyebrow={`${call ? "Phone consultation" : "Site visit"} - pre-tour dossier`} title={b.name ?? "Unnamed buyer"}
+        description={<>{fmtDateTime(d.starts_at)}{d.route ? ` - ${d.route.distance_km} km, about ${d.route.minutes} min of driving` : ""}</>}
+        actions={<><Button onClick={() => void copy()}>Copy as text</Button><Button variant="primary" disabled={busy} onClick={() => void send()}>Send to my Telegram</Button></>}
+      />
       {note && <p role="status" className="text-sm text-good">{note}</p>}
       {error && <ErrorNote>{error}</ErrorNote>}
 
@@ -57,14 +52,25 @@ export default function DossierPage() {
         <Stat label="Expected commission" value={fmtEtb(d.expected_commission_etb)} hint="if they buy every unit shown" />
         <Stat label="Value in play" value={fmtEtb(d.total_value_etb)} hint={`${d.units.length} unit${d.units.length === 1 ? "" : "s"}`} />
         <Stat label="Budget" value={b.max_budget_etb ? fmtEtb(b.max_budget_etb) : "Not stated"} hint={d.budget_gap_etb && d.budget_gap_etb > 0 ? `average unit is ${fmtEtb(d.budget_gap_etb)} above it` : undefined} />
-        <div className="rounded-xl border border-line bg-panel px-4 py-3"><p className="text-xs font-medium text-muted">Lead score</p><div className="mt-2"><ScoreBar score={b.lead_score} /></div><p className="mt-1 text-xs text-muted">{b.deal_stage.replace(/_/g, " ").toLowerCase()}</p></div>
+        <div className="card rounded-2xl border p-5"><p className="text-xs font-medium text-muted">Lead score</p><div className="mt-2"><ScoreBar score={b.lead_score} /></div><p className="mt-1 text-xs text-muted">{b.deal_stage.replace(/_/g, " ").toLowerCase()}</p></div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-4">
           {!call && (
             <Card title="Units on this visit">
-              <div className="overflow-x-auto">
+              <ul className="divide-y divide-line/60 lg:hidden">
+                {d.units.map((u) => (
+                  <li key={u.property_id} className="space-y-1 px-4 py-3 text-sm">
+                    <p className="font-medium">{u.title}</p>
+                    <p className="text-xs text-muted">{u.developer} - {u.area}</p>
+                    <p className="tnum">{fmtEtb(u.price_etb)} <span className="text-xs text-muted">({u.price_per_sqm_etb.toLocaleString("en-US")} ETB/sqm)</span></p>
+                    <p className="text-xs">{u.payment_plan} - about {fmtEtb(u.monthly_equivalent_etb)} a month</p>
+                    <p className="tnum text-xs text-muted">Commission {fmtEtb(u.expected_commission_etb)} ({u.commission_rate_pct}%){u.reliability_score !== null ? ` - reliability ${Math.round(u.reliability_score * 100)}%` : ""}</p>
+                  </li>
+                ))}
+              </ul>
+              <div className="hidden overflow-x-auto lg:block">
                 <table className="w-full min-w-[40rem] text-left text-sm">
                   <thead className="border-b border-line text-xs text-muted"><tr><th className="px-4 py-2 font-medium">Unit</th><th className="px-2 py-2 font-medium">Price</th><th className="px-2 py-2 font-medium">Payment plan</th><th className="px-2 py-2 text-right font-medium">Commission</th><th className="px-4 py-2 text-right font-medium">Developer reliability</th></tr></thead>
                   <tbody>

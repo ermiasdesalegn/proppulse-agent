@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Select from "./Select";
 import { Button, Card, Empty, ErrorNote, Pill } from "./ui";
 import { errorMessage, post } from "@/lib/api";
 import { fmtEtb, timeAgo } from "@/lib/format";
@@ -37,10 +38,7 @@ export default function AdPanel() {
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div>
             <label htmlFor="ad-unit" className="block text-sm font-medium">Unit</label>
-            <select id="ad-unit" value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm">
-              <option value="">Choose a unit...</option>
-              {available.map((p) => <option key={p.id} value={p.id}>{p.title} ({p.sub_city}) - {fmtEtb(Number(p.price_etb))}</option>)}
-            </select>
+            <div className="mt-1"><Select id="ad-unit" value={propertyId} onChange={setPropertyId} placeholder="Choose a unit..." options={available.map((p) => ({ value: p.id, label: p.title, hint: `${p.sub_city} - ${fmtEtb(Number(p.price_etb))}` }))} /></div>
           </div>
           <Button disabled={!propertyId || busy} onClick={() => void call(true)}>{busy && !confirming ? "Writing..." : "Preview ad"}</Button>
         </div>

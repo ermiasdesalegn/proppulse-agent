@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Select from "@/components/Select";
 import { Button, Card, Empty, ErrorNote, Pill } from "@/components/ui";
 import { api, errorMessage, post } from "@/lib/api";
 import { fmtEtb, timeAgo } from "@/lib/format";
@@ -63,9 +64,7 @@ export default function ScrapeHealth() {
                 <p className="truncate text-xs text-muted">{h.url}</p>
               </div>
               <label className="text-xs text-muted">How it is read
-                <select value={h.fetch_mode} onChange={(e) => void setMode(h, e.target.value)} className="ml-2 rounded border border-line bg-bg px-2 py-1 text-xs text-ink">
-                  {MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+                <span className="ml-2 inline-block w-48 align-middle"><Select size="sm" ariaLabel="How it is read" value={h.fetch_mode} onChange={(v) => void setMode(h, v)} options={MODES.map(([value, label]) => ({ value, label }))} /></span>
               </label>
             </li>
           ))}
@@ -77,9 +76,7 @@ export default function ScrapeHealth() {
         <p className="text-xs text-muted">Give the developer and the address of its listing page. The language model proposes where each field lives and tries it on the page; you see what it found before anything is saved.</p>
         <div className="flex flex-wrap gap-2">
           <label className="sr-only" htmlFor="onboard-dev">Developer</label>
-          <select id="onboard-dev" value={slug} onChange={(e) => setSlug(e.target.value)} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm">
-            <option value="">Developer...</option><option value="ayat">Ayat</option><option value="noah">Noah</option><option value="gift">Gift</option>
-          </select>
+          <div className="w-44"><Select id="onboard-dev" value={slug} onChange={setSlug} placeholder="Developer..." options={[{ value: "ayat", label: "Ayat" }, { value: "noah", label: "Noah" }, { value: "gift", label: "Gift" }]} /></div>
           <label className="sr-only" htmlFor="onboard-url">Page address</label>
           <input id="onboard-url" value={onboardUrl} onChange={(e) => setOnboardUrl(e.target.value)} placeholder="https://developer.example/units" className="min-w-[16rem] flex-1 rounded-md border border-line bg-bg px-3 py-1.5 text-sm" />
           <Button variant="primary" disabled={busy || !slug || !onboardUrl.startsWith("http")} onClick={() => void suggest()}>{busy ? "Working..." : "Suggest selectors"}</Button>

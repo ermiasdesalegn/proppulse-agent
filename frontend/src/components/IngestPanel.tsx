@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import clsx from "./clsx";
+import Select from "./Select";
 import { Button, Card, ErrorNote, Pill } from "./ui";
 import { api, errorMessage, post } from "@/lib/api";
 import { fmtEtb, fmtPct } from "@/lib/format";
@@ -129,9 +130,7 @@ export default function IngestPanel({ onChanged }: { onChanged: () => void }) {
         <div className="grid gap-3 sm:grid-cols-[14rem_1fr]">
           <div>
             <label htmlFor="ingest-developer" className="block text-sm font-medium">Developer</label>
-            <select id="ingest-developer" value={developer} onChange={(e) => setDeveloper(e.target.value)} className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm">
-              {(developers.data ?? [{ slug: "ayat", name: "Ayat Real Estate" } as Developer]).map((d) => <option key={d.slug} value={d.slug}>{d.name}</option>)}
-            </select>
+            <div className="mt-1"><Select id="ingest-developer" value={developer} onChange={setDeveloper} options={(developers.data ?? [{ slug: "ayat", name: "Ayat Real Estate" } as Developer]).map((d) => ({ value: d.slug, label: d.name }))} /></div>
           </div>
           <div role="tablist" aria-label="What to read" className="flex items-end gap-1">
             {([["html", "Listing page (HTML)"], ["text", "Announcement text"]] as const).map(([id, label]) => (

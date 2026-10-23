@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import clsx from "@/components/clsx";
+import Select from "@/components/Select";
 import { PageHeader, Button, Card, DEVELOPER_COLOR, DEVELOPER_VAR, ErrorNote, Pill, ScoreBar } from "@/components/ui";
 import { errorMessage, patch } from "@/lib/api";
 import { COLUMNS, applyMove, canMove, dealsByStatus, expectedCommission, needsContractDetails, qualifiedLabel, type ColumnId } from "@/lib/board";
@@ -112,13 +113,11 @@ export default function BoardPage() {
                           <div className="mt-2 flex items-center justify-between gap-2">
                             <ScoreBar score={d.lead_score} />
                             <label className="sr-only" htmlFor={`move-${d.id}`}>Move deal for {d.buyer_name} to</label>
-                            <select
-                              id={`move-${d.id}`} value="" onChange={(e) => { if (e.target.value) requestMove(d, e.target.value as LedgerStatus); }}
-                              className="max-w-[7.5rem] rounded border border-line bg-bg px-1.5 py-1 text-xs"
-                            >
-                              <option value="">Move to...</option>
-                              {COLUMNS.filter((c) => c.accepts && c.id !== d.status).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-                            </select>
+                            <Select
+                              id={`move-${d.id}`} size="sm" className="max-w-[9rem]" menuWidth="content" value="" placeholder="Move to..."
+                              onChange={(v) => { if (v) requestMove(d, v as LedgerStatus); }}
+                              options={COLUMNS.filter((c) => c.accepts && c.id !== d.status).map((c) => ({ value: c.id, label: c.title }))}
+                            />
                           </div>
                         </article>
                       ))}
