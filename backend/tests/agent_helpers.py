@@ -37,6 +37,13 @@ class FakeGateway:
         self.audio: list[bytes] = []
 
     async def generate_structured(self, prompt, schema, *, system=None):
+        from app.ingest.models import ListingExtraction
+
+        if schema is ListingExtraction:
+            self.calls.append(("extraction", prompt))
+            if getattr(self, "fail_listing_extraction", False):
+                raise RuntimeError("gemini down")
+            return self.listing_extraction
         if schema is Recommendation:
             self.calls.append(("recommendation", prompt))
             n = int(re.search(r"Number of options: (\d+)", prompt).group(1))
@@ -58,6 +65,19 @@ class FakeGateway:
     async def embed_query(self, text):
         self.calls.append(("embed", text))
         return self.vector
+
+    async def embed_documents(self, texts):
+        self.calls.append(("embed_documents", f"{len(texts)} texts"))
+        self.documents = [*getattr(self, "documents", []), *texts]
+        return [self.vector for _ in texts]
+
+    async def describe_image(self, image, *, mime_type, prompt, schema, system=None):
+        from app.ingest.models import FloorPlanTags
+
+        self.calls.append(("image", f"{len(image)} bytes {mime_type}"))
+        if getattr(self, "fail_image", False):
+            raise RuntimeError("vision down")
+        return FloorPlanTags(tags=["open-plan kitchen", "maid room + bath"], net_to_gross_ratio=0.82, summary="Two-bedroom layout.")
 
     def count(self, kind: str) -> int:
         return sum(1 for k, _ in self.calls if k == kind)

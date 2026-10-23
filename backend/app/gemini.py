@@ -54,6 +54,7 @@ class GeminiBackend(Protocol):
     async def generate_text(self, prompt: str, system: str | None) -> str: ...
     async def generate_structured(self, prompt: str, schema: type[M], system: str | None) -> M: ...
     async def transcribe_audio(self, audio: bytes, mime_type: str, prompt: str) -> str: ...
+    async def describe_image(self, image: bytes, mime_type: str, prompt: str, schema: type[M], system: str | None) -> M: ...
     async def embed(self, texts: list[str], task_type: str) -> list[list[float]]: ...
 
 
@@ -139,6 +140,15 @@ class GenAIBackend:
     async def transcribe_audio(self, audio: bytes, mime_type: str, prompt: str) -> str:
         res = await self._generate(contents=[types.Part.from_bytes(data=audio, mime_type=mime_type), prompt])
         return res.text or ""
+
+    async def describe_image(self, image: bytes, mime_type: str, prompt: str, schema: type[M], system: str | None) -> M:
+        res = await self._generate(
+            contents=[types.Part.from_bytes(data=image, mime_type=mime_type), prompt],
+            config=types.GenerateContentConfig(system_instruction=system, response_mime_type="application/json", response_schema=schema),
+        )
+        if res.parsed is None:
+            raise ValueError("Gemini returned output that does not match the requested schema")
+        return res.parsed
 
     async def embed(self, texts: list[str], task_type: str) -> list[list[float]]:
         res = await self._client.aio.models.embed_content(
@@ -275,6 +285,9 @@ class GeminiGateway:
 
     async def transcribe_audio(self, audio: bytes, *, mime_type: str = "audio/ogg", prompt: str) -> str:
         return await self._submit(lambda: self._backend.transcribe_audio(audio, mime_type, prompt))
+
+    async def describe_image(self, image: bytes, *, mime_type: str, prompt: str, schema: type[M], system: str | None = None) -> M:
+        return await self._submit(lambda: self._backend.describe_image(image, mime_type, prompt, schema, system))
 
     async def embed_query(self, text: str) -> list[float]:
         return (await self._submit(lambda: self._backend.embed([text], "RETRIEVAL_QUERY"), self._embed))[0]

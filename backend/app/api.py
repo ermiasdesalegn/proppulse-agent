@@ -6,11 +6,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.chat import ChatService, Conflict, Inbound
 from app.config import Settings
 from app.events import sse_frames
+from app.ingest.fetch import FetchError
+from app.ingest.models import ScrapeProfile
+from app.ingest.sample import sample_listing
+from app.ingest.service import ExtractionError, IngestionService
 from app.repository import Repository
 from app.telegram_updates import TelegramUpdateHandler
 
@@ -162,6 +168,112 @@ async def change_price(property_id: UUID, body: PriceIn, repo: Repository = Depe
         return await repo.update_property_price(property_id, body.price_etb)
     except LookupError:
         raise HTTPException(404, "Property not found") from None
+
+
+# ---------------- market ingestion ----------------
+
+class IngestIn(BaseModel):
+    developer_slug: str = Field(pattern=r"^[a-z0-9-]{2,40}$")
+    source: Literal["html", "text", "url"]
+    html: str | None = Field(default=None, max_length=500_000)
+    text: str | None = Field(default=None, max_length=20_000)
+    url: str | None = Field(default=None, max_length=2048)
+    profile: ScrapeProfile | None = None
+    full_sync: bool = False
+    dry_run: bool = False
+    publish_ads: bool = False
+
+
+class ScrapeConfigIn(BaseModel):
+    url: str | None = Field(default=None, max_length=2048)
+    profile: ScrapeProfile | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _http_only(cls, value: str | None) -> str | None:
+        if value and not value.lower().startswith(("http://", "https://")):
+            raise ValueError("the scrape address must start with http:// or https://")
+        return value or None
+
+
+def ingest_of(request: Request) -> IngestionService:
+    return request.app.state.ingest
+
+
+async def _announce(request: Request, report: dict) -> list[dict]:
+    ads = getattr(request.app.state, "ads", None)
+    return await ads.announce_report(report) if ads else []
+
+
+@router.post("/api/ingest", dependencies=[Depends(require_admin)])
+async def ingest(body: IngestIn, request: Request, service: IngestionService = Depends(ingest_of)):
+    try:
+        report = await service.run(developer_slug=body.developer_slug, source=body.source, html=body.html, text=body.text, url=body.url,
+                                   profile=body.profile, full_sync=body.full_sync, dry_run=body.dry_run)
+    except LookupError:
+        raise HTTPException(404, "Developer not found") from None
+    except (ValueError, FetchError) as exc:
+        raise HTTPException(422, str(exc)) from None
+    except ExtractionError as exc:
+        raise HTTPException(502, str(exc)) from None
+    report["ads"] = await _announce(request, report) if body.publish_ads and not body.dry_run else []
+    return report
+
+
+@router.get("/api/ingest/runs", dependencies=[Depends(require_admin)])
+async def ingest_runs(limit: int = 20, repo: Repository = Depends(repo_of)):
+    return await repo.list_ingest_runs(min(max(limit, 1), 100))
+
+
+@router.get("/api/samples/listing", dependencies=[Depends(require_admin)])
+async def sample_listing_page(variant: int = 1):
+    if variant not in (1, 2):
+        raise HTTPException(422, "variant must be 1 or 2")
+    html, profile = sample_listing(variant)
+    return {"developer_slug": "ayat", "html": html, "profile": profile, "variant": variant}
+
+
+@router.get("/api/developers", dependencies=[Depends(require_admin)])
+async def list_developers(repo: Repository = Depends(repo_of)):
+    return await repo.list_developers()
+
+
+@router.put("/api/developers/{slug}/scrape", dependencies=[Depends(require_admin)])
+async def set_scrape_source(slug: str, body: ScrapeConfigIn, repo: Repository = Depends(repo_of)):
+    if (body.url is None) != (body.profile is None):
+        raise HTTPException(422, "give both the address and the selectors, or neither to clear them")
+    try:
+        return await repo.set_developer_scrape(slug, body.url, body.profile.model_dump() if body.profile else None)
+    except LookupError:
+        raise HTTPException(404, "Developer not found") from None
+
+
+@router.post("/api/cron/scrape-market", dependencies=[Depends(require_cron_or_admin)])
+async def scrape_market(request: Request, dry_run: bool = False, publish_ads: bool = False,
+                        service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of)):
+    """Read every developer that has a scrape address saved. One developer failing never stops the others."""
+    details, totals = [], {"sent": 0, "skipped": 0, "failed": 0}
+    configured = [d for d in await repo.list_developers() if d["scrape_url"] and d["scrape_profile"]]
+    for dev in configured:
+        try:
+            report = await service.run(developer_slug=dev["slug"], source="url", full_sync=True, dry_run=dry_run)
+        except (ValueError, FetchError, ExtractionError, LookupError) as exc:
+            totals["failed"] += 1
+            details.append({"developer": dev["name"], "error": str(exc)})
+            continue
+        c = report["counts"]
+        totals["sent"] += c["created"] + c["price_changed"] + c["removed"]
+        totals["skipped"] += c["unchanged"]
+        line = {"developer": dev["name"], "new": c["created"], "price changes": c["price_changed"], "removed": c["removed"], "unchanged": c["unchanged"]}
+        if report["sync"].startswith("skipped"):
+            line["warning"] = report["sync"]
+        if publish_ads and not dry_run:
+            line["ads posted"] = len([a for a in await _announce(request, report) if a.get("posted")])
+        details.append(line)
+    if not configured:
+        details.append({"note": "No developer has a scrape address saved yet. Save one with PUT /api/developers/{slug}/scrape, or use Studio to read a page."})
+    job = {"job": "market_scraper", "dry_run": dry_run, **totals, "details": details}
+    return {"dry_run": dry_run, **totals, "jobs": [job]}
 
 
 # ---------------- live activity stream ----------------

@@ -1,11 +1,11 @@
 """Seed 3 partner developers and 15 representative properties. Safe to run repeatedly."""
-import hashlib
 import json
 
 import psycopg
 
 from app.config import get_settings
 from app.embeddings import embed_documents
+from app.ingest.text import content_hash
 
 DEVELOPERS = [
     # Seed contacts use the reserved .example domain; real sales offices go in later.
@@ -62,11 +62,6 @@ P = [
      "Two-bedroom apartment with a sunny corner balcony, close to Sarbet schools and markets.",
      ["corner balcony", "near schools", "sunny", "market access", "elevator"]),
 ]
-
-
-def content_hash(slug: str, project: str, unit_type: str, sqm: float) -> str:
-    key = "|".join([slug.strip().lower(), project.strip().lower(), unit_type.strip().lower(), f"{float(sqm):g}"])
-    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def embedding_text(row: tuple) -> str:

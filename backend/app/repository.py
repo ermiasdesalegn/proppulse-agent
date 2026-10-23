@@ -1,6 +1,7 @@
 """All SQL used by the agent and API lives here. Rows come back as plain dicts."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -108,6 +109,109 @@ class Repository:
                     (str(property_id), old, new_price_etb, change_pct),
                 )
         return {"property_id": str(property_id), "old_price_etb": float(old), "new_price_etb": float(new_price_etb), "change_pct": float(change_pct), "changed": True}
+
+    # ---- ingestion ----
+
+    async def list_developers(self) -> list[dict]:
+        return await self._fetch("select id, name, slug, sales_email, scrape_url, scrape_profile from developers order by name")
+
+    async def set_developer_scrape(self, slug: str, url: str | None, profile: dict | None) -> dict:
+        from psycopg.types.json import Jsonb
+
+        row = await self._one(
+            "update developers set scrape_url = %s, scrape_profile = %s where slug = %s returning id, name, slug, scrape_url, scrape_profile",
+            (url, Jsonb(profile) if profile else None, slug),
+        )
+        if row is None:
+            raise LookupError(f"developer {slug} not found")
+        return row
+
+    async def get_property_by_hash(self, content_hash: str) -> dict | None:
+        return await self._one(
+            "select id, developer_id, title, price_etb, status, floor_plan_image_url from properties where content_hash = %s", (content_hash,))
+
+    async def insert_property(self, *, developer_id: UUID | str, unit: Any, content_hash: str, embedding: Sequence[float],
+                              vision_amenities: dict, lat: float | None, lng: float | None) -> UUID | None:
+        """Insert a unit; None if another run just inserted the same one (the hash is unique)."""
+        from psycopg.types.json import Jsonb
+
+        row = await self._one(
+            "insert into properties (developer_id, title, project_name, unit_type, sub_city, lat, lng, price_etb, bedrooms, sqm, "
+            "down_payment_pct, construction_stage_pct, est_rental_yield_pct, delivery_date, description, floor_plan_image_url, "
+            "vision_amenities, content_hash, embedding) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector) "
+            "on conflict (content_hash) do nothing returning id",
+            (str(developer_id), unit.display_title, unit.project_name, unit.unit_type, unit.sub_city, lat, lng, unit.price_etb, unit.bedrooms,
+             unit.sqm, unit.down_payment_pct, unit.construction_stage_pct, unit.est_rental_yield_pct, unit.delivery_date, unit.description,
+             unit.floor_plan_image_url, Jsonb(vision_amenities), content_hash, vector_literal(embedding)),
+        )
+        return None if row is None else row["id"]
+
+    async def update_property_image(self, property_id: UUID | str, url: str) -> None:
+        await self._fetch("update properties set floor_plan_image_url = %s where id = %s returning id", (url, str(property_id)))
+
+    async def set_property_status(self, ids: Sequence[UUID | str], status: str) -> int:
+        rows = await self._fetch("update properties set status = %s where id = any(%s::uuid[]) returning id", (status, [str(i) for i in ids]))
+        return len(rows)
+
+    async def available_for_developer(self, developer_id: UUID | str) -> list[dict]:
+        return await self._fetch(
+            "select id, title, content_hash from properties where developer_id = %s and status = 'AVAILABLE'", (str(developer_id),))
+
+    async def coordinates_for(self, developer_id: UUID | str, project_name: str, sub_city: str) -> tuple[float, float] | None:
+        """Where a new unit probably is: another unit of the same project, else the middle of the area's existing units."""
+        row = await self._one(
+            "select lat, lng from properties where developer_id = %s and lower(project_name) = lower(%s) and lat is not null limit 1",
+            (str(developer_id), project_name))
+        if row is None:
+            row = await self._one("select avg(lat) as lat, avg(lng) as lng from properties where sub_city = %s and lat is not null", (sub_city,))
+        return (float(row["lat"]), float(row["lng"])) if row and row["lat"] is not None else None
+
+    async def record_ingest_run(self, *, developer_id: UUID | str | None, source: str, dry_run: bool, full_sync: bool, counts: dict, report: dict) -> int:
+        from psycopg.types.json import Jsonb
+
+        row = await self._one(
+            "insert into ingest_runs (developer_id, source, dry_run, full_sync, created, price_changed, removed, unchanged, skipped, report) "
+            "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
+            (None if developer_id is None else str(developer_id), source, dry_run, full_sync, counts["created"], counts["price_changed"],
+             counts["removed"], counts["unchanged"], counts["skipped"], Jsonb(report, dumps=lambda o: json.dumps(o, default=str))),
+        )
+        return row["id"]
+
+    async def list_ingest_runs(self, limit: int = 20) -> list[dict]:
+        return await self._fetch(
+            "select r.id, r.source, r.dry_run, r.full_sync, r.created, r.price_changed, r.removed, r.unchanged, r.skipped, r.created_at, "
+            "d.name as developer_name from ingest_runs r left join developers d on d.id = r.developer_id order by r.id desc limit %s", (limit,))
+
+    # ---- channel ads ----
+
+    async def find_property_by_code(self, code: str) -> dict | None:
+        rows = await self._fetch("select id from properties where replace(id::text, '-', '') like %s limit 2", (code.lower() + "%",))
+        return rows[0] if len(rows) == 1 else None  # an ambiguous code matches nothing rather than the wrong unit
+
+    async def similar_properties(self, property_id: UUID | str, *, threshold: float, limit: int = 2) -> list[dict]:
+        return await self._fetch(
+            "select p.id, 1 - (p.embedding <=> src.embedding) as similarity from properties p, properties src "
+            "where src.id = %s and p.id <> src.id and p.status = 'AVAILABLE' and p.embedding is not null "
+            "and 1 - (p.embedding <=> src.embedding) >= %s order by p.embedding <=> src.embedding limit %s",
+            (str(property_id), threshold, limit))
+
+    async def claim_channel_post(self, *, property_id: UUID | str, kind: str, price_etb: float, chat_id: str, text: str) -> dict | None:
+        """Reserve the right to announce this event once. None if this exact announcement was already made."""
+        return await self._one(
+            "insert into channel_posts (property_id, kind, price_etb, chat_id, text) values (%s,%s,%s,%s,%s) "
+            "on conflict (property_id, kind, price_etb) where kind <> 'MANUAL' do nothing returning *",
+            (str(property_id), kind, price_etb, chat_id, text))
+
+    async def set_channel_post_message(self, post_id: int, message_id: int) -> None:
+        await self._fetch("update channel_posts set telegram_message_id = %s where id = %s returning id", (message_id, post_id))
+
+    async def release_channel_post(self, post_id: int) -> None:
+        await self._fetch("delete from channel_posts where id = %s returning id", (post_id,))
+
+    async def list_channel_posts(self, limit: int = 20) -> list[dict]:
+        return await self._fetch(
+            "select c.id, c.kind, c.price_etb, c.text, c.created_at, c.telegram_message_id, p.title from channel_posts c "
+            "join properties p on p.id = c.property_id order by c.id desc limit %s", (limit,))
 
     # ---- proactive jobs ----
 

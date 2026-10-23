@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     email_backend: str = "auto"
     telegram_backend: str = "auto"
 
+    scrape_allow_private_hosts: bool = False  # only for pointing the scraper at a page on this machine while developing
+    ingest_max_vision_per_run: int = 10  # floor-plan images read per run; each costs a model call
+    ads_auto_publish: bool = False  # post new listings and price drops to the channel without being asked
+    telegram_channel_id: str = ""
+
     broker_name: str = "Ermias Desalegn"
     broker_telegram_chat_id: str = ""  # where the broker's own notices go; falls back to DEMO_FALLBACK_TELEGRAM_CHAT_ID
     proactive_lookback_hours: int = 24  # how far back price drops and new listings count as news
