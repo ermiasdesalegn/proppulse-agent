@@ -26,8 +26,7 @@ async def call(client: httpx.AsyncClient, token: str, method: str, **data) -> di
     return body
 
 
-async def main(photo: Path) -> int:
-    photo_bytes = photo.read_bytes() if photo.exists() else b""  # read once, before any awaiting
+async def main(photo_name: str, photo_bytes: bytes) -> int:
     s = get_settings()
     if not s.telegram_bot_token:
         print("TELEGRAM_BOT_TOKEN is not set")
@@ -38,7 +37,7 @@ async def main(photo: Path) -> int:
         await call(client, s.telegram_bot_token, "setMyDescription", description=ABOUT)
         if s.telegram_channel_id and photo_bytes:
             res = await client.post(f"https://api.telegram.org/bot{s.telegram_bot_token}/setChatPhoto", data={"chat_id": s.telegram_channel_id},
-                                    files={"photo": (photo.name, photo_bytes, "image/png")})
+                                    files={"photo": (photo_name, photo_bytes, "image/png")})
             body = res.json()
             print(f"setChatPhoto: {'ok' if body.get('ok') else body.get('description')}")
         else:
@@ -49,4 +48,5 @@ async def main(photo: Path) -> int:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--photo", type=Path, default=Path(__file__).resolve().parents[2] / "docs" / "brand" / "logo-640.png")
-    sys.exit(asyncio.run(main(p.parse_args().photo)))
+    photo = p.parse_args().photo
+    sys.exit(asyncio.run(main(photo.name, photo.read_bytes() if photo.exists() else b"")))
