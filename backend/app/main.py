@@ -15,6 +15,7 @@ from app.chat import ChatService
 from app.config import get_settings
 from app.db import make_pool
 from app.gemini import get_gateway
+from app.proactive import ProactiveService
 from app.repository import Repository
 from app.services import build_services
 from app.services.telegram import BotApiTelegramService
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI):
     repo = Repository(pool)
     agent = BrokerAgent(AgentDeps(gateway=gateway, repo=repo, services=services, settings=s), checkpointer.saver)
     chat = ChatService(repo, agent, services, s)
+    proactive = ProactiveService(repo, agent, services, s)
     handler = TelegramUpdateHandler(chat)
 
     poller, telegram_status = None, "webhook" if s.telegram_mode == "webhook" else "off"
@@ -50,7 +52,7 @@ async def lifespan(app: FastAPI):
             poller, telegram_status = None, f"unavailable ({exc})"
             log.error("Telegram is unavailable, continuing without it: %s", exc)
 
-    app.state.settings, app.state.repo, app.state.chat = s, repo, chat
+    app.state.settings, app.state.repo, app.state.chat, app.state.proactive = s, repo, chat, proactive
     app.state.telegram_handler, app.state.checkpointer_kind = handler, checkpointer.kind
     app.state.telegram_mode = telegram_status
     try:

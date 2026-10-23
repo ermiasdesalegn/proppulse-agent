@@ -26,6 +26,22 @@ async def require_admin(request: Request, x_admin_key: str | None = Header(defau
         raise HTTPException(401, "Invalid admin key")
 
 
+async def require_cron_or_admin(
+    request: Request, x_cron_secret: str | None = Header(default=None), x_admin_key: str | None = Header(default=None)
+) -> None:
+    """Cloud Scheduler authenticates with the cron secret; the dashboard's buttons use the admin key."""
+    s = request.app.state.settings
+    if not s.cron_secret and not s.admin_api_key:
+        raise HTTPException(503, "Neither CRON_SECRET nor ADMIN_API_KEY is configured")
+    if (s.cron_secret and _same(x_cron_secret, s.cron_secret)) or (s.admin_api_key and _same(x_admin_key, s.admin_api_key)):
+        return
+    raise HTTPException(401, "Invalid credentials")
+
+
+def proactive_of(request: Request):
+    return request.app.state.proactive
+
+
 def chat_of(request: Request) -> ChatService:
     return request.app.state.chat
 
@@ -55,6 +71,10 @@ class BrokerReplyIn(BaseModel):
 
 class TakeoverIn(BaseModel):
     on: bool
+
+
+class PriceIn(BaseModel):
+    price_etb: float = Field(gt=0, lt=1e12)
 
 
 def public_buyer(row: dict) -> dict:
@@ -94,6 +114,51 @@ async def web_chat_messages(session_id: str, after_id: int = 0, repo: Repository
     buyer = await repo.get_buyer_by_thread(f"web:{session_id}")
     return {"buyer_id": buyer and str(buyer["id"]), "takeover": bool(buyer and buyer["human_takeover"]),
             "messages": await repo.list_messages(buyer["id"], after_id=after_id) if buyer else []}
+
+
+# ---------------- proactive jobs ----------------
+
+@router.post("/api/cron/daily-proactive-run", dependencies=[Depends(require_cron_or_admin)])
+async def daily_proactive_run(dry_run: bool = False, proactive=Depends(proactive_of)):
+    return await proactive.run_all(dry_run)
+
+
+@router.post("/api/cron/reverse-rag-alerts", dependencies=[Depends(require_cron_or_admin)])
+async def reverse_rag_alerts(dry_run: bool = False, proactive=Depends(proactive_of)):
+    return await proactive.reverse_rag_alerts(dry_run)
+
+
+@router.post("/api/cron/tour-reminders", dependencies=[Depends(require_cron_or_admin)])
+async def tour_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
+    return await proactive.tour_reminders(dry_run)
+
+
+@router.post("/api/cron/milestone-reminders", dependencies=[Depends(require_cron_or_admin)])
+async def milestone_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
+    return await proactive.milestone_reminders(dry_run)
+
+
+@router.post("/api/cron/reminders", dependencies=[Depends(require_cron_or_admin)])
+async def all_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
+    """Tour and milestone reminders together: the dashboard's 'Send 24h Tour & Milestone Reminders' button."""
+    jobs = [await proactive.tour_reminders(dry_run), await proactive.milestone_reminders(dry_run)]
+    return {"dry_run": dry_run, "jobs": jobs, **{k: sum(j[k] for j in jobs) for k in ("sent", "skipped", "failed")}}
+
+
+@router.get("/api/proactive/events", dependencies=[Depends(require_admin)])
+async def proactive_events(audience: str | None = None, limit: int = 100, repo: Repository = Depends(repo_of)):
+    if audience not in (None, "buyer", "broker"):
+        raise HTTPException(422, "audience must be 'buyer' or 'broker'")
+    return await repo.list_events(audience=audience, limit=min(max(limit, 1), 500))
+
+
+@router.post("/api/properties/{property_id}/price", dependencies=[Depends(require_admin)])
+async def change_price(property_id: UUID, body: PriceIn, repo: Repository = Depends(repo_of)):
+    """Record a developer's price change. The next proactive run alerts buyers the unit now suits."""
+    try:
+        return await repo.update_property_price(property_id, body.price_etb)
+    except LookupError:
+        raise HTTPException(404, "Property not found") from None
 
 
 # ---------------- broker console ----------------

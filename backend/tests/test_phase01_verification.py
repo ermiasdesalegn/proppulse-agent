@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[2]
 TABLES = {
     "developers", "properties", "price_history", "buyers_crm",
     "tours_and_appointments", "tour_properties", "commission_ledger", "chat_messages",
+    "proactive_events",
 }
 
 
