@@ -59,6 +59,9 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 
 | Page | Look |
 |---|---|
+| Overview | ![Overview](docs/screenshots/overview.jpg) |
+| CRM and takeover | ![CRM](docs/screenshots/crm.jpg) |
+| Agent Brain | ![Agent Brain](docs/screenshots/brain.jpg) |
 | Analytics | ![Analytics](docs/screenshots/analytics.jpg) |
 | Studio | ![Studio](docs/screenshots/studio.jpg) |
 
