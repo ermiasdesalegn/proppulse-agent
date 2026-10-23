@@ -99,6 +99,16 @@ def make_chat(repo, gateway, *, services=None, **settings_overrides):
     return ChatService(repo, agent, services, settings), services, agent
 
 
+def make_proactive(repo, *, services=None, now=None, **settings_overrides):
+    from app.proactive import ProactiveService
+
+    settings = get_settings().model_copy(update=settings_overrides)
+    services = services or make_services()
+    deps = AgentDeps(gateway=FakeGateway(), repo=repo, services=services, settings=settings, now=lambda: NOW)
+    agent = BrokerAgent(deps, MemorySaver())
+    return ProactiveService(repo, agent, services, settings, now=now), services, agent
+
+
 async def new_buyer(repo, tag: str) -> dict:
     return await repo.get_or_create_buyer(f"test:{tag}")
 
