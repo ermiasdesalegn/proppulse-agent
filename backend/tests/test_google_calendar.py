@@ -202,3 +202,9 @@ def test_service_account_loads_from_json_text_or_a_file(tmp_path):
 def test_a_broken_key_is_a_clear_error(bad):
     with pytest.raises(CalendarError):
         load_service_account(bad)
+
+
+async def test_a_response_with_no_body_is_accepted():
+    service, fake, _ = make()
+    fake.fail_next_api = [httpx.Response(204)]  # what Google answers to a DELETE
+    assert await service._call("DELETE", "/calendars/x/events/evt_123") == {}

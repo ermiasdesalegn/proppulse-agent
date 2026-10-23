@@ -103,7 +103,7 @@ class GoogleCalendarService:
                 except ValueError:
                     pass
                 raise CalendarError(f"Google Calendar returned {res.status_code}: {detail[:200]}")
-            return res.json()
+            return res.json() if res.content else {}  # DELETE answers 204 with no body
         raise CalendarError("Google Calendar kept refusing the access token")
 
     # ---------------- calendar ----------------
