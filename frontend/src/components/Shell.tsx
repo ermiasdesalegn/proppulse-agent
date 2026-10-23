@@ -113,7 +113,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {navigating && <div role="progressbar" aria-label="Loading the page" className="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden bg-white/5"><div className="nav-progress h-full w-1/3 bg-white/60" /></div>}
+          {navigating && <div role="progressbar" aria-label="Loading the page" className="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-white/5"><div className="nav-progress h-full w-1/3 bg-white/60" /></div>}
           <ControlBar />
           <motion.main key={pathname} className="mx-auto w-full max-w-[1500px] flex-1 p-4 md:p-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
             {children}
