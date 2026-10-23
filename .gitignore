@@ -11,3 +11,4 @@ updated/
 *.csv
 .env_*
 *.log
+.npm-cache/

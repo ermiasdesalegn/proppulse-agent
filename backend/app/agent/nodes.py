@@ -477,7 +477,7 @@ class AgentNodes:
 
         lines = [f"Your site visit is booked for {self._local(start)} with {s.broker_name}.", "", "Route:"]
         lines += [f"{i}. {p['title']} ({p['sub_city']})" for i, p in enumerate(ordered, start=1)]
-        if plan:
+        if plan and len(ordered) > 1:  # a single stop has no driving to report
             lines += ["", f"About {plan.distance_meters / 1000:.1f} km of driving, roughly {plan.duration_seconds // 60} minutes between stops."]
         devs = ", ".join(sorted({p["developer_name"] for p in ordered}))
         lines += ["", f"I've notified {devs} that you're visiting with us."]

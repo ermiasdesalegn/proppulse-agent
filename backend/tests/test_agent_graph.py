@@ -305,6 +305,19 @@ async def test_booking_creates_tour_calendar_event_ledger_and_emails(spy_repo, d
     assert row["deal_stage"] == "SITE_VISIT_BOOKED" and row["human_takeover"] is False
 
 
+async def test_a_single_stop_visit_does_not_report_driving_time(spy_repo, vector_of):
+    """Regression found in the dashboard: 'About 0.0 km of driving, roughly 0 minutes between stops'."""
+    email = MockEmailService()
+    gw = FakeGateway([ext(**BOLE_3BR), ext("book_tour", **(BOOK | {"referenced_options": [1]}))], vector=await vector_of("Noah Bole Towers 3BR%"))
+    agent, buyer = make_agent(spy_repo, gw, services=make_services(email=email)), await new_buyer(spy_repo, "onestop")
+    await say_to(agent, buyer, "3BR Bole")
+    res = await say_to(agent, buyer, "book the first")
+    assert res.state["booked"] and "booked for" in res.reply
+    assert "km of driving" not in res.reply
+    buyer_mail = next(m for m in email.sent if m["to"] == "abel@buyer.test")
+    assert "Total driving" not in buyer_mail["html"]
+
+
 async def test_missing_contact_details_are_requested_before_booking(spy_repo, db_conn, vector_of):
     gw = FakeGateway([ext(**BOLE_3BR), ext("book_tour", referenced_options=[1], tour_start_iso="2026-11-03T10:00:00+03:00")],
                      vector=await vector_of("Noah Bole Towers 3BR%"))
