@@ -133,6 +133,70 @@ export interface ProactiveEvent {
   created_at: string;
 }
 
+export interface Developer {
+  id: string;
+  name: string;
+  slug: string;
+  sales_email: string;
+  scrape_url: string | null;
+  scrape_profile: Record<string, unknown> | null;
+}
+
+export interface IngestReport {
+  developer: string;
+  source: string;
+  dry_run: boolean;
+  full_sync: boolean;
+  found: number;
+  created: { title: string; price_etb: number; area: string; property_id?: string | null; floor_plan_tags?: string[] }[];
+  price_changed: { title: string; old_price_etb: number; new_price_etb: number; change_pct: number }[];
+  image_updated: { title: string }[];
+  reactivated: { title: string }[];
+  removed: { title: string }[];
+  skipped: { title?: string; reason: string }[];
+  unchanged: number;
+  sync: string;
+  notes: string[];
+  parse_errors: string[];
+  counts: { created: number; price_changed: number; removed: number; unchanged: number; skipped: number };
+  run_id?: number;
+  ads: { title: string; kind: string; posted: boolean; error?: string; reason?: string }[];
+}
+
+export interface IngestRun {
+  id: number;
+  source: string;
+  dry_run: boolean;
+  full_sync: boolean;
+  created: number;
+  price_changed: number;
+  removed: number;
+  unchanged: number;
+  skipped: number;
+  created_at: string;
+  developer_name: string | null;
+}
+
+export interface AdResult {
+  posted: boolean;
+  preview?: string;
+  buttons?: string[];
+  has_photo?: boolean;
+  message_id?: number;
+  text?: string;
+  reason?: string;
+}
+
+export interface ChannelPost {
+  id: number;
+  kind: string;
+  price_etb: number;
+  text: string;
+  created_at: string;
+  telegram_message_id: number | null;
+  title: string;
+}
+
 export interface JobResult {
   job: string;
   dry_run: boolean;

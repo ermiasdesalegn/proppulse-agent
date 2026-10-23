@@ -5,9 +5,10 @@ import { errorMessage, post } from "@/lib/api";
 import type { JobSummary } from "@/lib/types";
 import { Button, ErrorNote } from "./ui";
 
-type JobKey = "alerts" | "reminders";
+type JobKey = "scraper" | "alerts" | "reminders";
 
 const JOBS: { key: JobKey; label: string; path: string }[] = [
+  { key: "scraper", label: "Run Market Scraper", path: "cron/scrape-market" },
   { key: "alerts", label: "Trigger Reverse-RAG Price-Drop Alerts", path: "cron/reverse-rag-alerts" },
   { key: "reminders", label: "Send 24h Tour & Milestone Reminders", path: "cron/reminders" },
 ];
@@ -16,6 +17,7 @@ const JOB_TITLES: Record<string, string> = {
   reverse_rag_alerts: "Price-drop and new-listing alerts",
   tour_reminders: "24-hour tour reminders",
   milestone_reminders: "Payment milestones and commission",
+  market_scraper: "Developer listing pages",
 };
 
 export default function ControlBar() {
@@ -42,9 +44,8 @@ export default function ControlBar() {
     <div className="border-b border-line bg-panel">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Run now</span>
-        <Button disabled title="The market scraper arrives in a later phase" className="hidden sm:inline-block">Run Market Scraper</Button>
         {JOBS.map((job) => (
-          <Button key={job.key} variant="primary" disabled={running !== null} onClick={() => run(job)}>
+          <Button key={job.key} variant={job.key === "scraper" ? "default" : "primary"} disabled={running !== null} onClick={() => run(job)}>
             {running === job.key ? "Running..." : job.label}
           </Button>
         ))}
@@ -61,7 +62,9 @@ export default function ControlBar() {
             <div>
               <div className="flex items-start justify-between gap-3">
                 <p className="font-medium">
-                  {result.label}: {result.summary.dry_run ? "preview" : "done"}. <span className="tnum">{result.summary.sent}</span> {result.summary.dry_run ? "would be sent" : "sent"}, <span className="tnum">{result.summary.skipped}</span> skipped, <span className="tnum">{result.summary.failed}</span> failed.
+                  {result.label}: {result.summary.dry_run ? "preview" : "done"}. <span className="tnum">{result.summary.sent}</span>{" "}
+                  {result.summary.jobs[0]?.job === "market_scraper" ? (result.summary.dry_run ? "changes would be applied" : "changes applied") : result.summary.dry_run ? "would be sent" : "sent"},{" "}
+                  <span className="tnum">{result.summary.skipped}</span> {result.summary.jobs[0]?.job === "market_scraper" ? "unchanged" : "skipped"}, <span className="tnum">{result.summary.failed}</span> failed.
                 </p>
                 <button onClick={() => setResult(null)} className="text-muted hover:text-ink" aria-label="Dismiss result">Dismiss</button>
               </div>

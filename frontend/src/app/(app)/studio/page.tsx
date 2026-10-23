@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, ErrorNote, Pill } from "@/components/ui";
+import AdPanel from "@/components/AdPanel";
+import IngestPanel from "@/components/IngestPanel";
+import { Button, Card, Empty, ErrorNote, Pill } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
-import { fmtEtb } from "@/lib/format";
-import type { Property } from "@/lib/types";
+import { fmtEtb, timeAgo } from "@/lib/format";
+import type { IngestRun, Property } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
 interface PriceResult {
@@ -15,14 +17,9 @@ interface PriceResult {
   changed: boolean;
 }
 
-const COMING = [
-  { title: "Market scraper", text: "Reads each partner developer's listing pages and spots new units and price changes automatically." },
-  { title: "Floor-plan vision", text: "Turns floor-plan images into searchable features such as open kitchen, maid room or corner balcony." },
-  { title: "Telegram channel ads", text: "Writes and publishes a listing post with buttons for questions, comparison and booking a visit." },
-];
-
 export default function StudioPage() {
   const properties = useApi<Property[]>("properties");
+  const runs = useApi<IngestRun[]>("ingest/runs?limit=8", 60_000);
   const [propertyId, setPropertyId] = useState("");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,8 +43,11 @@ export default function StudioPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Studio</h1>
-        <p className="text-sm text-muted">Simulate what developers do, then watch the agent react.</p>
+        <p className="text-sm text-muted">Bring in developer listings, advertise units, and simulate what developers do to watch the agent react.</p>
       </div>
+
+      <IngestPanel onChanged={() => { void properties.reload(); void runs.reload(); }} />
+      <AdPanel />
 
       <Card title="Price change simulator">
         <div className="space-y-4 p-4">
@@ -87,17 +87,20 @@ export default function StudioPage() {
         </div>
       </Card>
 
-      <div>
-        <h2 className="mb-3 text-sm font-semibold">Coming with the ingestion pipeline</h2>
-        <div className="grid gap-3 md:grid-cols-3">
-          {COMING.map((c) => (
-            <div key={c.title} className="rounded-xl border border-dashed border-line bg-panel p-4">
-              <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">{c.title}</h3><Pill>Not built yet</Pill></div>
-              <p className="mt-2 text-sm text-muted">{c.text}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      <Card title="Recent ingestion runs">
+        {runs.loading ? <Empty>Loading...</Empty> : (runs.data ?? []).length === 0 ? <Empty>No runs yet. Applied changes are listed here.</Empty> : (
+          <ul className="divide-y divide-line/60">
+            {runs.data!.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                <span>{r.developer_name ?? "Unknown developer"} <span className="text-muted">- {r.source}{r.full_sync ? ", full list" : ""}</span></span>
+                <span className="tnum flex items-center gap-2 text-xs text-muted">
+                  <Pill tone="good">{r.created} new</Pill><Pill tone="warn">{r.price_changed} price</Pill><Pill tone="bad">{r.removed} removed</Pill>{timeAgo(r.created_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 }
