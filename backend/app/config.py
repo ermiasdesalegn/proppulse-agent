@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     telegram_backend: str = "auto"
 
     broker_name: str = "Ermias Desalegn"
+    broker_telegram_chat_id: str = ""  # where the broker's own notices go; falls back to DEMO_FALLBACK_TELEGRAM_CHAT_ID
+    proactive_lookback_hours: int = 24  # how far back price drops and new listings count as news
+    tour_reminder_window_hours: int = 24
+    milestone_notice_days: int = 3  # remind the buyer this many days before a payment milestone, and again on the day
+    max_alerts_per_buyer_per_day: int = 1
+    max_properties_per_alert: int = 3
     relax_budget_step_pct: float = 12.0  # step 1 widens by this, step 2 by twice this
     max_relaxation_steps: int = 2
     recursion_limit: int = 10

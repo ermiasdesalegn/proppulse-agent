@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
 
@@ -82,6 +83,118 @@ class Repository:
         )
         by_id = {str(r["id"]): r for r in rows}
         return [by_id[str(i)] for i in ids if str(i) in by_id]
+
+    async def update_property_price(self, property_id: UUID | str, new_price_etb: float) -> dict:
+        """Change a unit's price and log it, so the next proactive run can see the drop."""
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("select price_etb from properties where id = %s for update", (str(property_id),))
+                row = await cur.fetchone()
+                if row is None:
+                    raise LookupError(f"property {property_id} not found")
+                old = row["price_etb"]
+                if old == Decimal(str(new_price_etb)):
+                    return {"property_id": str(property_id), "old_price_etb": float(old), "new_price_etb": float(old), "change_pct": 0.0, "changed": False}
+                change_pct = round((Decimal(str(new_price_etb)) - old) / old * 100, 2)
+                await conn.execute("update properties set price_etb = %s where id = %s", (new_price_etb, str(property_id)))
+                await conn.execute(
+                    "insert into price_history (property_id, old_price_etb, new_price_etb, change_pct) values (%s, %s, %s, %s)",
+                    (str(property_id), old, new_price_etb, change_pct),
+                )
+        return {"property_id": str(property_id), "old_price_etb": float(old), "new_price_etb": float(new_price_etb), "change_pct": float(change_pct), "changed": True}
+
+    # ---- proactive jobs ----
+
+    _PROPERTY_EVENT_COLUMNS = (
+        "p.id as property_id, p.title, p.sub_city, p.bedrooms, p.sqm, p.price_etb, p.lat, p.lng, p.developer_id, "
+        "d.name as developer_name"
+    )
+
+    async def recent_price_drops(self, since: datetime) -> list[dict]:
+        return await self._fetch(
+            f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
+            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join properties p on p.id = ph.property_id "
+            f"join developers d on d.id = p.developer_id "
+            f"where ph.detected_at >= %s and ph.change_pct < 0 and p.status = 'AVAILABLE' order by ph.detected_at",
+            (since,),
+        )
+
+    async def recent_new_listings(self, since: datetime) -> list[dict]:
+        # Seed rows are demo inventory, not market events, so they never trigger "new launch" messages.
+        return await self._fetch(
+            f"select {self._PROPERTY_EVENT_COLUMNS} from properties p join developers d on d.id = p.developer_id "
+            f"where p.created_at >= %s and p.status = 'AVAILABLE' and coalesce(p.vision_amenities->>'source', '') <> 'seed' "
+            f"order by p.created_at",
+            (since,),
+        )
+
+    async def match_buyers_for_property(self, property_id: UUID | str, *, threshold: float, limit: int = 50) -> list[dict]:
+        return await self._fetch("select * from match_buyers_for_property(%s, %s, %s)", (str(property_id), threshold, limit))
+
+    async def claim_event(
+        self, *, kind: str, audience: str, dedupe_key: str, buyer_id: UUID | str | None = None,
+        property_id: UUID | str | None = None, tour_id: UUID | str | None = None, ledger_id: UUID | str | None = None,
+    ) -> dict | None:
+        """Reserve the right to send this exact message to this exact recipient. None means it was already sent
+        (or is being sent right now); a reservation that never finished is retried after ten minutes."""
+        return await self._one(
+            "insert into proactive_events (kind, audience, buyer_id, property_id, tour_id, ledger_id, dedupe_key) "
+            "values (%s, %s, %s, %s, %s, %s, %s) "
+            "on conflict (dedupe_key) do update set created_at = now() "
+            "where proactive_events.status = 'pending' and proactive_events.created_at < now() - interval '10 minutes' "
+            "returning *",
+            (kind, audience, None if buyer_id is None else str(buyer_id), None if property_id is None else str(property_id),
+             None if tour_id is None else str(tour_id), None if ledger_id is None else str(ledger_id), dedupe_key),
+        )
+
+    async def finish_event(self, event_id: int, message: str, channel: str) -> None:
+        await self._fetch(
+            "update proactive_events set status = 'sent', message = %s, channel = %s where id = %s returning id",
+            (message, channel, event_id),
+        )
+
+    async def release_event(self, event_id: int) -> None:
+        await self._fetch("delete from proactive_events where id = %s and status = 'pending' returning id", (event_id,))
+
+    async def recent_buyer_alert_count(self, buyer_id: UUID | str, since: datetime) -> int:
+        row = await self._one(
+            "select count(*) as n from proactive_events where buyer_id = %s and audience = 'buyer' and status = 'sent' "
+            "and kind in ('PRICE_DROP', 'NEW_LISTING') and created_at >= %s",
+            (str(buyer_id), since),
+        )
+        return int(row["n"])
+
+    async def list_events(self, *, audience: str | None = None, limit: int = 100) -> list[dict]:
+        return await self._fetch(
+            "select e.*, b.full_name as buyer_name from proactive_events e left join buyers_crm b on b.id = e.buyer_id "
+            "where e.status = 'sent' and (%s::text is null or e.audience = %s) order by e.id desc limit %s",
+            (audience, audience, limit),
+        )
+
+    async def tours_for_reminder(self, start: datetime, end: datetime) -> list[dict]:
+        return await self._fetch(
+            "select t.id, t.scheduled_start, b.id as buyer_id, b.telegram_id, b.full_name, b.email, b.thread_id "
+            "from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id "
+            "where t.scheduled_start > %s and t.scheduled_start <= %s and t.reminder_sent = false order by t.scheduled_start",
+            (start, end),
+        )
+
+    async def ledger_for_milestones(self) -> list[dict]:
+        return await self._fetch(
+            "select l.id, l.next_buyer_milestone_date, l.status, l.expected_commission_etb, "
+            "b.id as buyer_id, b.telegram_id, b.full_name, b.email, b.thread_id, "
+            "d.name as developer_name, p.title as property_title "
+            "from commission_ledger l join buyers_crm b on b.id = l.buyer_id join developers d on d.id = l.developer_id "
+            "join properties p on p.id = l.property_id "
+            "where l.status = 'CONTRACT_SIGNED' and l.next_buyer_milestone_date is not null order by l.next_buyer_milestone_date"
+        )
+
+    async def ledger_commission_pending(self) -> list[dict]:
+        return await self._fetch(
+            "select l.id, l.expected_commission_etb, b.id as buyer_id, b.full_name, d.name as developer_name, p.title as property_title "
+            "from commission_ledger l join buyers_crm b on b.id = l.buyer_id join developers d on d.id = l.developer_id "
+            "join properties p on p.id = l.property_id where l.status = 'COMMISSION_PENDING' order by l.updated_at"
+        )
 
     async def get_developer_by_slug(self, slug: str) -> dict | None:
         return await self._one("select * from developers where slug = %s", (slug,))

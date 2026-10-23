@@ -57,11 +57,13 @@ class BrokerAgent:
         self._deps = deps
         self.graph = build_graph(deps, checkpointer)
 
-    async def add_message(self, thread_id: str, message: BaseMessage) -> None:
-        """Write a message into the conversation history without running the agent (used during human takeover)."""
+    async def add_message(self, thread_id: str, message: BaseMessage, **state_updates: Any) -> None:
+        """Write a message into the conversation history without running the agent (used during human takeover
+        and for messages the system sends on its own). Extra keyword arguments update other state fields, for
+        example active_matches, so that "book the first one" refers to what the buyer was just shown."""
         config = {"configurable": {"thread_id": thread_id}}
         # as_node="human_gate" leads straight to END, so no node is left pending for the next real turn.
-        await self.graph.aupdate_state(config, {"messages": [message]}, as_node="human_gate")
+        await self.graph.aupdate_state(config, {"messages": [message], **state_updates}, as_node="human_gate")
 
     async def handle(
         self, *, buyer_id: str, thread_id: str, inbound: dict, chat_id: int | str | None = None

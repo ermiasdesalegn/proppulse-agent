@@ -16,6 +16,8 @@ class TelegramService(Protocol):
 
     async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> None: ...
 
+    async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int: ...
+
     async def download_file(self, file_id: str) -> bytes: ...
 
 
@@ -49,6 +51,9 @@ class BotApiTelegramService:
 
     async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> None:
         await self._request("sendChatAction", chat_id=chat_id, action=action)
+
+    async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int:
+        return (await self._request("sendLocation", chat_id=chat_id, latitude=latitude, longitude=longitude))["message_id"]
 
     async def get_updates(self, offset: int | None, timeout: int = 25) -> list[dict]:
         params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
@@ -87,6 +92,7 @@ class MockTelegramService:
     def __init__(self, files: dict[str, bytes] | None = None) -> None:
         self.messages: list[dict] = []
         self.actions: list[tuple] = []
+        self.locations: list[tuple] = []
         self._files = files or {}
 
     async def send_message(
@@ -97,6 +103,10 @@ class MockTelegramService:
 
     async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> None:
         self.actions.append((chat_id, action))
+
+    async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int:
+        self.locations.append((chat_id, latitude, longitude))
+        return len(self.locations)
 
     async def download_file(self, file_id: str) -> bytes:
         return self._files[file_id]
