@@ -369,7 +369,7 @@ async def test_booking_a_project_visit_creates_the_event_tour_broker_notice_and_
     assert tour["stops"] == [] and tour["kind"] == "SITE_VISIT" and str(tour["project_id"]) == str(project["id"])
     assert (await repo.get_buyer(abel["id"]))["deal_stage"] == "SITE_VISIT_BOOKED"
     assert any(m["chat_id"] == "999" and "booked a visit to Central Tower" in m["text"] for m in services.telegram.messages)
-    (mail,) = services.email.sent
+    (mail,) = [m for m in services.email.sent if m["to"] == "sales@noah.example"]  # the broker's dossier email is separate
     assert mail["to"] == "sales@noah.example" and "Lead registration" in mail["subject"] and "Abel Tesfaye" in mail["html"]
 
     again, other_times = await service.handle_text(await contactable(repo, "second"), "Book visit to Central Tower on 2026-11-03 10:00")
@@ -435,3 +435,22 @@ async def test_a_project_in_the_area_is_shown_next_to_priced_options_with_its_of
     assert "Offer: 5% off this month" in res.reply
     texts = [b["text"] for row in res.state["quick_replies"] for b in row]
     assert "Ask the price of Bole Offer" in texts and "Book a visit to Bole Offer" in texts and "Tell me more about option 1" in texts
+
+
+async def test_the_dossier_of_a_project_visit_describes_the_project_instead_of_empty_units(repo, db_conn):
+    from app.dossier import build_dossier, render_html, render_text
+
+    service, services = make_projects(repo)
+    await add_project(repo, db_conn, promotion="5% off this month", promotion_until=(date.today() + timedelta(days=9)).isoformat())
+    abel = await contactable(repo, "dossier", telegram=7_100_003)
+    await service.handle_text(abel, "Book visit to Central Tower on 2026-11-03 10:00")
+    (tour,) = [t for t in await repo.list_tours() if t["project_name"] == "Central Tower"]
+    data = await build_dossier(repo, tour["id"], today=NOW.date())
+    assert data["units"] == [] and data["project"]["name"] == "Central Tower" and data["project"]["price_from_etb"] is None
+    text = render_text(data)
+    assert "Project: Central Tower (Noah Real Estate, Bole)" in text and "126-185 sqm | 3-4 bedrooms | 21 floors" in text and "Offer: 5% off this month" in text
+    assert "Price: on request" in text and "If they buy everything" not in text
+    subject, html = render_html(data)
+    assert "<h3>Project</h3>" in html and "Expected commission" not in html
+    sent_to_broker = [m for m in services.telegram.messages if m["chat_id"] == "999" and m["text"].startswith("PRE-TOUR DOSSIER")]
+    assert sent_to_broker, "the broker gets the brief as soon as the visit is booked"

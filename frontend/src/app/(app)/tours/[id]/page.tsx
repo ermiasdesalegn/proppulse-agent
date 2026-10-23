@@ -41,7 +41,7 @@ export default function DossierPage() {
     <div className="space-y-6">
       <Link href="/board" className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-white">&larr; Deal Board</Link>
       <PageHeader
-        eyebrow={`${call ? "Phone consultation" : "Site visit"} - pre-tour dossier`} title={b.name ?? "Unnamed buyer"}
+        eyebrow={`${call ? "Phone consultation" : d.project ? "Project visit" : "Site visit"} - pre-tour dossier`} title={b.name ?? "Unnamed buyer"}
         description={<>{fmtDateTime(d.starts_at)}{d.route ? ` - ${d.route.distance_km} km, about ${d.route.minutes} min of driving` : ""}</>}
         actions={<><Button onClick={() => void copy()}>Copy as text</Button><Button variant="primary" disabled={busy} onClick={() => void send()}>Send to my Telegram</Button></>}
       />
@@ -49,15 +49,32 @@ export default function DossierPage() {
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Expected commission" value={fmtEtb(d.expected_commission_etb)} hint="if they buy every unit shown" />
-        <Stat label="Value in play" value={fmtEtb(d.total_value_etb)} hint={`${d.units.length} unit${d.units.length === 1 ? "" : "s"}`} />
+        {d.project && <Stat label="Project" icon="listing" value={d.project.name} hint={d.project.developer} />}
+        {d.project && <Stat label="Price" icon="money" value={d.project.price_from_etb ? `from ${fmtEtb(d.project.price_from_etb)}` : "On request"} hint={d.project.price_note ?? "bring the latest price list"} />}
+        {!d.project && <Stat label="Expected commission" value={fmtEtb(d.expected_commission_etb)} hint="if they buy every unit shown" />}
+        {!d.project && <Stat label="Value in play" value={fmtEtb(d.total_value_etb)} hint={`${d.units.length} unit${d.units.length === 1 ? "" : "s"}`} />}
         <Stat label="Budget" value={b.max_budget_etb ? fmtEtb(b.max_budget_etb) : "Not stated"} hint={d.budget_gap_etb && d.budget_gap_etb > 0 ? `average unit is ${fmtEtb(d.budget_gap_etb)} above it` : undefined} />
         <div className="card rounded-2xl border p-5"><p className="text-xs font-medium text-muted">Lead score</p><div className="mt-2"><ScoreBar score={b.lead_score} /></div><p className="mt-1 text-xs text-muted">{b.deal_stage.replace(/_/g, " ").toLowerCase()}</p></div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-4">
-          {!call && (
+          {d.project && (
+            <Card title="The project" subtitle={`${d.project.developer}${d.project.area ? ` - ${d.project.area}` : ""}`}>
+              <div className="space-y-2 px-5 pb-5 text-sm">
+                {d.project.location && <p>{d.project.location}</p>}
+                <p className="text-muted">
+                  {[d.project.sqm_min != null ? `${d.project.sqm_min}${d.project.sqm_max && d.project.sqm_max !== d.project.sqm_min ? `-${d.project.sqm_max}` : ""} sqm` : null,
+                    d.project.bedrooms_min != null ? `${d.project.bedrooms_min}${d.project.bedrooms_max && d.project.bedrooms_max !== d.project.bedrooms_min ? `-${d.project.bedrooms_max}` : ""} bedrooms` : null,
+                    d.project.floors ? `${d.project.floors} floors` : null].filter(Boolean).join(" - ")}
+                </p>
+                {d.project.summary && <p>{d.project.summary}</p>}
+                {d.project.offer && <p className="font-medium">Offer: {d.project.offer}{d.project.offer_until ? ` (until ${d.project.offer_until})` : ""}</p>}
+                <p className="text-muted">The price is on request unless set on the Projects page. Bring the latest price list and any offer; the developer has the lead registration.</p>
+              </div>
+            </Card>
+          )}
+          {!call && !d.project && (
             <Card title="Units on this visit">
               <ul className="divide-y divide-line/60 lg:hidden">
                 {d.units.map((u) => (

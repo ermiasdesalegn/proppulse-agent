@@ -275,6 +275,12 @@ class ProjectService:
         tour = await self.repo.create_tour(buyer_id=buyer["id"], scheduled_start=start, stops=[], route_json=None, calendar_event_id=event_id, project_id=project["id"])
         await self.repo.update_buyer(buyer["id"], deal_stage="SITE_VISIT_BOOKED")
         when = self._local(start)
+        try:  # the broker's pre-visit brief, as for a unit visit; it must never fail the booking
+            from app.dossier import deliver_dossier
+
+            await deliver_dossier(self.repo, self.services, self.settings, tour["id"], today=self.now().date())
+        except Exception:
+            log.exception("the dossier for a project visit could not be sent")
         if self.proactive is not None:
             await self.proactive._notify_broker(
                 "PROJECT_VISIT", f"projvisit:{tour['id']}",

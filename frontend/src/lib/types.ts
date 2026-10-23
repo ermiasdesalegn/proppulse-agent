@@ -316,6 +316,11 @@ export interface Dossier {
   objections: string[];
   recent_buyer_messages: string[];
   units: DossierUnit[];
+  project?: {
+    id: string; name: string; developer: string; area: string | null; location: string | null; summary: string | null; status: string;
+    sqm_min: number | null; sqm_max: number | null; bedrooms_min: number | null; bedrooms_max: number | null; floors: number | null;
+    price_from_etb: number | null; price_note: string | null; offer: string | null; offer_until: string | null; source_url: string;
+  } | null;
   route: { distance_km: number; minutes: number } | null;
   total_value_etb: number;
   expected_commission_etb: number;

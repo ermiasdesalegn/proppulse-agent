@@ -45,6 +45,16 @@ async def build_dossier(repo: Any, tour_id: Any, *, today: date, timezone: str =
             "reliability_score": _num(p.get("reliability_score")),
         })
 
+    project = None
+    if tour.get("project_id"):  # a visit to a project that publishes no unit prices: there are no units, the project is the subject
+        p = await repo.get_project(tour["project_id"])
+        if p is not None:
+            project = {
+                "id": str(p["id"]), "name": p["name"], "developer": p["developer_name"], "area": p["sub_city"], "location": p["location_text"], "summary": p["summary"],
+                "status": p["status"], "sqm_min": _num(p["sqm_min"]), "sqm_max": _num(p["sqm_max"]), "bedrooms_min": p["bedrooms_min"], "bedrooms_max": p["bedrooms_max"],
+                "floors": p["floors"], "price_from_etb": _num(p["price_from_etb"]), "price_note": p["price_note"], "offer": p["promo_text"],
+                "offer_until": p["promo_until"].isoformat() if p["promo_until"] else None, "source_url": p["source_url"],
+            }
     route = tour.get("mapbox_route_json") or {}
     start = tour["scheduled_start"]
     return {
@@ -58,11 +68,18 @@ async def build_dossier(repo: Any, tour_id: Any, *, today: date, timezone: str =
         },
         "objections": [o["text"] for o in buyer.get("objections") or []],
         "recent_buyer_messages": said,
-        "units": units,
+        "units": units, "project": project,
         "route": {"distance_km": round(route["distance_meters"] / 1000, 1), "minutes": round(route["duration_seconds"] / 60)} if route.get("distance_meters") else None,
         "total_value_etb": round(total_value), "expected_commission_etb": round(total_commission),
         "budget_gap_etb": None if buyer.get("max_budget_etb") is None else round(total_value / max(len(units), 1) - float(buyer["max_budget_etb"])),
     }
+
+
+def _span(low: Any, high: Any, unit: str) -> str:
+    if low is None and high is None:
+        return ""
+    a, b = low if low is not None else high, high if high is not None else low
+    return f"{a:g}-{b:g} {unit}" if a != b else f"{a:g} {unit}"
 
 
 def _when(iso: str) -> str:
@@ -78,6 +95,16 @@ def render_text(d: dict) -> str:
     lines.append("Wants: " + (" | ".join(x for x in wants if x) or "not stated yet") + f" | lead score {b['lead_score']}/100")
     if d["objections"]:
         lines += ["", "Worries raised:"] + [f"- {o}" for o in d["objections"]]
+    if d.get("project"):
+        p = d["project"]
+        size = " | ".join(x for x in (_span(p["sqm_min"], p["sqm_max"], "sqm"), _span(p["bedrooms_min"], p["bedrooms_max"], "bedrooms"), f"{p['floors']} floors" if p["floors"] else "") if x)
+        lines += ["", f"Project: {p['name']} ({p['developer']}{', ' + p['area'] if p['area'] else ''})"]
+        if size:
+            lines.append(size)
+        if p["offer"]:
+            lines.append(f"Offer: {p['offer']}" + (f" (until {p['offer_until']})" if p["offer_until"] else ""))
+        lines.append("Price: " + (f"from {fmt_etb(p['price_from_etb'])}" + (f" ({p['price_note']})" if p["price_note"] else "") if p["price_from_etb"] else "on request: bring the latest price list and any offer"))
+        lines.append("The developer has been sent the lead registration for this visit.")
     if d["units"]:
         lines += ["", "Units:"]
         for i, u in enumerate(d["units"], start=1):
@@ -102,13 +129,19 @@ def render_html(d: dict) -> tuple[str, str]:
     table = (f"<table border='1' cellpadding='6' cellspacing='0'><tr><th>Unit</th><th>Developer</th><th>Price</th><th>Payment plan</th><th>Commission</th></tr>{rows}</table>"
              if rows else "")
     worries = "".join(f"<li>{escape(o)}</li>" for o in d["objections"]) or "<li>None raised yet</li>"
+    project_html = ""
+    if d.get("project"):
+        p = d["project"]
+        price = f"from {fmt_etb(p['price_from_etb'])}" if p["price_from_etb"] else "on request: bring the latest price list and any offer"
+        project_html = (f"<h3>Project</h3><p><b>{escape(p['name'])}</b> ({escape(p['developer'])}{', ' + escape(p['area']) if p['area'] else ''})</p>"
+                        + (f"<p><b>Offer:</b> {escape(p['offer'])}</p>" if p["offer"] else "") + f"<p><b>Price:</b> {escape(price)}</p>")
     html = (
         f"<h2>{escape(kind)} {escape(_when(d['starts_at']))}: {escape(b['name'] or 'buyer')}</h2>"
         f"<p><b>Phone:</b> {escape(b['phone'] or '-')} &middot; <b>Lead score:</b> {b['lead_score']}/100 &middot; <b>Stage:</b> {escape(str(b['deal_stage']))}</p>"
         f"<p><b>Budget:</b> {escape(fmt_etb(b['max_budget_etb'])) if b['max_budget_etb'] else 'not stated'}</p>"
-        f"<h3>Worries raised</h3><ul>{worries}</ul>{('<h3>Units</h3>' + table) if table else ''}"
+        f"<h3>Worries raised</h3><ul>{worries}</ul>{project_html}{('<h3>Units</h3>' + table) if table else ''}"
         + (f"<p><b>Route:</b> {d['route']['distance_km']} km, about {d['route']['minutes']} minutes of driving.</p>" if d["route"] else "")
-        + f"<p><b>Expected commission if they buy everything shown:</b> {escape(fmt_etb(d['expected_commission_etb']))}</p>"
+        + (f"<p><b>Expected commission if they buy everything shown:</b> {escape(fmt_etb(d['expected_commission_etb']))}</p>" if d["units"] else "")
     )
     return f"Pre-tour dossier: {b['name'] or 'buyer'} on {_when(d['starts_at'])}", html
 
