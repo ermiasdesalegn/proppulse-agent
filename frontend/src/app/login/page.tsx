@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Logo } from "@/components/icons";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -25,22 +26,38 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border border-line bg-panel p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
-        <h1 className="mt-1 text-xl font-semibold">Command Center</h1>
-        <p className="mt-1 text-sm text-muted">Sign in to manage buyers, deals and the agent.</p>
-        <label htmlFor="password" className="mt-5 block text-sm font-medium">Password</label>
-        <input
-          id="password" name="password" type="password" autoFocus autoComplete="current-password" required
-          value={password} onChange={(e) => setPassword(e.target.value)}
-          className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-        />
-        {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
-        <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-md bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
+    <main className="grid min-h-screen md:grid-cols-2">
+      <section className="relative hidden flex-col justify-between overflow-hidden p-12 text-white md:flex btn-gradient">
+        <div className="pointer-events-none absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
+        <div className="flex items-center gap-3"><Logo className="h-10 w-10" /><span className="text-sm font-semibold uppercase tracking-widest">PropPulse AI</span></div>
+        <div>
+          <h2 className="text-4xl font-semibold leading-tight tracking-tight">Every buyer answered.<br />Every deal in view.</h2>
+          <ul className="mt-6 space-y-3 text-sm text-white/85">
+            <li>Telegram agent in English and Amharic</li>
+            <li>Live view of every step the agent takes</li>
+            <li>Site visits, routes and commissions in one place</li>
+          </ul>
+        </div>
+        <p className="text-xs text-white/70">Addis Ababa real estate, run by one broker and one agent.</p>
+      </section>
+      <div className="flex items-center justify-center px-4 py-10">
+        <form onSubmit={submit} className="card w-full max-w-sm rounded-2xl border border-line bg-panel p-7">
+          <div className="mb-4 md:hidden"><Logo /></div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Command Center</h1>
+          <p className="mt-1 text-sm text-muted">Sign in to manage buyers, deals and the agent.</p>
+          <label htmlFor="password" className="mt-6 block text-sm font-medium">Password</label>
+          <input
+            id="password" name="password" type="password" autoFocus autoComplete="current-password" required
+            value={password} onChange={(e) => setPassword(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+          />
+          {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
+          <button type="submit" disabled={busy || !password} className="btn-gradient mt-5 w-full rounded-lg px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50">
+            {busy ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

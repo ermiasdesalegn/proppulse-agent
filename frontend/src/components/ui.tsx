@@ -1,8 +1,9 @@
 import clsx from "./clsx";
+import { Icon, type IconName } from "./icons";
 
 export function Card({ title, action, children, className }: { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={clsx("rounded-xl border border-line bg-panel", className)}>
+    <section className={clsx("card rounded-2xl border border-line bg-panel/90 backdrop-blur", className)}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold">{title}</h2>
@@ -26,12 +27,16 @@ export function Pill({ tone = "neutral", children, title }: { tone?: keyof typeo
   return <span title={title} className={clsx("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap", TONES[tone])}>{children}</span>;
 }
 
-export function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+export function Stat({ label, value, hint, icon }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName }) {
   return (
-    <div className="rounded-xl border border-line bg-panel px-4 py-3">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="tnum mt-1 text-2xl font-semibold">{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+    <div className="card relative overflow-hidden rounded-2xl border border-line bg-panel/90 px-4 py-4">
+      <div className="absolute inset-x-0 top-0 h-0.5 btn-gradient opacity-70" />
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+        {icon && <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent"><Icon name={icon} /></span>}
+      </div>
+      <p className="tnum mt-2 text-3xl font-semibold tracking-tight">{value}</p>
+      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   );
 }
@@ -47,7 +52,7 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
 export function Button({ variant = "default", className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "primary" | "danger" | "ghost" }) {
   const styles = {
     default: "border border-line bg-panel hover:bg-raised",
-    primary: "bg-accent text-white hover:opacity-90",
+    primary: "btn-gradient text-white shadow-sm hover:opacity-90",
     danger: "border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20",
     ghost: "hover:bg-raised",
   } as const;

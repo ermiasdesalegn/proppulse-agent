@@ -5,16 +5,17 @@ import { usePathname } from "next/navigation";
 import { LiveProvider, useLive, type LiveStatus } from "@/lib/live";
 import clsx from "./clsx";
 import ControlBar from "./ControlBar";
+import { Icon, Logo, type IconName } from "./icons";
 
-const NAV = [
-  { href: "/", label: "Overview" },
-  { href: "/crm", label: "CRM & Takeover" },
-  { href: "/board", label: "Deal Board" },
-  { href: "/brain", label: "Agent Brain" },
-  { href: "/map", label: "Map & Tours" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/studio", label: "Studio" },
-  { href: "/chat", label: "Chat Simulator" },
+const NAV: { href: string; label: string; icon: IconName }[] = [
+  { href: "/", icon: "overview", label: "Overview" },
+  { href: "/crm", icon: "crm", label: "CRM & Takeover" },
+  { href: "/board", icon: "board", label: "Deal Board" },
+  { href: "/brain", icon: "brain", label: "Agent Brain" },
+  { href: "/map", icon: "map", label: "Map & Tours" },
+  { href: "/analytics", icon: "analytics", label: "Analytics" },
+  { href: "/studio", icon: "studio", label: "Studio" },
+  { href: "/chat", icon: "chat", label: "Chat Simulator" },
 ];
 
 const STATUS: Record<LiveStatus, { dot: string; text: string }> = {
@@ -44,29 +45,34 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <LiveProvider>
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-line bg-panel md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r">
+        <aside className="shrink-0 border-b border-line bg-panel/80 backdrop-blur md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between px-4 py-3 md:block md:py-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
-              <p className="text-sm font-semibold">Command Center</p>
+            <div className="flex items-center gap-3">
+              <Logo />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest gradient-text">PropPulse AI</p>
+                <p className="text-sm font-semibold leading-tight">Command Center</p>
+              </div>
             </div>
-            <div className="md:mt-3"><LiveBadge /></div>
+            <div className="md:mt-4"><LiveBadge /></div>
           </div>
-          <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:overflow-visible md:pb-0">
+          <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:overflow-visible md:px-3 md:pb-0">
             {NAV.map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href} href={item.href} aria-current={active ? "page" : undefined}
-                  className={clsx("whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium", active ? "bg-accent/10 text-accent" : "text-muted hover:bg-raised hover:text-ink")}
+                  className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition", active ? "bg-accent/10 text-accent" : "text-muted hover:bg-raised hover:text-ink")}
                 >
+                  {active && <span className="absolute inset-y-1.5 left-0 hidden w-0.5 rounded-full btn-gradient md:block" />}
+                  <Icon name={item.icon} />
                   {item.label}
                 </Link>
               );
             })}
           </nav>
-          <div className="hidden px-4 py-4 md:absolute md:bottom-0 md:block">
-            <button onClick={signOut} className="text-sm text-muted hover:text-ink">Sign out</button>
+          <div className="hidden px-3 py-4 md:absolute md:bottom-0 md:block md:w-56">
+            <button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-raised hover:text-ink"><Icon name="signout" />Sign out</button>
           </div>
         </aside>
 

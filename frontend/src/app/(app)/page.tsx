@@ -29,19 +29,23 @@ export default function OverviewPage() {
   const s = stats.data;
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Overview</h1>
-        <p className="text-sm text-muted">Your buyers, deals and the agent at a glance.</p>
-      </div>
+      <section className="card relative overflow-hidden rounded-2xl border border-line bg-panel/90 px-6 py-6">
+        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full btn-gradient opacity-20 blur-3xl" />
+        <p className="text-xs font-semibold uppercase tracking-widest text-accent">Overview</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
+          {s ? <>{s.buyers} buyers, <span className="gradient-text">{fmtEtb(Number(s.pipeline_commission_etb))}</span> in the pipeline</> : "Your buyers, deals and the agent"}
+        </h1>
+        <p className="mt-1 max-w-2xl text-sm text-muted">The agent is answering buyers on Telegram and the web in English and Amharic. Everything it does appears below as it happens.</p>
+      </section>
 
       {stats.error && <ErrorNote>{stats.error}</ErrorNote>}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Buyers" value={s?.buyers ?? "-"} hint={s ? `${s.qualified} qualified, ${s.in_takeover} in takeover` : undefined} />
-        <Stat label="Open deals" value={s?.open_deals ?? "-"} hint="Registered, toured, signed or pending" />
-        <Stat label="Pipeline commission" value={s ? fmtEtb(Number(s.pipeline_commission_etb)) : "-"} hint="Expected, across open deals" />
-        <Stat label="Commission pending" value={s ? fmtEtb(Number(s.commission_pending_etb)) : "-"} hint="Developers are releasing it" />
-        <Stat label="Upcoming tours" value={s?.upcoming_tours ?? "-"} />
-        <Stat label="Proactive messages, 24 h" value={s?.proactive_sent ?? "-"} hint="Alerts and reminders sent" />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6">
+        <Stat label="Buyers" icon="buyers" value={s?.buyers ?? "-"} hint={s ? `${s.qualified} qualified, ${s.in_takeover} in takeover` : undefined} />
+        <Stat label="Open deals" icon="deals" value={s?.open_deals ?? "-"} hint="Registered, toured, signed or pending" />
+        <Stat label="Pipeline commission" icon="money" value={s ? fmtEtb(Number(s.pipeline_commission_etb)) : "-"} hint="Expected, across open deals" />
+        <Stat label="Commission pending" icon="clock" value={s ? fmtEtb(Number(s.commission_pending_etb)) : "-"} hint="Developers are releasing it" />
+        <Stat label="Upcoming tours" icon="calendar" value={s?.upcoming_tours ?? "-"} />
+        <Stat label="Proactive messages, 24 h" icon="bell" value={s?.proactive_sent ?? "-"} hint="Alerts and reminders sent" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
