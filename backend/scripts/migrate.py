@@ -8,8 +8,8 @@ from app.config import get_settings
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
 
-def main() -> None:
-    with psycopg.connect(get_settings().database_url, autocommit=False) as conn:
+def migrate(url: str) -> None:
+    with psycopg.connect(url, autocommit=False) as conn:
         conn.execute(
             "create table if not exists schema_migrations "
             "(name text primary key, applied_at timestamptz not null default now())"
@@ -24,6 +24,10 @@ def main() -> None:
                 conn.execute(path.read_text(encoding="utf-8"))
                 conn.execute("insert into schema_migrations (name) values (%s)", (path.name,))
             print(f"apply  {path.name}")
+
+
+def main() -> None:
+    migrate(get_settings().database_url)
 
 
 if __name__ == "__main__":

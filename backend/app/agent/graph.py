@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 
 from langchain_core.messages import BaseMessage
@@ -11,6 +12,7 @@ from app.agent.deps import AgentDeps
 from app.agent.nodes import AgentNodes, should_relax_constraints
 from app.agent.state import BrokerAgentState
 from app.events import summarize_update
+from app.gemini import CALL_CONTEXT
 
 ROUTES = {"search": "discovery", "compare": "analyst", "book_tour": "scheduler", "small_talk": "smalltalk", "error": END}
 
@@ -23,6 +25,20 @@ def route_by_intent(state: BrokerAgentState) -> str:
     return ROUTES.get(state.get("intent", ""), END)
 
 
+def traced(name: str, fn: Any):
+    """Tags every model request a node makes with the node's name and the buyer, for the call log."""
+
+    @wraps(fn)
+    async def run(state: BrokerAgentState) -> dict:
+        token = CALL_CONTEXT.set({"node": name, "buyer_id": state.get("buyer_id")})
+        try:
+            return await fn(state)
+        finally:
+            CALL_CONTEXT.reset(token)
+
+    return run
+
+
 def build_graph(deps: AgentDeps, checkpointer: Any):
     nodes = AgentNodes(deps)
     g = StateGraph(BrokerAgentState)
@@ -32,7 +48,7 @@ def build_graph(deps: AgentDeps, checkpointer: Any):
         "smalltalk": nodes.smalltalk, "analyst": nodes.analyst, "scheduler": nodes.scheduler,
         "human_gate": nodes.human_gate,
     }.items():
-        g.add_node(name, fn)
+        g.add_node(name, traced(name, fn))
 
     g.add_edge(START, "intake")
     g.add_conditional_edges("intake", route_after_intake, {"router": "router", END: END})

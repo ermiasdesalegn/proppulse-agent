@@ -15,3 +15,6 @@ updated/
 
 service-account*.json
 *-credentials.json
+
+.pgdata/
+.tmp/

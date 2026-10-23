@@ -15,7 +15,8 @@ from app.api import router
 from app.chat import ChatService
 from app.config import get_settings
 from app.db import make_pool
-from app.events import EventBus
+from app.calllog import ModelCallLog
+from app.events import DurableEventBus
 from app.gemini import get_gateway
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
@@ -26,6 +27,19 @@ from app.services.telegram import BotApiTelegramService
 from app.telegram_updates import TelegramPoller, TelegramUpdateHandler
 
 log = logging.getLogger("proppulse")
+
+
+async def register_webhook(s, telegram) -> str:
+    """Behind a platform that scales to zero or runs several copies polling cannot work, so Telegram is told where to call."""
+    try:
+        if not (s.public_base_url.startswith("https://") and s.telegram_webhook_secret):
+            raise ValueError("PUBLIC_BASE_URL (https) and TELEGRAM_WEBHOOK_SECRET are required in webhook mode")
+        await telegram.set_webhook(f"{s.public_base_url.rstrip('/')}/api/telegram/webhook", s.telegram_webhook_secret)
+        log.info("Telegram: webhook registered at %s", s.public_base_url)
+        return "webhook"
+    except Exception as exc:
+        log.error("Telegram webhook could not be registered: %s", exc)
+        return f"unavailable ({exc})"
 
 
 @asynccontextmanager
@@ -39,7 +53,11 @@ async def lifespan(app: FastAPI):
     gateway = get_gateway()
     services = build_services(s)
     repo = Repository(pool)
-    events = EventBus()
+    events = DurableEventBus(pool)
+    await events.start()
+    calls = ModelCallLog(pool, events)
+    await calls.start()
+    gateway.recorder = calls.record
     agent = BrokerAgent(AgentDeps(gateway=gateway, repo=repo, services=services, settings=s, events=events), checkpointer.saver)
     chat = ChatService(repo, agent, services, s, events=events)
     proactive = ProactiveService(repo, agent, services, s, events=events)
@@ -48,6 +66,8 @@ async def lifespan(app: FastAPI):
     handler = TelegramUpdateHandler(chat)
 
     poller, telegram_status = None, "webhook" if s.telegram_mode == "webhook" else "off"
+    if s.telegram_mode == "webhook" and isinstance(services.telegram, BotApiTelegramService):
+        telegram_status = await register_webhook(s, services.telegram)
     if isinstance(services.telegram, BotApiTelegramService) and s.telegram_mode in ("auto", "polling"):
         try:
             poller = TelegramPoller(services.telegram, handler)
@@ -69,6 +89,8 @@ async def lifespan(app: FastAPI):
         if poller:
             await poller.stop()
         await handler.drain()
+        await calls.stop()
+        await events.stop()
         await gateway.aclose()
         await checkpointer.aclose()
         await pool.close()

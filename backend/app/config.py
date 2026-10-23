@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     # Tried in order when the primary is overloaded, slow or out of daily quota (the free tier gives gemini-3.8-flash only 20 a day).
     gemini_fallback_models: str = "gemini-3.5-flash-lite,gemini-3.1-flash-lite"  # measured: 1.3 s and 4-8 s per call
     gemini_thinking_budget: int = 0  # 0 = no hidden reasoning (replies in seconds, not tens of seconds); -1 = model default
-    gemini_primary_timeout_seconds: float = 20.0
+    gemini_mode: str = "live"  # live | record (live, and keep every answer) | replay (recordings only, no network)
+    gemini_recording_path: str = "evals/recordings/gemini.jsonl"
+    gemini_primary_timeout_seconds: float = 10.0  # the primary answers in about 2 s; a slower one is skipped for a while
     gemini_timeout_seconds: float = 60.0  # whole request, including the fallback attempt
     gemini_embed_rpm: int = 60  # embeddings have their own, higher quota, so they do not queue behind text calls
 

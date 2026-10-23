@@ -10,7 +10,9 @@ import logging
 import random
 import re
 import time
-from dataclasses import dataclass
+from collections import OrderedDict
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, Awaitable, Callable, Protocol, Sequence, TypeVar
 
@@ -24,6 +26,24 @@ from app.config import get_settings
 log = logging.getLogger(__name__)
 
 M = TypeVar("M", bound=BaseModel)
+
+
+@dataclass
+class CallInfo:
+    """What one gateway request learned about itself while running: which model answered, what it cost, who was skipped."""
+
+    model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    fallbacks: list[str] = field(default_factory=list)  # models that failed before the one that answered
+
+
+# Set by the gateway around each request (a mutable object, so it survives the copy a task makes of the context).
+CALL_INFO: ContextVar[CallInfo | None] = ContextVar("gemini_call_info", default=None)
+# Set by the caller (the agent's nodes) so each logged request can say which node and conversation it belongs to.
+CALL_CONTEXT: ContextVar[dict] = ContextVar("gemini_call_context", default={})
+
+Recorder = Callable[[dict], None]
 
 
 def is_daily_quota(exc: BaseException) -> bool:
@@ -111,11 +131,18 @@ class GenAIBackend:
             try:
                 # The last model gets no extra timeout of its own; the gateway's request timeout covers it.
                 call = self._call(model, kwargs)
-                return await (call if is_last else asyncio.wait_for(call, self._timeout))
+                result = await (call if is_last else asyncio.wait_for(call, self._timeout))
+                if info := CALL_INFO.get():
+                    usage = getattr(result, "usage_metadata", None)
+                    info.model = model
+                    info.input_tokens, info.output_tokens = getattr(usage, "prompt_token_count", None), getattr(usage, "candidates_token_count", None)
+                return result
             except (errors.ServerError, errors.ClientError, asyncio.TimeoutError) as exc:
                 if isinstance(exc, errors.ClientError) and not is_daily_quota(exc) and getattr(exc, "code", None) != 429:
                     raise  # a bad request would fail on every model
                 last = exc
+                if info := CALL_INFO.get():
+                    info.fallbacks.append(model)
                 self._skip_until[model] = self._clock() + _cooldown_seconds(exc)
                 log.warning("%s unavailable (%s); trying the next model", model, type(exc).__name__)
         if last is not None:
@@ -156,6 +183,8 @@ class GenAIBackend:
             contents=texts,
             config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=self._dim),
         )
+        if info := CALL_INFO.get():
+            info.model = self._embed_model
         return [e.values for e in res.embeddings]
 
 
@@ -166,6 +195,9 @@ class _Job:
     future: asyncio.Future
     lane: "_Lane"
     attempt: int = 0
+    operation: str = ""
+    schema: str | None = None
+    context: dict = field(default_factory=dict)
 
 
 class _Lane:
@@ -190,8 +222,14 @@ class GeminiGateway:
         clock: Callable[[], float] = time.monotonic,
         request_timeout: float = 45.0,
         embed_rpm: int = 60,
+        recorder: Recorder | None = None,
+        embed_cache_size: int = 256,
     ):
         self._backend = backend
+        self.recorder = recorder  # called once per attempt with a plain dict; must never block or raise
+        self._embed_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._embed_cache_size = embed_cache_size
+        self.embed_cache_hits = 0
         self._timeout = request_timeout
         self._generate = _Lane("generate", rpm)
         self._embed = _Lane("embed", embed_rpm)
@@ -233,6 +271,8 @@ class GeminiGateway:
 
     async def _run(self, job: _Job) -> None:
         started = self._clock()
+        info = CallInfo()
+        CALL_INFO.set(info)  # this task is the job's own, so the value never leaks into another request
         try:
             # A hung request is treated like any other transient failure: it is retried through the queue.
             result = await asyncio.wait_for(job.factory(), self._timeout)
@@ -240,6 +280,7 @@ class GeminiGateway:
             job.future.cancel()
             raise
         except Exception as exc:
+            self._record(job, info, started, f"error:{type(exc).__name__}")
             if is_retryable(exc) and job.attempt + 1 < self._max_attempts:
                 delay = min(random.uniform(*self._backoff) * (2**job.attempt), 30.0)
                 self._retrying += 1
@@ -254,15 +295,28 @@ class GeminiGateway:
                 job.future.set_exception(exc)
         else:
             log.info("gemini %s call finished in %.1fs (attempt %d)", job.lane.name, self._clock() - started, job.attempt + 1)
+            self._record(job, info, started, "ok")
             if not job.future.done():
                 job.future.set_result(result)
 
-    async def _submit(self, factory: Callable[[], Awaitable[Any]], lane: _Lane | None = None) -> Any:
+    def _record(self, job: _Job, info: CallInfo, started: float, outcome: str) -> None:
+        if self.recorder is None:
+            return
+        try:
+            self.recorder({
+                "operation": job.operation, "schema": job.schema, "lane": job.lane.name, "model": info.model, "outcome": outcome,
+                "latency_ms": round((self._clock() - started) * 1000), "attempt": job.attempt + 1, "fallbacks": list(info.fallbacks),
+                "input_tokens": info.input_tokens, "output_tokens": info.output_tokens, **job.context,
+            })
+        except Exception:
+            log.exception("model call recorder failed")  # logging a call must never break the call
+
+    async def _submit(self, factory: Callable[[], Awaitable[Any]], lane: _Lane | None = None, *, operation: str = "", schema: str | None = None) -> Any:
         lane = lane or self._generate
         self._ensure_started(lane)
         assert lane.queue is not None
         future = asyncio.get_running_loop().create_future()
-        await lane.queue.put(_Job(factory, future, lane))
+        await lane.queue.put(_Job(factory, future, lane, operation=operation, schema=schema, context=dict(CALL_CONTEXT.get())))
         return await future
 
     async def aclose(self) -> None:
@@ -278,30 +332,54 @@ class GeminiGateway:
                     job.future.cancel()
 
     async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
-        return await self._submit(lambda: self._backend.generate_text(prompt, system))
+        return await self._submit(lambda: self._backend.generate_text(prompt, system), operation="generate_text")
 
     async def generate_structured(self, prompt: str, schema: type[M], *, system: str | None = None) -> M:
-        return await self._submit(lambda: self._backend.generate_structured(prompt, schema, system))
+        return await self._submit(lambda: self._backend.generate_structured(prompt, schema, system), operation="generate_structured", schema=schema.__name__)
 
     async def transcribe_audio(self, audio: bytes, *, mime_type: str = "audio/ogg", prompt: str) -> str:
-        return await self._submit(lambda: self._backend.transcribe_audio(audio, mime_type, prompt))
+        return await self._submit(lambda: self._backend.transcribe_audio(audio, mime_type, prompt), operation="transcribe_audio")
 
     async def describe_image(self, image: bytes, *, mime_type: str, prompt: str, schema: type[M], system: str | None = None) -> M:
-        return await self._submit(lambda: self._backend.describe_image(image, mime_type, prompt, schema, system))
+        return await self._submit(lambda: self._backend.describe_image(image, mime_type, prompt, schema, system), operation="describe_image", schema=schema.__name__)
 
     async def embed_query(self, text: str) -> list[float]:
-        return (await self._submit(lambda: self._backend.embed([text], "RETRIEVAL_QUERY"), self._embed))[0]
+        """Search texts repeat (the same preferences, the same question), so recent vectors are kept. Costs nothing, saves a request."""
+        cached = self._embed_cache.get(text)
+        if cached is not None:
+            self._embed_cache.move_to_end(text)
+            self.embed_cache_hits += 1
+            return list(cached)
+        vector = (await self._submit(lambda: self._backend.embed([text], "RETRIEVAL_QUERY"), self._embed, operation="embed_query"))[0]
+        self._embed_cache[text] = list(vector)
+        while len(self._embed_cache) > self._embed_cache_size:
+            self._embed_cache.popitem(last=False)
+        return vector
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return await self._submit(lambda: self._backend.embed(texts, "RETRIEVAL_DOCUMENT"), self._embed)
+        return await self._submit(lambda: self._backend.embed(texts, "RETRIEVAL_DOCUMENT"), self._embed, operation="embed_documents")
 
 
 @lru_cache
 def get_gateway() -> GeminiGateway:
     s = get_settings()
-    backend = GenAIBackend(
-        s.gemini_api_key, s.gemini_model, s.gemini_embed_model,
-        fallback_models=s.fallback_models, primary_timeout=s.gemini_primary_timeout_seconds,
-        thinking_budget=s.gemini_thinking_budget,
-    )
-    return GeminiGateway(backend, rpm=s.gemini_rpm, request_timeout=s.gemini_timeout_seconds, embed_rpm=s.gemini_embed_rpm)
+    if s.gemini_mode not in ("live", "record", "replay"):
+        raise ValueError(f"gemini_mode must be live, record or replay, not {s.gemini_mode!r}")
+    backend: Any
+    if s.gemini_mode == "replay":
+        from app.gemini_replay import RecordingStore, ReplayBackend
+
+        backend = ReplayBackend(RecordingStore(s.gemini_recording_path))
+    else:
+        backend = GenAIBackend(
+            s.gemini_api_key, s.gemini_model, s.gemini_embed_model,
+            fallback_models=s.fallback_models, primary_timeout=s.gemini_primary_timeout_seconds,
+            thinking_budget=s.gemini_thinking_budget,
+        )
+        if s.gemini_mode == "record":
+            from app.gemini_replay import RecordingBackend, RecordingStore
+
+            backend = RecordingBackend(backend, RecordingStore(s.gemini_recording_path))
+    replaying = s.gemini_mode == "replay"  # recordings answer instantly, so the free-tier pacing would only slow evaluations down
+    return GeminiGateway(backend, rpm=6000 if replaying else s.gemini_rpm, request_timeout=s.gemini_timeout_seconds,
+                         embed_rpm=6000 if replaying else s.gemini_embed_rpm)

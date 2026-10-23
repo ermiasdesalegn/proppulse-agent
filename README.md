@@ -40,7 +40,9 @@ npm install && npm run dev    # http://localhost:3000
 
 ## Checks
 ```bash
-cd backend && .venv/Scripts/python -m pytest              # offline, no credentials
+cd backend && .venv/Scripts/python -m pytest              # offline, no credentials: runs on an embedded Postgres + pgvector (backend/.pgdata)
+.venv/Scripts/python -m pytest --live                      # also runs the tests that call the real Gemini API
+# TEST_DATABASE_URL=postgresql://... uses an existing pgvector database instead of the embedded one (CI does this)
 .venv/Scripts/python -m scripts.live_check                 # Telegram/DB
 .venv/Scripts/python -m scripts.live_model_check           # Gemini (read-only)
 .venv/Scripts/python -m scripts.live_services_check        # Calendar + Mapbox (books and deletes one test event)

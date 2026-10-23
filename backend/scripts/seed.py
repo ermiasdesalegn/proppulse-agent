@@ -1,5 +1,7 @@
 """Seed 3 partner developers and 15 representative properties. Safe to run repeatedly."""
 import json
+import sys
+from pathlib import Path
 
 import psycopg
 
@@ -72,8 +74,17 @@ def embedding_text(row: tuple) -> str:
     )
 
 
-def main() -> None:
-    with psycopg.connect(get_settings().database_url) as conn:
+def stored_vectors(path: str, texts_by_hash: dict[str, str]) -> dict[str, list[float]]:
+    """Embeddings exported earlier by scripts.export_embeddings, so a local database needs no model quota."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    missing = [h for h in texts_by_hash if h not in data]
+    if missing:
+        raise SystemExit(f"{len(missing)} properties have no stored embedding; run scripts.export_embeddings against a seeded database")
+    return {h: data[h] for h in texts_by_hash}
+
+
+def main(url: str | None = None, embeddings_file: str | None = None) -> None:
+    with psycopg.connect(url or get_settings().database_url) as conn:
         for d in DEVELOPERS:
             conn.execute(
                 "insert into developers (name, slug, sales_email, commission_rate_pct, reliability_score) "
@@ -90,7 +101,11 @@ def main() -> None:
             print("nothing to insert; 15 properties already present")
             return
 
-        vectors = embed_documents([embedding_text(row) for row, _ in todo])
+        if embeddings_file:
+            stored = stored_vectors(embeddings_file, {h: embedding_text(row) for row, h in todo})
+            vectors = [stored[h] for _, h in todo]
+        else:
+            vectors = embed_documents([embedding_text(row) for row, _ in todo])
         for (row, h), vec in zip(todo, vectors):
             slug, project, utype, city, (lat, lng), price, beds, sqm, down, stage, yld, delivery, desc, tags = row
             conn.execute(
@@ -106,4 +121,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(embeddings_file=sys.argv[1] if len(sys.argv) > 1 else None)

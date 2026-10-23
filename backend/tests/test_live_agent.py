@@ -3,6 +3,8 @@
 These are the only tests that prove the prompts and the extraction schema work with the actual model.
 """
 import pytest
+
+pytestmark = pytest.mark.live
 import pytest_asyncio
 
 from app.config import get_settings
