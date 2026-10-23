@@ -42,11 +42,11 @@ export default function ControlBar() {
   }
 
   return (
-    <div className="border-b border-line bg-panel">
+    <div className="sticky top-0 z-20 border-b border-white/[0.07] bg-black/40 backdrop-blur-xl">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Run now</span>
         {JOBS.map((job) => (
-          <Button key={job.key} variant={job.key === "scraper" ? "default" : "primary"} disabled={running !== null} onClick={() => run(job)}>
+          <Button key={job.key} variant={job.key === "scraper" ? "default" : "glow"} disabled={running !== null} onClick={() => run(job)}>
             {running === job.key ? "Running..." : job.label}
           </Button>
         ))}

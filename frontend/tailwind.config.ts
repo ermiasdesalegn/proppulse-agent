@@ -14,6 +14,7 @@ const config: Config = {
         ink: token("ink"),
         muted: token("muted"),
         accent: token("accent"),
+        accent2: token("accent2"),
         good: token("good"),
         warn: token("warn"),
         bad: token("bad"),

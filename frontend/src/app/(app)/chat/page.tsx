@@ -139,7 +139,7 @@ export default function ChatPage() {
             {messages.map((m) => m.source === "system" ? (
               <p key={m.id} className="text-center text-xs text-muted">{m.content}</p>
             ) : (
-              <div key={m.id} className={clsx("flex", m.role === "buyer" ? "justify-end" : "justify-start")}>
+              <div key={m.id} className={clsx("msg-in flex", m.role === "buyer" ? "justify-end" : "justify-start")}>
                 <div className={clsx("max-w-[85%] rounded-xl border px-3 py-2 text-sm", m.role === "buyer" ? "border-accent/30 bg-accent/10" : m.role === "agent" ? "border-line bg-raised" : "border-warn/40 bg-warn/10")}>
                   <p className="mb-1 text-xs text-muted"><span className="font-semibold">{m.role === "buyer" ? "You" : m.role === "agent" ? "Agent" : "Broker"}</span> <time>{fmtTime(m.created_at)}</time></p>
                   <p className="whitespace-pre-wrap break-words">{m.content}</p>
@@ -147,7 +147,7 @@ export default function ChatPage() {
               </div>
             ))}
             {shownUnconfirmed.map((u) => (
-              <div key={u.key} className="flex justify-end">
+              <div key={u.key} className="msg-in flex justify-end">
                 <div className="max-w-[85%] rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-sm opacity-80">
                   <p className="mb-1 text-xs text-muted"><span className="font-semibold">You</span> <time>{fmtTime(u.at)}</time></p>
                   <p className="whitespace-pre-wrap break-words">{u.content}</p>

@@ -27,18 +27,18 @@ export default function LoginPage() {
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
-      <section className="relative hidden flex-col justify-between overflow-hidden p-12 text-white md:flex btn-gradient">
-        <div className="pointer-events-none absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
+      <section className="relative hidden flex-col justify-between overflow-hidden border-r border-white/[0.07] p-12 md:flex">
+        <div className="pointer-events-none absolute -bottom-32 -left-24 h-96 w-96 rounded-full btn-gradient opacity-25 blur-3xl" />
         <div className="flex items-center gap-3"><Logo className="h-10 w-10" /><span className="text-sm font-semibold uppercase tracking-widest">PropPulse AI</span></div>
         <div>
-          <h2 className="text-4xl font-semibold leading-tight tracking-tight">Every buyer answered.<br />Every deal in view.</h2>
-          <ul className="mt-6 space-y-3 text-sm text-white/85">
+          <h2 className="text-4xl font-semibold leading-tight tracking-tight"><span className="gradient-text">Every buyer answered.</span><br />Every deal in view.</h2>
+          <ul className="mt-6 space-y-3 text-sm text-muted">
             <li>Telegram agent in English and Amharic</li>
             <li>Live view of every step the agent takes</li>
             <li>Site visits, routes and commissions in one place</li>
           </ul>
         </div>
-        <p className="text-xs text-white/70">Addis Ababa real estate, run by one broker and one agent.</p>
+        <p className="text-xs text-muted">Addis Ababa real estate, run by one broker and one agent.</p>
       </section>
       <div className="flex items-center justify-center px-4 py-10">
         <form onSubmit={submit} className="card w-full max-w-sm rounded-2xl border border-line bg-panel p-7">
