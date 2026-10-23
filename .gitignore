@@ -12,3 +12,6 @@ updated/
 .env_*
 *.log
 .npm-cache/
+
+service-account*.json
+*-credentials.json
