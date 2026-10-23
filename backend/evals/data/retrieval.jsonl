@@ -1,0 +1,63 @@
+{"id":"en-01","lang":"en","message":"I have 15 million birr, looking for a 2 bedroom in Bole","relevant":["NB2"]}
+{"id":"en-02","lang":"en","message":"3 bedroom apartment in Bole, budget 25M","relevant":["NB3","GBC"]}
+{"id":"en-03","lang":"en","message":"Cheap studio for investment under 5 million birr","relevant":["AYS","GKS"]}
+{"id":"en-04","lang":"en","message":"Family home with a garden, 3 bedrooms, up to 15 million","relevant":["AYG","NSG"]}
+{"id":"en-05","lang":"en","message":"I want a luxury penthouse with panoramic views","relevant":["NPH"]}
+{"id":"en-06","lang":"en","message":"A villa with a swimming pool and servant quarters","relevant":["AYV","GLH"]}
+{"id":"en-07","lang":"en","message":"Apartment near the airport that I can rent to expats","relevant":["NB2","NB3"]}
+{"id":"en-08","lang":"en","message":"1 bedroom walkable to offices in the business district, budget 8 million","relevant":["NKP","GKS"]}
+{"id":"en-09","lang":"en","message":"2 bedroom near schools for a young family, budget 10M","relevant":["GSH","GSP2","AYH"]}
+{"id":"en-10","lang":"en","message":"I am a first-time buyer, 2 bedroom, around 7 million birr","relevant":["AYH"]}
+{"id":"en-11","lang":"en","message":"Furnished serviced apartment for short-let income in Kazanchis","relevant":["GKS"]}
+{"id":"en-12","lang":"en","message":"4 bedroom villa in Lebu in a green neighbourhood, 25M","relevant":["GLH"]}
+{"id":"en-13","lang":"en","message":"3 bedroom in CMC with a kids play area, 13 million","relevant":["GSP3"]}
+{"id":"en-14","lang":"en","message":"Something in Sarbet with 3 bedrooms on a quiet street","relevant":["NSG"]}
+{"id":"en-15","lang":"en","message":"A studio with a high rental yield","relevant":["GKS","AYS"]}
+{"id":"en-16","lang":"en","message":"Apartment with a gym and 24 hour security in Bole","relevant":["NB3","NB2"]}
+{"id":"en-17","lang":"en","message":"I want a 3BR in Ayat under 15M","relevant":["AYG"]}
+{"id":"en-18","lang":"en","message":"A big 4 bedroom house for a large family, budget 30 million","relevant":["AYV","GLH"]}
+{"id":"en-19","lang":"en","message":"Any 2 bedroom apartment in CMC","relevant":["GSP2"]}
+{"id":"en-20","lang":"en","message":"A modern 1 bedroom apartment, budget 8 million","relevant":["NKP"]}
+{"id":"en-21","lang":"en","message":"Investor unit near public transport under 4 million","relevant":["AYS"]}
+{"id":"en-22","lang":"en","message":"High-floor apartment with city views, 3 bedrooms, 20 million","relevant":["NB3"]}
+{"id":"en-23","lang":"en","message":"2 bedroom in Bole under 12 million","relevant":["NB2"],"needs_relaxation":true}
+{"id":"en-24","lang":"en","message":"3 bedroom in Ayat under 13 million","relevant":["AYG"],"needs_relaxation":true}
+{"id":"en-25","lang":"en","message":"A studio in Sarbet under 5 million","relevant":["GKS","AYS"],"needs_relaxation":true}
+{"id":"en-26","lang":"en","message":"5 bedroom mansion in Bole for 10 million","expect_none":true}
+{"id":"en-27","lang":"en","message":"A medieval castle with a moat","expect_none":true}
+{"id":"en-28","lang":"en","message":"1 bedroom in Lebu for 2 million birr","expect_none":true}
+{"id":"am-01","lang":"am","message":"በቦሌ ባለ 2 መኝታ አፓርታማ እፈልጋለሁ፣ በጀቴ 15 ሚሊዮን ብር ነው","relevant":["NB2"]}
+{"id":"am-02","lang":"am","message":"በቦሌ ባለ 3 መኝታ ቤት እፈልጋለሁ፣ ከ25 ሚሊዮን ብር በታች","relevant":["NB3","GBC"]}
+{"id":"am-03","lang":"am","message":"ለኢንቨስትመንት የሚሆን ስቱዲዮ ከ5 ሚሊዮን ብር በታች","relevant":["AYS","GKS"]}
+{"id":"am-04","lang":"am","message":"የአትክልት ቦታ ያለው የቤተሰብ ቤት፣ 3 መኝታ፣ እስከ 15 ሚሊዮን ብር","relevant":["AYG","NSG"]}
+{"id":"am-05","lang":"am","message":"የመዋኛ ገንዳ ያለው ቪላ ቤት እፈልጋለሁ","relevant":["AYV"]}
+{"id":"am-06","lang":"am","message":"በካዛንቺስ ከቢሮ ጋር ቅርብ የሆነ ባለ 1 መኝታ","relevant":["NKP","GKS"]}
+{"id":"am-07","lang":"am","message":"በሳርቤት ለትምህርት ቤት ቅርብ የሆነ ባለ 2 መኝታ ከ10 ሚሊዮን ብር በታች","relevant":["GSH"]}
+{"id":"am-08","lang":"am","message":"በሲኤምሲ ባለ 3 መኝታ አፓርታማ የልጆች መጫወቻ ያለው","relevant":["GSP3"]}
+{"id":"am-09","lang":"am","message":"በአያት ለመጀመሪያ ጊዜ ቤት ለሚገዛ ሰው ባለ 2 መኝታ ወደ 7 ሚሊዮን ብር","relevant":["AYH"]}
+{"id":"am-10","lang":"am","message":"በለቡ ባለ 4 መኝታ ቪላ እፈልጋለሁ","relevant":["GLH"]}
+{"id":"am-11","lang":"am","message":"ከአውሮፕላን ማረፊያ አጠገብ ለውጭ ዜጎች ለማከራየት የሚሆን አፓርታማ","relevant":["NB2","NB3"]}
+{"id":"am-12","lang":"am","message":"በቦሌ ባለ 5 መኝታ ቤት በ10 ሚሊዮን ብር እፈልጋለሁ","expect_none":true}
+{"id":"mix-01","lang":"mix","message":"Selam, I need ባለ 3 መኝታ in Bole, budget 20 million birr","relevant":["NB3","GBC"]}
+{"id":"mix-02","lang":"mix","message":"ለኢንቨስትመንት studio in Kazanchis ከ5M በታች","relevant":["GKS"]}
+{"id":"mix-03","lang":"mix","message":"Family house በአያት with a garden up to 15M","relevant":["AYG"]}
+{"id":"mix-04","lang":"mix","message":"2BR in CMC ለወጣት ቤተሰብ, budget 9M","relevant":["GSP2"]}
+{"id":"mix-05","lang":"mix","message":"villa በለቡ አካባቢ, 4 bedroom","relevant":["GLH"]}
+{"id":"mix-06","lang":"mix","message":"apartment ከጂም ጋር in Bole","relevant":["NB2","NB3"]}
+{"id":"mix-07","lang":"mix","message":"cheap 1BR በካዛንቺስ 8M","relevant":["NKP"]}
+{"id":"mix-08","lang":"mix","message":"penthouse በቦሌ luxury","relevant":["NPH"]}
+{"id":"hard-01","lang":"en","hard":true,"message":"Something quiet and green for a family, not too expensive","relevant":["NSG","GLH","AYG"]}
+{"id":"hard-02","lang":"en","hard":true,"message":"I want to invest in whatever earns the most rental income","relevant":["GKS","AYS","NKP"]}
+{"id":"hard-03","lang":"en","hard":true,"message":"An apartment close to the light rail in the city centre","relevant":["GKS","NKP"]}
+{"id":"hard-04","lang":"en","hard":true,"message":"Something bigger than 200 square metres","relevant":["AYV","GLH","NPH"]}
+{"id":"hard-05","lang":"en","hard":true,"message":"Bolé 2 bdrm around 13M","relevant":["NB2"]}
+{"id":"hard-06","lang":"en","hard":true,"message":"studio in Kazanches, furnished","relevant":["GKS"]}
+{"id":"hard-07","lang":"en","hard":true,"message":"A home with a private roof terrace and a maid room","relevant":["NPH"]}
+{"id":"hard-08","lang":"en","hard":true,"message":"Young professional, 1 bedroom or a studio, close to cafes and offices, under 8M","relevant":["NKP","GKS"]}
+{"id":"hard-09","lang":"en","hard":true,"message":"Gated compound with parking for two cars and a garden","relevant":["AYG","AYV","GLH"]}
+{"id":"hard-10","lang":"en","hard":true,"message":"What is the cheapest thing you have?","relevant":["AYS"]}
+{"id":"hard-11","lang":"en","hard":true,"message":"Show me your most luxurious home","relevant":["NPH","AYV"]}
+{"id":"hard-12","lang":"en","hard":true,"message":"I need 6 bedrooms","expect_none":true}
+{"id":"hard-13","lang":"am","hard":true,"message":"ለቤተሰብ ጸጥ ያለ አረንጓዴ አካባቢ ያለው ቤት","relevant":["GLH","NSG","AYG"]}
+{"id":"hard-14","lang":"am","hard":true,"message":"ከፍተኛ የኪራይ ገቢ የሚያስገኝ ቤት ለኢንቨስትመንት","relevant":["GKS","AYS","NKP"]}
+{"id":"hard-15","lang":"mix","hard":true,"message":"Looking for a ጸጥ ያለ place with a garden, 3BR, 12M","relevant":["NSG"]}

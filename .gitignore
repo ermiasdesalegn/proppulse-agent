@@ -18,3 +18,5 @@ service-account*.json
 
 .pgdata/
 .tmp/
+
+backend/evals/results.json

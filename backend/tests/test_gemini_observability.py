@@ -104,6 +104,21 @@ class Scripted:
         return [[0.123456789, -1.0] for _ in texts]
 
 
+async def test_a_recording_run_only_pays_for_what_is_missing(tmp_path):
+    path = tmp_path / "rec.jsonl"
+    real = Scripted()
+    first = RecordingBackend(real, RecordingStore(path))
+    await first.generate_text("p", None)
+    await first.embed(["a"], "RETRIEVAL_QUERY")
+    assert real.calls == 2 and first.live_calls == 2
+
+    again = RecordingBackend(real, RecordingStore(path))  # a second run, as after an interrupted one
+    assert await again.generate_text("p", None) == "text for p"
+    assert (await again.generate_structured("new", Answer, None)).name == "NEW"
+    assert again.live_calls == 1 and real.calls == 3, "only the request that was not recorded reached the model"
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 3
+
+
 async def test_what_was_recorded_is_replayed_without_the_real_backend(tmp_path):
     path = tmp_path / "rec.jsonl"
     real = Scripted()

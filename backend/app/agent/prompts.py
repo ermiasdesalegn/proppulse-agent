@@ -35,6 +35,7 @@ Rules:
 - referenced_options: numbers from the most recent list shown to the buyer ("the first two" = [1, 2]). Empty if none.
 - tour_start_iso: the visit time they ask for, resolved against the current time given, with UTC offset. Null if no time was given.
 - objections: only worries or hesitations stated in the latest message (price too high, delivery risk, location, developer trust, payment terms), each a short phrase in English. Empty if none.
+- ranking: only when they ask for the extreme of something ("the cheapest", "most luxurious", "best rental income", "biggest") rather than describing a home; otherwise null.
 - urgency: high if they want to act within days, medium within weeks, otherwise low."""
 
 

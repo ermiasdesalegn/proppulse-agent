@@ -293,7 +293,7 @@ class AgentNodes:
             selected = list(pending.get("ids") or [])  # the buyer is answering "which time?", not "which unit?"
 
         return {
-            "intent": ex.intent, "urgency": ex.urgency, "query_text": query, "query_embedding": None,
+            "intent": ex.intent, "urgency": ex.urgency, "query_text": query, "query_embedding": None, "ranking": ex.ranking,
             "buyer_preferences": new_prefs, "buyer_profile": new_profile, "preference_summary": summary,
             "deal_stage": stage, "selected_property_ids": selected, "tour_start_iso": ex.tour_start_iso,
             "search_scope": {
@@ -331,6 +331,12 @@ class AgentNodes:
     async def discovery(self, state: BrokerAgentState) -> dict:
         d, scope, prefs = self.d, state["search_scope"], state["buyer_preferences"]
         try:
+            if state.get("ranking"):
+                # "The cheapest" is a rule, not a description: sort the units that fit the buyer's limits by it. No embedding involved.
+                matches = await d.repo.rank_properties(
+                    state["ranking"], max_budget_etb=scope["effective_max_budget_etb"], min_bedrooms=prefs["min_bedrooms"],
+                    sub_cities=scope["effective_sub_cities"], count=3)
+                return {"query_embedding": None, "active_matches": [slim(m) for m in matches]}
             embedding = state.get("query_embedding") or await d.gateway.embed_query(state["query_text"])
             matches = await d.repo.search_properties(
                 embedding,

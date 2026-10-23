@@ -86,6 +86,26 @@ class Repository:
             matches = rank_by_reliability(matches, reliability)
         return matches[:count]
 
+    RANKINGS = {  # a fixed list: the column and direction are never taken from text
+        "cheapest": "price_etb asc", "priciest": "price_etb desc", "highest_yield": "est_rental_yield_pct desc nulls last, price_etb",
+        "largest": "sqm desc, price_etb",
+    }
+
+    async def rank_properties(
+        self, ranking: str, *, max_budget_etb: float | None, min_bedrooms: int | None, sub_cities: Sequence[str] | None, count: int = 3,
+    ) -> list[PropertyMatch]:
+        """The available units that fit the buyer's limits, ordered by a rule. Similarity is not part of it: a unit is 'the cheapest'
+        whatever its description says, so it is reported as an exact match (1.0)."""
+        order = self.RANKINGS[ranking]
+        rows = await self._fetch(
+            "select id, developer_id, title, sub_city, price_etb, bedrooms, 1.0::float8 as similarity from properties "
+            "where status = 'AVAILABLE' and (%s::numeric is null or price_etb <= %s) and (%s::int is null or bedrooms >= %s) "
+            "and (cardinality(%s::text[]) = 0 or sub_city = any(%s::text[])) "
+            f"order by {order} limit %s",
+            (max_budget_etb, max_budget_etb, min_bedrooms, min_bedrooms, list(sub_cities or []), list(sub_cities or []), count),
+        )
+        return [PropertyMatch(**r) for r in rows]
+
     async def get_properties(self, ids: Sequence[UUID | str]) -> list[dict]:
         """Full property rows (no embedding) joined with developer contact details, in the order requested."""
         rows = await self._fetch(

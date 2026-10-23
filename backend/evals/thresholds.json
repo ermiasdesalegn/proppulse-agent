@@ -1,0 +1,12 @@
+{
+  "retrieval": {
+    "hit_at_3": 0.95,
+    "mrr": 0.95,
+    "correctly_empty": 1.0,
+    "relaxation_recovered": 0.9
+  },
+  "scenarios": {
+    "min_passed": 23,
+    "max_ungrounded_turns": 0
+  }
+}

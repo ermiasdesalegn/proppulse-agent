@@ -28,5 +28,9 @@ class Extraction(BaseModel):
     search_query: Optional[str] = Field(default=None, description="English description of the home the buyer wants")
     referenced_options: list[int] = Field(default_factory=list, description="1-based numbers of listed options the buyer refers to")
     tour_start_iso: Optional[str] = Field(default=None, description="Requested visit time as ISO 8601 with UTC offset")
+    ranking: Optional[Literal["cheapest", "priciest", "highest_yield", "largest"]] = Field(
+        default=None,
+        description="Set only when the buyer asks for the extreme of something instead of describing a home: cheapest, "
+                    "priciest (most expensive or most luxurious), highest_yield (best rental income or return), largest (biggest)")
     urgency: Literal["low", "medium", "high"] = "low"
     objections: list[str] = Field(default_factory=list, description="New worries or hesitations the buyer voiced in this message, each as a short phrase")

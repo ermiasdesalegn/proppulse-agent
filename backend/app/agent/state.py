@@ -33,6 +33,7 @@ class BrokerAgentState(TypedDict, total=False):
     urgency: str
     query_text: str
     query_embedding: list[float] | None
+    ranking: str | None  # cheapest, priciest, highest_yield or largest: search by that rule instead of by similarity
     search_scope: dict  # effective_max_budget_etb, effective_sub_cities, relaxation_step, max_relaxation_steps
     selected_property_ids: list[str]
     tour_start_iso: str | None

@@ -43,11 +43,22 @@ npm install && npm run dev    # http://localhost:3000
 cd backend && .venv/Scripts/python -m pytest              # offline, no credentials: runs on an embedded Postgres + pgvector (backend/.pgdata)
 .venv/Scripts/python -m pytest --live                      # also runs the tests that call the real Gemini API
 # TEST_DATABASE_URL=postgresql://... uses an existing pgvector database instead of the embedded one (CI does this)
+.venv/Scripts/python -m evals --check                      # quality guard: retrieval, conversations, invented numbers (from a recording, no network)
 .venv/Scripts/python -m scripts.live_check                 # Telegram/DB
 .venv/Scripts/python -m scripts.live_model_check           # Gemini (read-only)
 .venv/Scripts/python -m scripts.live_services_check        # Calendar + Mapbox (books and deletes one test event)
 cd ../frontend && npm test && npm run typecheck && npm run build
 ```
+
+## Evaluation
+
+The agent is measured, not just demonstrated. `backend/evals` runs three checks from a recording of the real model's answers (free, 27 seconds):
+
+- **Retrieval** (58 labelled buyer messages in English, Amharic and mixed, 14 of them deliberately hard): hit@3 100%, MRR 0.99, precision@3 83%; requests nothing matches come back empty 5 of 5 times; the widening loop rescues 3 of 3 too-tight requests. A threshold sweep shows why the similarity cut-off is 0.64.
+- **Conversations** (23 scripted scenarios through the real graph: search, widening, comparison, booking, conflicts, consultations, takeover, voice, ad links, price-drop alerts, reminders, prompt injection): 23 pass; 1 known gap is listed with the phase that fixes it.
+- **Groundedness**: every reply is checked so that each price, size, percentage or year comes from the unit facts or the buyer's own words (37 of 37).
+
+`python -m evals --check` fails if anything gets worse, and the same check runs inside `pytest`. Full tables: [backend/evals/REPORT.md](backend/evals/REPORT.md); method and limits: [backend/evals/README.md](backend/evals/README.md).
 
 ## Going live
 - **Google Calendar**: enable the Calendar API, create a service account, download its JSON key, share the calendar with the account's email with "Make changes to events". Set `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_CALENDAR_ID`.
