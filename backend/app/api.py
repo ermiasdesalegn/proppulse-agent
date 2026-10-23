@@ -585,7 +585,7 @@ async def demo_reset(body: DemoResetIn, request: Request, repo: Repository = Dep
         raise HTTPException(403, "Resetting the demo is switched off (set DEMO_RESET_ENABLED=true to allow it)")
     if body.confirm != "RESET":
         raise HTTPException(422, 'Type RESET to confirm')
-    report = await reset_demo(repo, request.app.state.chat.services.calendar)
+    report = await reset_demo(repo, request.app.state.chat.services.calendar, getattr(getattr(request.app.state, "projects", None), "embed", None))
     request.app.state.events.publish("demo_reset", deleted=sum(report["deleted"].values()))
     return report
 
@@ -741,3 +741,21 @@ async def project_ad(project_id: UUID, body: ProjectAdIn, projects=Depends(proje
 @router.post("/api/cron/promotion-ads", dependencies=[Depends(require_cron_or_admin)])
 async def promotion_ads(dry_run: bool = False, projects=Depends(projects_of)):
     return await projects.run_promotion_ads(dry_run)
+
+
+class DeveloperIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    sales_email: str = Field(min_length=5, max_length=120, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    website_url: str | None = Field(default=None, max_length=300, pattern=r"^https?://")
+    commission_rate_pct: float = Field(default=3.0, ge=0, le=100)
+
+
+@router.post("/api/developers", dependencies=[Depends(require_admin)])
+async def create_developer(body: DeveloperIn, repo: Repository = Depends(repo_of)):
+    import re as _re
+
+    slug = _re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-")
+    row = await repo.create_developer(name=body.name.strip(), slug=slug, sales_email=body.sales_email.strip(), website_url=body.website_url, commission_rate_pct=body.commission_rate_pct)
+    if row is None:
+        raise HTTPException(409, "A developer with that name already exists.")
+    return row

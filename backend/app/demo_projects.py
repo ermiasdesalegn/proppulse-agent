@@ -18,7 +18,7 @@ DEMO_PROJECTS = [
 ]
 
 
-async def restore_demo_projects(repo: Any) -> dict:
+async def restore_demo_projects(repo: Any, embed: Any = None) -> dict:
     """Remove projects that were crawled, put the demo ones back without prices, and give the demo offer a fresh end date."""
     gone = await repo._fetch("with gone as (delete from projects where source_url not like %s returning 1) select count(*)::int as n from gone", (DEMO_PREFIX + "%",))
     developers = {d["slug"]: d["id"] for d in await repo.list_developers()}
@@ -36,5 +36,7 @@ async def restore_demo_projects(repo: Any) -> dict:
         }
         saved, _ = await repo.upsert_project(developers[p["dev"]], row)
         await repo.set_project_price(saved["id"], None, None)
+        if embed is not None:
+            await embed(await repo.get_project(saved["id"]))  # a full row: the saved one is a stub when nothing changed
         restored += 1
     return {"removed_crawled_projects": gone[0]["n"], "restored_demo_projects": restored}

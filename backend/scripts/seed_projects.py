@@ -4,14 +4,23 @@ import asyncio
 from app.config import get_settings
 from app.db import make_pool
 from app.demo_projects import restore_demo_projects
+from app.gemini import get_gateway
+from app.projects import embedding_text
 from app.repository import Repository
 
 
 async def main() -> None:
-    pool = make_pool(get_settings())
+    settings = get_settings()
+    pool = make_pool(settings)
     await pool.open(wait=True, timeout=30)
+    repo, gateway = Repository(pool), get_gateway()
+
+    async def embed(project: dict) -> None:
+        (vector,) = await gateway.embed_documents([embedding_text(project)])
+        await repo.set_project_embedding(project["id"], vector)
+
     try:
-        print(await restore_demo_projects(Repository(pool)))
+        print(await restore_demo_projects(repo, embed))
     finally:
         await pool.close()
 

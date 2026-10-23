@@ -115,6 +115,8 @@ function CrawlCard({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<CrawlReport | null>(null);
   const chosen = slug || developers.data?.[0]?.slug || "";
+  const [adding, setAdding] = useState(false);
+  const chosenDeveloper = developers.data?.find((d) => d.slug === chosen);
 
   async function run() {
     setBusy(true); setError(null); setReport(null);
@@ -132,7 +134,8 @@ function CrawlCard({ onDone }: { onDone: () => void }) {
         <div className="grid gap-3 sm:grid-cols-[14rem_1fr]">
           <div>
             <label htmlFor="crawl-dev" className="block text-sm font-medium">Developer</label>
-            <div className="mt-1"><Select id="crawl-dev" value={chosen} onChange={setSlug} options={(developers.data ?? []).map((d) => ({ value: d.slug, label: d.name }))} /></div>
+            <div className="mt-1"><Select id="crawl-dev" value={chosen} onChange={(v) => { setSlug(v); const d = developers.data?.find((x) => x.slug === v); if (d?.website_url && !url) setUrl(d.website_url); }} options={(developers.data ?? []).map((d) => ({ value: d.slug, label: d.name }))} /></div>
+            <button type="button" onClick={() => setAdding(true)} className="mt-1.5 text-xs font-medium text-accent hover:underline">+ Add a developer</button>
           </div>
           <div>
             <label htmlFor="crawl-url" className="block text-sm font-medium">Website address</label>
@@ -144,6 +147,7 @@ function CrawlCard({ onDone }: { onDone: () => void }) {
           <Button variant="primary" disabled={busy || !chosen || !url.trim()} onClick={() => void run()}>{busy ? "Reading the site..." : preview ? "Preview what it finds" : "Read and save"}</Button>
         </div>
         {error && <ErrorNote>{error}</ErrorNote>}
+        {adding && <DeveloperDialog onClose={() => setAdding(false)} onCreated={(d) => { setAdding(false); void developers.reload(); setSlug(d.slug); if (d.website_url) setUrl(d.website_url); }} />}
         {report && (
           <div className="rounded-lg border border-line bg-raised p-4 text-sm" role="status">
             <p className="font-medium">{report.dry_run ? "Preview" : "Saved"}: {report.pages_read} pages read, {report.created.length} new, {report.updated.length} changed, {report.unchanged.length} unchanged.</p>
@@ -280,6 +284,36 @@ function AdDialog({ project, onClose }: { project: Project; onClose: () => void 
         <Button type="button" onClick={onClose}>{ad?.posted ? "Close" : "Cancel"}</Button>
         {!ad?.posted && <Button variant="primary" disabled={busy || !ad?.preview} onClick={() => void call(false)}>{busy ? "Posting..." : "Post to the channel"}</Button>}
       </div>
+    </Shell>
+  );
+}
+
+function DeveloperDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (d: { slug: string; website_url: string | null }) => void }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [site, setSite] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true); setError(null);
+    try { onCreated(await post<{ slug: string; website_url: string | null }>("developers", { name: name.trim(), sales_email: email.trim(), website_url: site.trim() || null })); }
+    catch (e) { setError(errorMessage(e)); setBusy(false); }
+  }
+
+  return (
+    <Shell title="Add a developer" onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <p className="mt-1 text-sm text-muted">The sales email receives the lead-registration notice when a buyer books a visit. Use a real address before booking real visits.</p>
+        <label htmlFor="dev-name" className="mt-4 block text-sm font-medium">Company name</label>
+        <input id="dev-name" autoFocus required minLength={2} value={name} onChange={(e) => setName(e.target.value)} placeholder="Metropolitan Real Estate" className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" />
+        <label htmlFor="dev-email" className="mt-3 block text-sm font-medium">Sales office email</label>
+        <input id="dev-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sales@developer.example" className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" />
+        <label htmlFor="dev-site" className="mt-3 block text-sm font-medium">Website (optional)</label>
+        <input id="dev-site" type="url" value={site} onChange={(e) => setSite(e.target.value)} placeholder="https://developer.example/" className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" />
+        {error && <div className="mt-3"><ErrorNote>{error}</ErrorNote></div>}
+        <div className="mt-5 flex justify-end gap-2"><Button type="button" onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={busy || name.trim().length < 2 || !email.includes("@")}>{busy ? "Adding..." : "Add developer"}</Button></div>
+      </form>
     </Shell>
   );
 }

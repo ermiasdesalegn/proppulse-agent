@@ -109,6 +109,16 @@ MESSAGES: dict[str, dict[str, str]] = {
     "proj_price_known": {"en": "Good news: {project} by {developer} starts from {price}{note}. Would you like to book a site visit?",
                          "am": "ደስ የሚል ዜና፦ የ{developer} {project} ዋጋ ከ{price} ይጀምራል{note}። የቦታ ጉብኝት ልያዝልዎ?"},
     "proj_not_found": {"en": "I could not find that project. Tell me the area and size you want and I will look.", "am": "ያንን ፕሮጀክት ማግኘት አልቻልኩም። የሚፈልጉትን አካባቢና መጠን ይንገሩኝ፣ እፈልጋለሁ።"},
+    "proj_also_header": {"en": "Also worth a visit (these developers have not published prices, but I can ask for them):", "am": "ለጉብኝት የሚያስቆጭ ሌላም አለ (እነዚህ አልሚዎች ዋጋ አላወጡም፣ ግን ልጠይቅ እችላለሁ)፦"},
+    "btn_book_visit": {"en": "Book a visit", "am": "ጉብኝት ያዝ"},
+    "proj_need_contact": {"en": "To book a visit to {project} I need your full name and phone number. Send them in one message, then tap Book a visit again.",
+                          "am": "ወደ {project} ጉብኝት ለመያዝ ሙሉ ስምዎንና ስልክ ቁጥርዎን እፈልጋለሁ። በአንድ መልዕክት ይላኩልኝ፣ ከዚያ «ጉብኝት ያዝ» ን እንደገና ይጫኑ።"},
+    "proj_slots": {"en": "{lead} I can offer these times for {project}:\n{options}\nWhich suits you?", "am": "{lead} ለ{project} እነዚህን ሰዓቶች ማቅረብ እችላለሁ፦\n{options}\nየትኛው ይስማማዎታል?"},
+    "proj_no_slots": {"en": "I don't have an opening in the next week. Please suggest another date.", "am": "በሚቀጥለው ሳምንት ክፍት ሰዓት የለኝም። እባክዎ ሌላ ቀን ይጠቁሙ።"},
+    "proj_slot_taken": {"en": "That time isn't free any more.", "am": "ያ ሰዓት አሁን ነጻ አይደለም።"},
+    "proj_sold_out": {"en": "{project} is sold out. Tell me your area and size and I will find other options.", "am": "{project} ተሽጦ አልቋል። አካባቢና መጠን ይንገሩኝ፣ ሌላ አማራጭ እፈልጋለሁ።"},
+    "proj_booked": {"en": "Your visit to {project} is booked for {when}. The price is confirmed with the developer, and {broker} will share the latest price and any offer at the visit. I have informed {developer}.",
+                    "am": "የ{project} ጉብኝትዎ ለ{when} ተይዟል። ዋጋው ከአልሚው ጋር ይረጋገጣል፣ {broker} በጉብኝቱ ወቅት ወቅታዊውን ዋጋና ቅናሽ ያሳውቅዎታል። ለ{developer} አሳውቄያለሁ።"},
     "btn_afford": {"en": "What can I afford?", "am": "ምን መግዛት እችላለሁ?"},
 }
 

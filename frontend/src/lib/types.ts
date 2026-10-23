@@ -110,6 +110,8 @@ export interface Tour {
   full_name: string | null;
   thread_id: string;
   stops: TourStop[];
+  project_id?: string | null;
+  project_name?: string | null;
 }
 
 export interface Stats {
@@ -142,6 +144,7 @@ export interface Developer {
   name: string;
   slug: string;
   sales_email: string;
+  website_url?: string | null;
   scrape_url: string | null;
   scrape_profile: Record<string, unknown> | null;
 }

@@ -58,7 +58,7 @@ async def test_crawl_then_list_then_set_price_and_offer_and_advertise(api, spy_r
     until = (date.today() + timedelta(days=10)).isoformat()
     assert (await client.put(f"/api/projects/{pid}/promo", json={"text": "5% off this month", "discount_pct": 5, "until": until}, headers=ADMIN)).status_code == 200
     ad = (await client.post(f"/api/projects/{pid}/ad", json={"dry_run": True}, headers=ADMIN)).json()
-    assert "Offer: 5% off this month" in ad["preview"] and ad["buttons"] == ["Ask the price", "More about this project"] and not ad["posted"]
+    assert "Offer: 5% off this month" in ad["preview"] and ad["buttons"] == ["Ask the price", "Book a visit", "More about this project"] and not ad["posted"]
     assert (await client.post(f"/api/projects/{pid}/ad", json={"dry_run": False}, headers=ADMIN)).json()["posted"] is True
     assert len(services.telegram.photos) + len(services.telegram.messages) == 1
     assert (await client.put(f"/api/projects/{pid}/promo", json={"text": None}, headers=ADMIN)).status_code == 200
@@ -81,3 +81,15 @@ async def test_the_daily_run_includes_the_promotion_ads(api, spy_repo, db_conn):
     assert [j["job"] for j in body["jobs"]][-1] == "promotion_ads" and body["jobs"][-1]["details"][0]["would_post"] == "10% off"
     sent = (await client.post("/api/cron/promotion-ads", headers=CRON)).json()
     assert sent["sent"] == 1
+
+
+async def test_a_developer_can_be_added_from_the_dashboard(api):
+    client, _ = api
+    body = {"name": "Metropolitan Real Estate", "sales_email": "sales@metropolitan.example", "website_url": "https://metropolitanaddis.com/"}
+    created = (await client.post("/api/developers", json=body, headers=ADMIN)).json()
+    assert created["slug"] == "metropolitan-real-estate" and created["website_url"] == "https://metropolitanaddis.com/"
+    assert "metropolitan-real-estate" in [d["slug"] for d in (await client.get("/api/developers", headers=ADMIN)).json()]
+    assert (await client.post("/api/developers", json=body, headers=ADMIN)).status_code == 409
+    assert (await client.post("/api/developers", json={**body, "name": "Other", "sales_email": "not-an-email"}, headers=ADMIN)).status_code == 422
+    assert (await client.post("/api/developers", json={**body, "name": "Third", "website_url": "javascript:alert(1)"}, headers=ADMIN)).status_code == 422
+    assert (await client.post("/api/developers", json=body)).status_code == 401

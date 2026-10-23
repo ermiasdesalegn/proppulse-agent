@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 CLEARED = ("proactive_events", "project_posts", "commission_ledger", "buyers_crm", "channel_posts", "ingest_runs", "inbound_announcements", "event_log", "model_calls", "price_history")
 
 
-async def reset_demo(repo: Any, calendar: Any = None) -> dict:
+async def reset_demo(repo: Any, calendar: Any = None, embed: Any = None) -> dict:
     """Returns how many rows were removed from each table, and what was restored."""
     report: dict[str, Any] = {"deleted": {}, "calendar_events_cancelled": 0}
 
@@ -50,7 +50,7 @@ async def reset_demo(repo: Any, calendar: Any = None) -> dict:
 
     from app.demo_projects import restore_demo_projects
 
-    report["projects"] = await restore_demo_projects(repo)  # price requests went with the buyers; prices and offers go back to the demo state
+    report["projects"] = await restore_demo_projects(repo, embed)  # price requests went with the buyers; prices and offers go back to the demo state
 
     # The agent's saved conversations (LangGraph checkpoints) belong to the buyers just removed.
     for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):

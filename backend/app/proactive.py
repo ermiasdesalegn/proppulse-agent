@@ -196,7 +196,11 @@ class ProactiveService:
                 continue
             buyer = await self.repo.get_buyer(tour["buyer_id"])
             stops = await self.repo.get_tour_stops(tour["id"])
-            text = msg.tour_reminder_text(buyer=buyer, start=tour["scheduled_start"], now=now, stops=stops, broker=s.broker_name, tz=s.timezone)
+            project = await self.repo.get_project(tour["project_id"]) if tour.get("project_id") else None
+            if project is not None:
+                text = msg.project_visit_reminder_text(buyer=buyer, start=tour["scheduled_start"], now=now, project=project, broker=s.broker_name, tz=s.timezone)
+            else:
+                text = msg.tour_reminder_text(buyer=buyer, start=tour["scheduled_start"], now=now, stops=stops, broker=s.broker_name, tz=s.timezone)
             email = ("Your site visit is coming up", "".join(f"<p>{line}</p>" for line in text.split("\n") if line.strip()))
             channel = await self._deliver_to_buyer(buyer, text, email=email)
             if channel is None:

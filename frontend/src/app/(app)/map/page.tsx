@@ -148,7 +148,7 @@ export default function MapPage() {
                     <button onClick={() => setTourId(t.id === tourId ? null : t.id)} aria-pressed={t.id === tourId}
                       className={clsx("w-full border-b border-line/60 px-4 py-3 text-left text-sm hover:bg-raised", t.id === tourId && "bg-accent/10")}>
                       <p className="font-medium">{t.full_name ?? t.thread_id}</p>
-                      <p className="text-xs text-muted">{fmtDateTime(t.scheduled_start)} - {t.kind === "CONSULTATION" ? "phone call" : `${t.stops.length} stop${t.stops.length === 1 ? "" : "s"}`}</p>
+                      <p className="text-xs text-muted">{fmtDateTime(t.scheduled_start)} - {t.kind === "CONSULTATION" ? "phone call" : t.project_name ? `visit to ${t.project_name}` : `${t.stops.length} stop${t.stops.length === 1 ? "" : "s"}`}</p>
                       {t.mapbox_route_json && <p className="tnum text-xs text-muted">{kmFromMeters(t.mapbox_route_json.distance_meters)}, about {Math.round(t.mapbox_route_json.duration_seconds / 60)} min driving</p>}
                     </button>
                     <Link href={`/tours/${t.id}`} className="block border-b border-line/60 px-4 pb-2 text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>

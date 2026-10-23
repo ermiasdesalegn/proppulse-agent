@@ -143,7 +143,7 @@ class Repository:
     # ---- ingestion ----
 
     async def list_developers(self) -> list[dict]:
-        return await self._fetch("select id, name, slug, sales_email, scrape_url, scrape_profile, fetch_mode from developers order by name")
+        return await self._fetch("select id, name, slug, sales_email, website_url, scrape_url, scrape_profile, fetch_mode from developers order by name")
 
     async def set_developer_scrape(self, slug: str, url: str | None, profile: dict | None, fetch_mode: str | None = None) -> dict:
         from psycopg.types.json import Jsonb
@@ -333,7 +333,7 @@ class Repository:
 
     async def tours_for_reminder(self, start: datetime, end: datetime) -> list[dict]:
         return await self._fetch(
-            "select t.id, t.scheduled_start, b.id as buyer_id, b.telegram_id, b.full_name, b.email, b.thread_id "
+            "select t.id, t.scheduled_start, t.project_id, b.id as buyer_id, b.telegram_id, b.full_name, b.email, b.thread_id "
             "from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id "
             "where t.scheduled_start > %s and t.scheduled_start <= %s and t.reminder_sent = false order by t.scheduled_start",
             (start, end),
@@ -488,6 +488,7 @@ class Repository:
         route_json: dict | None,
         calendar_event_id: str | None,
         kind: str = "SITE_VISIT",
+        project_id: UUID | str | None = None,
     ) -> dict:
         """Create the tour and its ordered stops atomically. `stops` is already in visiting order."""
         from psycopg.types.json import Jsonb
@@ -495,9 +496,9 @@ class Repository:
         async with self._pool.connection() as conn:
             async with conn.transaction():
                 cur = await conn.execute(
-                    "insert into tours_and_appointments (buyer_id, scheduled_start, calendar_event_id, mapbox_route_json, kind) "
-                    "values (%s, %s, %s, %s, %s) returning *",
-                    (str(buyer_id), scheduled_start, calendar_event_id, Jsonb(route_json) if route_json else None, kind),
+                    "insert into tours_and_appointments (buyer_id, scheduled_start, calendar_event_id, mapbox_route_json, kind, project_id) "
+                    "values (%s, %s, %s, %s, %s, %s) returning *",
+                    (str(buyer_id), scheduled_start, calendar_event_id, Jsonb(route_json) if route_json else None, kind, None if project_id is None else str(project_id)),
                 )
                 tour = await cur.fetchone()
                 for order, property_id in enumerate(stops, start=1):
@@ -645,11 +646,11 @@ class Repository:
 
     async def list_tours(self, limit: int = 100) -> list[dict]:
         return await self._fetch(
-            "select t.id, t.scheduled_start, t.kind, t.mapbox_route_json, t.reminder_sent, b.id as buyer_id, b.full_name, b.thread_id, "
+            "select t.id, t.scheduled_start, t.kind, t.mapbox_route_json, t.reminder_sent, t.project_id, pj.name as project_name, b.id as buyer_id, b.full_name, b.thread_id, "
             "(select coalesce(json_agg(json_build_object('stop_order', tp.stop_order, 'property_id', p.id, 'title', p.title, "
             "'lat', p.lat, 'lng', p.lng, 'sub_city', p.sub_city) order by tp.stop_order), '[]'::json) "
             "from tour_properties tp join properties p on p.id = tp.property_id where tp.tour_id = t.id) as stops "
-            "from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id order by t.scheduled_start desc limit %s",
+            "from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id left join projects pj on pj.id = t.project_id order by t.scheduled_start desc limit %s",
             (limit,),
         )
 
@@ -734,15 +735,24 @@ class Repository:
             f"select {self._PROJECT_COLUMNS}, (select count(*) from price_requests q where q.project_id = pr.id and q.status = 'OPEN') as open_requests "
             f"from projects pr join developers d on d.id = pr.developer_id {where}order by d.name, pr.name")
 
-    async def search_projects(self, *, sub_cities: Sequence[str] | None = None, min_bedrooms: int | None = None, limit: int = 2) -> list[dict]:
-        """Projects still selling that fit the buyer's area and size. An empty area list means anywhere."""
+    async def search_projects(self, *, sub_cities: Sequence[str] | None = None, min_bedrooms: int | None = None, limit: int = 2,
+                              embedding: Sequence[float] | None = None, threshold: float = 0.65) -> list[dict]:
+        """Projects still selling that fit the buyer. A project qualifies if it is in one of the wanted areas, or (when the buyer's wish has a
+        vector) its description is close enough in meaning. An empty area list means anywhere. Live offers first, then the closest in meaning."""
         areas = list(sub_cities or [])
+        vector = vector_literal(embedding) if embedding is not None else None
         return await self._fetch(
-            f"select {self._PROJECT_COLUMNS} from projects pr join developers d on d.id = pr.developer_id "
-            "where pr.status = 'SELLING' and (cardinality(%s::text[]) = 0 or pr.sub_city = any(%s::text[])) "
-            "and (%s::int is null or pr.bedrooms_max is null or pr.bedrooms_max >= %s::int) "
-            "order by (pr.promo_text is not null and (pr.promo_until is null or pr.promo_until >= current_date)) desc, pr.name limit %s",
-            (areas, areas, min_bedrooms, min_bedrooms, limit))
+            f"select {self._PROJECT_COLUMNS}, case when %s::vector is null or pr.embedding is null then null else 1 - (pr.embedding <=> %s::vector) end as similarity "
+            "from projects pr join developers d on d.id = pr.developer_id "
+            "where pr.status = 'SELLING' and (%s::int is null or pr.bedrooms_max is null or pr.bedrooms_max >= %s::int) "
+            "and (cardinality(%s::text[]) = 0 or pr.sub_city = any(%s::text[]) "
+            "     or (%s::vector is not null and pr.embedding is not null and 1 - (pr.embedding <=> %s::vector) >= %s)) "
+            "order by (pr.promo_text is not null and (pr.promo_until is null or pr.promo_until >= current_date)) desc, "
+            "(pr.sub_city = any(%s::text[])) desc nulls last, similarity desc nulls last, pr.name limit %s",
+            (vector, vector, min_bedrooms, min_bedrooms, areas, areas, vector, vector, threshold, areas, limit))
+
+    async def set_project_embedding(self, project_id: UUID | str, embedding: Sequence[float]) -> None:
+        await self._fetch("update projects set embedding = %s::vector where id = %s returning id", (vector_literal(embedding), str(project_id)))
 
     async def set_project_price(self, project_id: UUID | str, price_from_etb: float | None, note: str | None) -> dict | None:
         return await self._one("update projects set price_from_etb = %s, price_note = %s where id = %s returning *", (price_from_etb, note, str(project_id)))
@@ -792,3 +802,9 @@ class Repository:
 
     async def release_project_post(self, post_id: int) -> None:
         await self._fetch("delete from project_posts where id = %s returning id", (post_id,))
+
+    async def create_developer(self, *, name: str, slug: str, sales_email: str, website_url: str | None, commission_rate_pct: float = 3.0) -> dict | None:
+        """None if the slug is taken."""
+        return await self._one(
+            "insert into developers (name, slug, sales_email, commission_rate_pct, website_url) values (%s, %s, %s, %s, %s) "
+            "on conflict (slug) do nothing returning id, name, slug, sales_email, website_url", (name, slug, sales_email, commission_rate_pct, website_url))

@@ -123,8 +123,13 @@ def looks_like_a_project(page: Page) -> bool:
     return len(page.text) >= 400 and len(PROJECT_WORDS.findall(page.text)) >= 3
 
 
+GENERIC_WORDS = {"apartment", "apartments", "luxury", "standard", "residential", "project"}
+
+
 def slugify(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    """Identity of a project across pages: generic words are dropped, so "Sarbet Gabriel Luxury Apartments" and "Sarbet Gabriel" are one project."""
+    words = [w for w in re.findall(r"[a-z0-9]+", name.lower()) if w not in GENERIC_WORDS]
+    return "-".join(words) or re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
 def page_hash(page: Page) -> str:

@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from app.config import Settings
 from app.finance import fmt_etb
@@ -26,9 +27,11 @@ from app.services import Services
 
 log = logging.getLogger(__name__)
 
-PROJECT_LINK = re.compile(r"^(proj|pinfo)_([0-9a-f]{8})$")
+PROJECT_LINK = re.compile(r"^(proj|pinfo|pvisit)_([0-9a-f]{8})$")
 ASK_PRICE = re.compile(r"^\s*Ask the price of (.{3,120}?)\s*$", re.I)
-PROJECT_BUTTONS = (("proj", "Ask the price"), ("pinfo", "More about this project"))
+VISIT_ASK = re.compile(r"^\s*Book a visit to (.{3,120}?)\s*$", re.I)
+VISIT_SLOT = re.compile(r"^\s*Book visit to (.{3,120}?) on (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*$", re.I)
+PROJECT_BUTTONS = (("proj", "Ask the price"), ("pvisit", "Book a visit"), ("pinfo", "More about this project"))
 
 
 class ProjectError(Exception):
@@ -82,24 +85,37 @@ def card_text(p: dict, lang: str = "en") -> str:
 
 
 def ask_button(p: dict) -> list[dict]:
-    return [{"label": msg("btn_ask_price", "en"), "text": f"Ask the price of {p['name']}"}]
+    row = [{"label": msg("btn_ask_price", "en"), "text": f"Ask the price of {p['name']}"}]
+    if p.get("status") != "SOLD_OUT":
+        row.append({"label": msg("btn_book_visit", "en"), "text": f"Book a visit to {p['name']}"})
+    return row
 
 
-async def suggest_projects(repo: Repository, prefs: dict, lang: str = "en", limit: int = 2) -> tuple[str, list[list[dict]]]:
-    """Projects that fit a buyer whose search found no priced unit: the text to append and the buttons for it."""
+def embedding_text(p: dict) -> str:
+    """What a project is searched by: where it is, how big, and what the developer says about it."""
+    sizes = _range(p.get("sqm_min"), p.get("sqm_max"), "sqm") or ""
+    beds = _range(p.get("bedrooms_min"), p.get("bedrooms_max"), "bedrooms") or ""
+    return f"{p['name']} - residential project in {p.get('sub_city') or 'Addis Ababa'}. {p.get('location_text') or ''} {beds} {sizes}. {p.get('summary') or ''}".replace("  ", " ").strip()
+
+
+async def suggest_projects(repo: Repository, prefs: dict, lang: str = "en", limit: int = 2, *, embedding: list[float] | None = None,
+                           threshold: float = 0.65, header: str = "proj_header") -> tuple[str, list[list[dict]]]:
+    """Projects that fit the buyer by area, size and meaning: the text to append and the buttons for it."""
     from app.geo import expand_with_adjacent
 
     cities = expand_with_adjacent(list(prefs.get("preferred_sub_cities") or []))
-    found = await repo.search_projects(sub_cities=cities, min_bedrooms=prefs.get("min_bedrooms"), limit=limit)
+    found = await repo.search_projects(sub_cities=cities, min_bedrooms=prefs.get("min_bedrooms"), limit=limit, embedding=embedding, threshold=threshold)
     if not found:
         return "", []
-    return "\n\n".join([msg("proj_header", lang)] + ["\n".join(facts(p)) for p in found]), [ask_button(p) for p in found]
+    return "\n\n".join([msg(header, lang)] + ["\n".join(facts(p)) for p in found]), [ask_button(p) for p in found]
 
 
 class ProjectService:
     def __init__(self, repo: Repository, gateway: Any, services: Services, settings: Settings, *, fetcher: Any = None, proactive: Any = None,
-                 ads: Any = None, events: Any = None):
+                 ads: Any = None, events: Any = None, now: Any = None):
         self.repo, self.gateway, self.services, self.settings = repo, gateway, services, settings
+        tz = ZoneInfo(settings.timezone)
+        self.now = now or (lambda: datetime.now(tz))
         self.fetcher = fetcher or HttpFetcher()
         self.proactive, self.ads, self.events = proactive, ads, events
         self._names: tuple[float, list[dict]] = (0.0, [])
@@ -132,6 +148,8 @@ class ProjectService:
                 report["updated" if row["slug"] in existing else "created"].append(summary)
                 continue
             saved, what = await self.repo.upsert_project(developer["id"], row)
+            if what in ("created", "updated"):
+                await self.embed(saved)
             report[what if what != "unchanged" else "unchanged"].append(summary if what != "unchanged" else row["source_url"])
         if not dry_run and (report["created"] or report["updated"]) and self.events:
             self.events.publish("ingest", what="projects", developer=slug, created=len(report["created"]), updated=len(report["updated"]))
@@ -140,6 +158,14 @@ class ProjectService:
         elif not (rows or report["unchanged"]):
             report["notes"].append("No page looked like a single residential project. Try the address of the page that lists the projects.")
         return report
+
+    async def embed(self, project: dict) -> None:
+        """Keep the project searchable by meaning. A model hiccup only means it is found by area for now."""
+        try:
+            (vector,) = await self.gateway.embed_documents([embedding_text(project)])
+            await self.repo.set_project_embedding(project["id"], vector)
+        except Exception:
+            log.warning("could not embed project %s", project.get("name"))
 
     # ---------------- buyers ----------------
 
@@ -157,15 +183,26 @@ class ProjectService:
         hits = [p for p in await self._projects() if len(p["name"]) >= 6 and p["name"].lower() in lowered]
         return max(hits, key=lambda p: len(p["name"])) if hits else None
 
+    async def _by_name(self, name: str) -> dict | None:
+        wanted = name.strip().lower()
+        return next((p for p in await self._projects() if p["name"].lower() == wanted), None) or await self.find_in_text(name)
+
     async def handle_text(self, buyer: dict, text: str, lang: str = "en") -> tuple[str, list[list[dict]]] | None:
         """Buttons and project names are understood in code. None means this message is not about a project."""
         ask = ASK_PRICE.match(text)
         if ask:
-            wanted = ask.group(1).strip().lower()
-            project = next((p for p in await self._projects() if p["name"].lower() == wanted), None) or await self.find_in_text(ask.group(1))
+            project = await self._by_name(ask.group(1))
             if project is None:
                 return msg("proj_not_found", lang), []
             return await self.request_price(buyer, project, lang), []
+        slot = VISIT_SLOT.match(text)
+        if slot:
+            project = await self._by_name(slot.group(1))
+            return await self.book_visit(buyer, project, slot.group(2), lang) if project else (msg("proj_not_found", lang), [])
+        visit = VISIT_ASK.match(text)
+        if visit:
+            project = await self._by_name(visit.group(1))
+            return await self.offer_visit(buyer, project, lang) if project else (msg("proj_not_found", lang), [])
         project = await self.find_in_text(text)
         if project is None:
             return None
@@ -182,7 +219,76 @@ class ProjectService:
             return msg("proj_not_found", lang), []
         if link.group(1) == "proj":
             return await self.request_price(buyer, project, lang), []
+        if link.group(1) == "pvisit":
+            return await self.offer_visit(buyer, project, lang)
         return card_text(project, lang) + "\n\n" + msg("proj_ask_hint", lang), [ask_button(project)]
+
+    def _local(self, when: datetime) -> str:
+        return f"{when.astimezone(ZoneInfo(self.settings.timezone)):%a %d %b, %H:%M}"
+
+    async def offer_visit(self, buyer: dict, project: dict, lang: str = "en") -> tuple[str, list[list[dict]]]:
+        """The buyer wants to see a project: make sure we can reach them, then offer free times from the broker's calendar."""
+        from app.services.calendar import CalendarError
+
+        if project["status"] == "SOLD_OUT":
+            return msg("proj_sold_out", lang, project=project["name"]), []
+        if not (buyer.get("full_name") and buyer.get("phone")):
+            return msg("proj_need_contact", lang, project=project["name"]), [[{"label": msg("btn_book_visit", lang), "text": f"Book a visit to {project['name']}"}]]
+        try:
+            return await self._slots(project, "", lang)
+        except CalendarError:
+            log.exception("calendar unavailable while offering project visit times")
+            return msg("calendar_down", lang), []
+
+    async def _slots(self, project: dict, lead: str, lang: str) -> tuple[str, list[list[dict]]]:
+        slots = await self.services.calendar.find_slots(after=self.now() + timedelta(hours=2), days=7, duration=timedelta(minutes=self.settings.tour_duration_minutes), limit=3)
+        if not slots:
+            return msg("proj_no_slots", lang), []
+        options = "\n".join(f"- {self._local(sl.start)}" for sl in slots)
+        local = lambda sl: sl.start.astimezone(ZoneInfo(self.settings.timezone))  # noqa: E731
+        buttons = [[{"label": self._local(sl.start), "text": f"Book visit to {project['name']} on {local(sl):%Y-%m-%d %H:%M}"}] for sl in slots]
+        return msg("proj_slots", lang, lead=lead, project=project["name"], options=options).strip(), buttons
+
+    async def book_visit(self, buyer: dict, project: dict, when_text: str, lang: str = "en") -> tuple[str, list[list[dict]]]:
+        from app.services.calendar import CalendarError, SlotUnavailable
+
+        if not (buyer.get("full_name") and buyer.get("phone")):
+            return await self.offer_visit(buyer, project, lang)
+        tz = ZoneInfo(self.settings.timezone)
+        try:
+            start = datetime.strptime(when_text, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+        except ValueError:
+            return await self.offer_visit(buyer, project, lang)
+        end = start + timedelta(minutes=self.settings.tour_duration_minutes)
+        try:
+            if start < self.now() + timedelta(hours=1) or not await self.services.calendar.is_available(start, end):
+                return await self._slots(project, msg("proj_slot_taken", lang), lang)
+            try:
+                event_id = await self.services.calendar.book(
+                    start=start, end=end, summary=f"Site visit: {buyer['full_name']}",
+                    description=f"{buyer['full_name']} {buyer['phone']} - {project['name']} ({project['developer_name']})", location=project.get("sub_city") or project.get("location_text") or "")
+            except SlotUnavailable:
+                return await self._slots(project, msg("proj_slot_taken", lang), lang)
+        except CalendarError:
+            log.exception("calendar unavailable while booking a project visit")
+            return msg("calendar_down", lang), []
+        tour = await self.repo.create_tour(buyer_id=buyer["id"], scheduled_start=start, stops=[], route_json=None, calendar_event_id=event_id, project_id=project["id"])
+        await self.repo.update_buyer(buyer["id"], deal_stage="SITE_VISIT_BOOKED")
+        when = self._local(start)
+        if self.proactive is not None:
+            await self.proactive._notify_broker(
+                "PROJECT_VISIT", f"projvisit:{tour['id']}",
+                f"{buyer['full_name']} ({buyer['phone']}) booked a visit to {project['name']} ({project['developer_name']}) on {when}. The price is on request: bring the latest price and any offer.",
+                buyer_id=buyer["id"], tour_id=tour["id"])
+        if project.get("sales_email"):  # the lead registration that protects the broker's commission, as for a unit visit
+            try:
+                await self.services.email.send(
+                    to=project["sales_email"], subject=f"Lead registration: {buyer['full_name']} - {project['name']}", idempotency_key=f"projvisit-{tour['id']}",
+                    html=f"<p>Official lead registration notice.</p><p>{self.settings.broker_name} registers <b>{buyer['full_name']}</b> ({buyer['phone']}) as a buyer "
+                         f"introduced for <b>{project['name']}</b>, visiting on {when}. Please record the broker as the originating agent.</p>")
+            except Exception:
+                log.exception("lead registration email for a project visit failed")
+        return msg("proj_booked", lang, project=project["name"], when=when, broker=self.settings.broker_name, developer=project["developer_name"]), []
 
     async def request_price(self, buyer: dict, project: dict, lang: str = "en") -> str:
         if project.get("price_from_etb") is not None:
@@ -264,13 +370,14 @@ class ProjectService:
         lines = facts(p)
         if p.get("summary"):
             lines += ["", p["summary"]]
-        lines += ["", "Interested? Tap Ask the price and we will get it for you."]
+        lines += ["", "Interested? Tap Ask the price, or book a visit and see it yourself."]
         return "\n".join(lines)
 
     async def _keyboard(self, p: dict) -> dict:
         username = await self.ads.bot_username()
         link = lambda action: f"https://t.me/{username}?start={action}_{project_code(p['id'])}"  # noqa: E731
-        return {"inline_keyboard": [[{"text": PROJECT_BUTTONS[0][1], "url": link("proj")}, {"text": PROJECT_BUTTONS[1][1], "url": link("pinfo")}]]}
+        return {"inline_keyboard": [[{"text": PROJECT_BUTTONS[0][1], "url": link("proj")}, {"text": PROJECT_BUTTONS[1][1], "url": link("pvisit")}],
+                                    [{"text": PROJECT_BUTTONS[2][1], "url": link("pinfo")}]]}
 
     async def publish_ad(self, project_id: UUID | str, *, dry_run: bool = True, kind: str = "MANUAL") -> dict:
         p = await self.repo.get_project(project_id)

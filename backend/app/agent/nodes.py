@@ -503,7 +503,12 @@ class AgentNodes:
             closing = msg("ask_next", lang)
 
         text = "\n\n".join([intro, *[option_block(i, r, b, lang) for i, (r, b) in enumerate(zip(rows, blurbs), start=1)], closing])
-        return {**say(text, quick_replies=option_buttons(len(rows), lang)), "active_matches": matches}
+        buttons = option_buttons(len(rows), lang)
+        also, project_buttons = await suggest_projects(self.d.repo, state["buyer_preferences"], lang, limit=1, embedding=state.get("query_embedding"),
+                                                       threshold=self.d.settings.similarity_threshold, header="proj_also_header")
+        if also:  # a project in the buyer's area, shown next to the priced options: the offer and the location are the hook
+            text, buttons = f"{text}\n\n{also}", [*buttons, *project_buttons]
+        return {**say(text, quick_replies=buttons), "active_matches": matches}
 
     async def waitlist(self, state: BrokerAgentState) -> dict:
         scope, prefs = state["search_scope"], state["buyer_preferences"]
@@ -517,7 +522,7 @@ class AgentNodes:
             text = msg("waitlist_buffer", lang, pct=round(scope["relaxation_step"] * self.d.settings.relax_budget_step_pct))
         else:
             text = msg("waitlist", lang)
-        block, buttons = await suggest_projects(self.d.repo, prefs, lang)
+        block, buttons = await suggest_projects(self.d.repo, prefs, lang, embedding=state.get("query_embedding"), threshold=self.d.settings.similarity_threshold)
         if block:  # developers that publish no prices: the buyer can still ask for one
             return {**say(f"{text}\n\n{block}", quick_replies=buttons), **out, "active_matches": []}
         return {**say(text), **out, "active_matches": []}

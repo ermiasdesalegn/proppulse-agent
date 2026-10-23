@@ -7,7 +7,7 @@ from app.ingest.fetch import FetchError
 from app.ingest.projects import Page, ProjectInfo, crawl, looks_like_a_project, read_projects, to_row
 from app.projects import ProjectService, card_text, has_live_offer
 from app.services.telegram import MockTelegramService, TelegramError
-from tests.agent_helpers import FakeGateway, ext, make_agent, make_chat, make_proactive, make_services, new_buyer, say_to
+from tests.agent_helpers import NOW, FakeGateway, ext, make_agent, make_chat, make_proactive, make_services, new_buyer, say_to
 
 pytestmark = pytest.mark.usefixtures("quiet_world")
 
@@ -53,7 +53,7 @@ async def developer_id(db_conn, slug="noah"):
 
 def make_projects(repo, gateway=None, fetcher=None, **settings):
     proactive, services, _ = make_proactive(repo, **{"broker_telegram_chat_id": "999", "telegram_channel_id": "@channel", **settings})
-    service = ProjectService(repo, gateway or FakeGateway(), services, proactive.settings, fetcher=fetcher or Site({}), proactive=proactive, ads=Ads())
+    service = ProjectService(repo, gateway or FakeGateway(), services, proactive.settings, fetcher=fetcher or Site({}), proactive=proactive, ads=Ads(), now=lambda: NOW)
     return service, services
 
 
@@ -84,6 +84,13 @@ async def test_a_page_that_cannot_be_fetched_is_reported_not_fatal():
     site = Site({"https://dev.example/": "<a href='/gone/'>x</a>"})
     pages, notes = await crawl(site, "https://dev.example/")
     assert len(pages) == 1 and notes == ["https://dev.example/gone/: HTTP 404"]
+
+
+def test_generic_words_do_not_make_a_different_project():
+    from app.ingest.projects import slugify
+
+    assert slugify("Sarbet Gabriel Luxury Apartments") == slugify("Sarbet Gabriel Apartments") == slugify("Sarbet Gabriel") == "sarbet-gabriel"
+    assert slugify("Metropolitan Residence") == "metropolitan-residence" and slugify("Apartments") == "apartments"
 
 
 def test_only_pages_that_talk_about_homes_go_to_the_model():
@@ -185,7 +192,7 @@ async def test_naming_a_project_shows_its_card_with_an_ask_button_and_a_priced_o
     text, buttons = await service.handle_text(abel, "tell me about central tower please")
     assert "Central Tower - Noah Real Estate" in text and "126-185 sqm" in text and "3-4 bedrooms" in text and "21 floors" in text
     assert "Offer: 10% off for reservations (until" in text and "Price: on request" in text
-    assert buttons == [[{"label": "Ask the price", "text": "Ask the price of Central Tower"}]]
+    assert buttons == [[{"label": "Ask the price", "text": "Ask the price of Central Tower"}, {"label": "Book a visit", "text": "Book a visit to Central Tower"}]]
     assert await service.handle_text(abel, "I want a 3 bedroom in Bole") is None, "other messages are left to the agent"
     await repo.set_project_price(project["id"], 19_500_000, "from the 3 bedroom")
     service._names = (0.0, [])
@@ -254,7 +261,7 @@ async def test_an_offer_is_advertised_once_with_the_picture_and_again_only_when_
     post = services.telegram.photos[0]
     assert post["photo_url"] == "https://dev.example/img.jpg" and "Offer: 10% off until August" in post["caption"] and "Price: on request" in post["caption"]
     buttons = [b["text"] for row in post["reply_markup"]["inline_keyboard"] for b in row]
-    assert buttons == ["Ask the price", "More about this project"]
+    assert buttons == ["Ask the price", "Book a visit", "More about this project"]
     assert post["reply_markup"]["inline_keyboard"][0][0]["url"].startswith("https://t.me/proppulse_bot?start=proj_")
     assert (await service.run_promotion_ads())["sent"] == 0, "the same offer is not posted twice"
 
@@ -291,7 +298,7 @@ async def test_a_buyer_whose_search_finds_nothing_is_offered_projects_in_the_are
     agent, buyer = make_agent(repo, gw), await new_buyer(repo, "offerprojects")
     res = await say_to(agent, buyer, "3 bedroom in Bole for 1 million")
     assert "These projects are in your area" in res.reply and "Bole Heights - Noah Real Estate" in res.reply and "Price: on request" in res.reply
-    assert [b["text"] for row in res.state["quick_replies"] for b in row] == ["Ask the price of Bole Heights"]
+    assert [b["text"] for row in res.state["quick_replies"] for b in row] == ["Ask the price of Bole Heights", "Book a visit to Bole Heights"]
 
 
 async def test_the_whole_chat_path_handles_the_ask_button_without_the_model(repo, db_conn):
@@ -328,3 +335,103 @@ async def test_reset_removes_crawled_projects_and_restores_the_demo_ones_without
     again = next(p for p in await repo.list_projects() if p["name"] == "Noah Park Terraces")
     assert again["price_from_etb"] is None and has_live_offer(again), "back to price on request, with a live demo offer"
     assert crawled["id"] not in {p["id"] for p in await repo.list_projects()}
+
+
+# ---------------- booking a visit to a project ----------------
+
+async def contactable(repo, tag="visit", telegram=None):
+    buyer = await repo.get_or_create_buyer(f"test:{tag}", telegram)
+    await repo.update_buyer(buyer["id"], full_name="Abel Tesfaye", phone="0911000000")
+    return await repo.get_buyer(buyer["id"])
+
+
+async def test_a_visit_needs_contact_details_first_then_offers_free_times(repo, db_conn):
+    service, _ = make_projects(repo)
+    await add_project(repo, db_conn)
+    stranger = await new_buyer(repo, "nocontact")
+    text, buttons = await service.handle_text(stranger, "Book a visit to Central Tower")
+    assert "I need your full name and phone number" in text and buttons == [[{"label": "Book a visit", "text": "Book a visit to Central Tower"}]]
+    abel = await contactable(repo)
+    text, buttons = await service.handle_text(abel, "book a visit to central tower")
+    assert "I can offer these times for Central Tower" in text and len(buttons) == 3
+    assert buttons[0][0]["text"] == "Book visit to Central Tower on 2026-11-02 10:00", "the first free time is two hours after the clock"
+
+
+async def test_booking_a_project_visit_creates_the_event_tour_broker_notice_and_lead_registration(repo, db_conn):
+    service, services = make_projects(repo)
+    project = await add_project(repo, db_conn)
+    abel = await contactable(repo, "booked", telegram=7_100_001)
+    reply, buttons = await service.handle_text(abel, "Book visit to Central Tower on 2026-11-03 10:00")
+    assert "Your visit to Central Tower is booked for Tue 03 Nov, 10:00" in reply and "informed Noah Real Estate" in reply and buttons == []
+    (event,) = services.calendar.events.values()
+    assert "Central Tower" in event["description"] and event["summary"] == "Site visit: Abel Tesfaye"
+    (tour,) = [t for t in await repo.list_tours() if t["project_name"] == "Central Tower"]
+    assert tour["stops"] == [] and tour["kind"] == "SITE_VISIT" and str(tour["project_id"]) == str(project["id"])
+    assert (await repo.get_buyer(abel["id"]))["deal_stage"] == "SITE_VISIT_BOOKED"
+    assert any(m["chat_id"] == "999" and "booked a visit to Central Tower" in m["text"] for m in services.telegram.messages)
+    (mail,) = services.email.sent
+    assert mail["to"] == "sales@noah.example" and "Lead registration" in mail["subject"] and "Abel Tesfaye" in mail["html"]
+
+    again, other_times = await service.handle_text(await contactable(repo, "second"), "Book visit to Central Tower on 2026-11-03 10:00")
+    assert "That time isn't free any more" in again and other_times, "a taken time offers other times"
+    past, _ = await service.handle_text(abel, "Book visit to Central Tower on 2026-11-02 08:30")
+    assert "I can offer these times" in past
+
+
+async def test_a_sold_out_project_cannot_be_booked_and_the_reminder_names_the_project(repo, db_conn):
+    service, services = make_projects(repo)
+    await add_project(repo, db_conn, "Gone Heights", status="SOLD_OUT")
+    abel = await contactable(repo, "soldout", telegram=7_100_002)
+    text, buttons = await service.handle_text(abel, "Book a visit to Gone Heights")
+    assert "sold out" in text and buttons == []
+
+    await add_project(repo, db_conn)
+    service._names = (0.0, [])
+    await service.handle_text(abel, "Book visit to Central Tower on 2026-11-02 14:00")  # inside the 24 hour reminder window
+    proactive, _, _ = make_proactive(repo, services=services, broker_telegram_chat_id="999", now=lambda: NOW)
+    out = await proactive.tour_reminders()
+    assert out["sent"] == 1
+    reminder = [m for m in services.telegram.messages if m["chat_id"] == 7_100_002 and "a reminder that your visit to Central Tower" in m["text"]]
+    assert reminder and "(Noah Real Estate)" in reminder[0]["text"] and "Where: Bole" in reminder[0]["text"]
+
+
+# ---------------- projects are found by meaning too ----------------
+
+async def test_a_project_is_found_by_area_or_by_meaning_but_not_when_both_miss(repo, db_conn):
+    near, far = [0.1] * 768, [0.1] * 384 + [-0.1] * 384
+    garden = await add_project(repo, db_conn, "Garden Court", sub_city="Sarbet")
+    other = await add_project(repo, db_conn, "Tower Place", sub_city="Lebu")
+    nowhere = await add_project(repo, db_conn, "Faraway Plaza", sub_city="Ayat")
+    await repo.set_project_embedding(garden["id"], near)
+    await repo.set_project_embedding(other["id"], far)
+    await repo.set_project_embedding(nowhere["id"], far)
+    by_meaning = await repo.search_projects(sub_cities=["Bole"], embedding=near, threshold=0.65, limit=5)
+    assert [p["name"] for p in by_meaning] == ["Garden Court"], "close in meaning, in another area: found; far in meaning: not"
+    by_area = await repo.search_projects(sub_cities=["Lebu"], embedding=near, threshold=0.65, limit=5)
+    assert [p["name"] for p in by_area] == ["Tower Place", "Garden Court"], "the area match counts even when the meaning is far, and ranks first"
+    assert [p["name"] for p in await repo.search_projects(sub_cities=["Lebu"], limit=5)] == ["Tower Place"], "without a vector it is area only"
+
+
+async def test_saving_a_crawl_makes_the_projects_searchable_by_meaning(repo, db_conn):
+    site = Site({"https://dev.example/": "<a href='/t/'>t</a>", "https://dev.example/t/": project_page()})
+    gw = FakeGateway([info()])
+    service, _ = make_projects(repo, gw, site)
+    await service.crawl_developer("noah", "https://dev.example/", dry_run=False)
+    assert any("Central Tower - residential project in Bole" in text for text in gw.documents)
+    (hit,) = await repo.search_projects(sub_cities=[], embedding=gw.vector, threshold=0.9)
+    assert hit["name"] == "Central Tower" and hit["similarity"] > 0.99
+
+
+# ---------------- projects next to priced results ----------------
+
+async def test_a_project_in_the_area_is_shown_next_to_priced_options_with_its_offer_first(repo, db_conn, vector_of):
+    await add_project(repo, db_conn, "Bole Plain", sub_city="Bole")
+    await add_project(repo, db_conn, "Bole Offer", sub_city="Bole", promotion="5% off this month", promotion_until=(date.today() + timedelta(days=9)).isoformat())
+    gw = FakeGateway([ext(max_budget_etb=25_000_000, min_bedrooms=3, preferred_sub_cities=["Bole"], search_query="3BR Bole")], vector=await vector_of("Noah Bole Towers 3BR%"))
+    agent, buyer = make_agent(repo, gw), await new_buyer(repo, "alongside")
+    res = await say_to(agent, buyer, "3 bedroom in Bole, 25 million")
+    assert "1. Noah Bole Towers" in res.reply, "the priced options are still first"
+    assert "Also worth a visit" in res.reply and "Bole Offer - Noah Real Estate" in res.reply and "Bole Plain" not in res.reply
+    assert "Offer: 5% off this month" in res.reply
+    texts = [b["text"] for row in res.state["quick_replies"] for b in row]
+    assert "Ask the price of Bole Offer" in texts and "Book a visit to Bole Offer" in texts and "Tell me more about option 1" in texts

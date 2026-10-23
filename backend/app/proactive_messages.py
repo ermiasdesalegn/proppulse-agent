@@ -59,6 +59,14 @@ def tour_reminder_text(*, buyer: dict, start: datetime, now: datetime, stops: li
     return "\n".join(lines)
 
 
+def project_visit_reminder_text(*, buyer: dict, start: datetime, now: datetime, project: dict, broker: str, tz: str) -> str:
+    local, today = start.astimezone(ZoneInfo(tz)), now.astimezone(ZoneInfo(tz)).date()
+    day = "today" if local.date() == today else "tomorrow" if (local.date() - today).days == 1 else local.strftime("on %A")
+    place = ", ".join(x for x in (project.get("sub_city"), project.get("location_text")) if x)
+    return (f"{_greeting(buyer)} a reminder that your visit to {project['name']} ({project['developer_name']}) with {broker} is {day} at {local:%H:%M}."
+            + (f"\nWhere: {place}." if place else "") + "\n\nReply here if you need to change the time.")
+
+
 def milestone_text(*, buyer: dict, row: dict, days: int) -> str:
     due = row["next_buyer_milestone_date"]
     when = "today" if days == 0 else f"in {days} day{'s' if days != 1 else ''}"
