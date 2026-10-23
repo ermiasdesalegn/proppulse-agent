@@ -71,8 +71,8 @@ Optional settings: `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local` (a public
 The agent is measured, not just demonstrated. `backend/evals` runs three checks from a recording of the real model's answers (free, 27 seconds):
 
 - **Retrieval** (58 labelled buyer messages in English, Amharic and mixed, 14 of them deliberately hard): hit@3 100%, MRR 0.99, precision@3 83%; requests nothing matches come back empty 5 of 5 times; the widening loop rescues 3 of 3 too-tight requests. A threshold sweep shows why the similarity cut-off is 0.64.
-- **Conversations** (23 scripted scenarios through the real graph: search, widening, comparison, booking, conflicts, consultations, takeover, voice, ad links, price-drop alerts, reminders, prompt injection): 23 pass; 1 known gap is listed with the phase that fixes it.
-- **Groundedness**: every reply is checked so that each price, size, percentage or year comes from the unit facts or the buyer's own words (37 of 37).
+- **Conversations** (28 scripted scenarios through the real graph: search, widening, comparison, booking, conflicts, consultations, takeover, voice, ad links, price-drop alerts, reminders, prompt injection, Amharic, hand-off, affordability): all 28 pass.
+- **Groundedness**: every reply is checked so that each price, size, percentage or year comes from the unit facts or the buyer's own words (44 of 44).
 
 `python -m evals --check` fails if anything gets worse, and the same check runs inside `pytest`. Full tables: [backend/evals/REPORT.md](backend/evals/REPORT.md); method and limits: [backend/evals/README.md](backend/evals/README.md).
 

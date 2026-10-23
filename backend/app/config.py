@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     telegram_channel_id: str = ""
 
     demo_reset_enabled: bool = False  # lets the dashboard's Reset Demo button wipe conversations and restore the demo catalogue
+    history_compact_after: int = 40  # a conversation longer than this many messages has its older part summarised
+    history_keep_recent: int = 12
+    mortgage_rate_pct: float = 12.0  # assumptions for the affordability estimate, not an offer from any bank
+    mortgage_years: int = 20
+    mortgage_financed_pct: float = 70.0
     broker_name: str = "Ermias Desalegn"
     broker_telegram_chat_id: str = ""  # where the broker's own notices go; falls back to DEMO_FALLBACK_TELEGRAM_CHAT_ID
     proactive_lookback_hours: int = 24  # how far back price drops and new listings count as news

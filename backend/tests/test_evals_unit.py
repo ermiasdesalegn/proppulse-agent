@@ -132,6 +132,7 @@ def test_the_report_and_console_summary_render(tmp_path, monkeypatch):
 
 def test_scenarios_are_uniquely_named_and_every_known_gap_says_why():
     names = [s.name for s in SCENARIOS]
-    assert len(names) == len(set(names)) and len(names) >= 20
+    assert len(names) == len(set(names)) and len(names) >= 25
     assert all(s.known_gap is None or len(s.known_gap) > 20 for s in SCENARIOS)
+    assert {"affordability_estimate", "handoff_on_request", "reply_in_amharic"} <= set(names)
     assert {"search_english", "booking_full", "takeover_pauses_the_agent", "prompt_injection", "price_drop_reaches_the_right_buyer"} <= set(names)

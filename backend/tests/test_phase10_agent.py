@@ -66,7 +66,7 @@ async def test_recommendations_come_with_a_button_row_per_option_and_a_compare_b
     assert n >= 2 and len(rows) == n + 2
     assert rows[0] == [{"label": "Details 1", "text": "Tell me more about option 1"}, {"label": "Book 1", "text": "Book a site visit for option 1"}]
     assert rows[n] == [{"label": "Compare all", "text": "Compare these options"}]
-    assert rows[-1] == [{"label": "Phone consultation", "text": "I'd like a phone consultation"}]
+    assert rows[-1] == [{"label": "What can I afford?", "text": "What can I afford?"}, {"label": "Phone consultation", "text": "I'd like a phone consultation"}]
     assert all(len(b["text"].encode()) <= 64 for row in rows for b in row), "Telegram limits button data to 64 bytes"
 
 

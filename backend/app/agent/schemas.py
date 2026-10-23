@@ -16,11 +16,12 @@ class Recommendation(BaseModel):
 class Extraction(BaseModel):
     """What the router asks Gemini to pull out of the latest buyer message."""
 
-    intent: Literal["search", "compare", "details", "book_tour", "book_consultation", "small_talk"]
+    intent: Literal["search", "compare", "details", "affordability", "book_tour", "book_consultation", "small_talk"]
     full_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     max_budget_etb: Optional[float] = Field(default=None, description="Budget ceiling in Ethiopian birr")
+    monthly_budget_etb: Optional[float] = Field(default=None, description="What the buyer says they can pay per month, in birr")
     min_bedrooms: Optional[int] = None
     preferred_sub_cities: Optional[list[str]] = Field(
         default=None, description="The complete updated list of areas, or null if areas were not discussed"

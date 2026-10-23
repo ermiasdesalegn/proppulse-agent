@@ -17,6 +17,7 @@ from app.agent.graph import BrokerAgent
 from app.agent.nodes import TROUBLE, option_block
 from app.config import Settings
 from app.events import excerpt
+from app.language import detect_language, msg
 from app.repository import Repository
 from app.services import Services
 
@@ -181,7 +182,7 @@ class ChatService:
             reply, state, error = result.reply, result.state, False
         except Exception:
             log.exception("agent turn failed for %s", inbound.thread_id)
-            reply, state, error = TROUBLE, {}, True
+            reply, state, error = msg("trouble", detect_language(inbound.text)), {}, True
         finally:
             if typing:
                 typing.cancel()

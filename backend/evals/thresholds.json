@@ -6,7 +6,7 @@
     "relaxation_recovered": 0.9
   },
   "scenarios": {
-    "min_passed": 23,
+    "min_passed": 28,
     "max_ungrounded_turns": 0
   }
 }

@@ -14,11 +14,13 @@ from app.agent.state import BrokerAgentState
 from app.events import summarize_update
 from app.gemini import CALL_CONTEXT
 
-ROUTES = {"search": "discovery", "details": "details", "compare": "analyst", "book_tour": "scheduler", "book_consultation": "scheduler", "small_talk": "smalltalk", "error": END}
+ROUTES = {"search": "discovery", "details": "details", "affordability": "affordability", "compare": "analyst", "book_tour": "scheduler", "book_consultation": "scheduler", "small_talk": "smalltalk", "error": END}
 
 
 def route_after_intake(state: BrokerAgentState) -> str:
-    return END if state.get("transcript_failed") else "router"
+    if state.get("transcript_failed"):
+        return END
+    return "handoff" if state.get("handoff_reason") else "router"
 
 
 def route_by_intent(state: BrokerAgentState) -> str:
@@ -45,13 +47,13 @@ def build_graph(deps: AgentDeps, checkpointer: Any):
     for name, fn in {
         "intake": nodes.intake, "router": nodes.router, "discovery": nodes.discovery,
         "relaxer": nodes.constraint_relaxer, "recommend": nodes.recommend, "waitlist": nodes.waitlist,
-        "smalltalk": nodes.smalltalk, "details": nodes.details, "analyst": nodes.analyst, "scheduler": nodes.scheduler,
+        "smalltalk": nodes.smalltalk, "details": nodes.details, "affordability": nodes.affordability, "handoff": nodes.handoff, "analyst": nodes.analyst, "scheduler": nodes.scheduler,
         "human_gate": nodes.human_gate,
     }.items():
         g.add_node(name, traced(name, fn))
 
     g.add_edge(START, "intake")
-    g.add_conditional_edges("intake", route_after_intake, {"router": "router", END: END})
+    g.add_conditional_edges("intake", route_after_intake, {"router": "router", "handoff": "handoff", END: END})
     g.add_conditional_edges("router", route_by_intent, {v: v for v in set(ROUTES.values()) if v != END} | {END: END})
     g.add_conditional_edges(
         "discovery", should_relax_constraints,
@@ -59,7 +61,7 @@ def build_graph(deps: AgentDeps, checkpointer: Any):
     )
     g.add_edge("relaxer", "discovery")
     g.add_edge("scheduler", "human_gate")
-    for terminal in ("recommend", "waitlist", "smalltalk", "details", "analyst", "human_gate"):
+    for terminal in ("recommend", "waitlist", "smalltalk", "details", "affordability", "analyst", "human_gate", "handoff"):
         g.add_edge(terminal, END)
     return g.compile(checkpointer=checkpointer)
 

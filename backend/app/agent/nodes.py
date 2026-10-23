@@ -8,13 +8,14 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage
 
 from app.agent import emails
 from app.agent.deps import AgentDeps
 from app.agent.prompts import (
     EXTRACTION_SYSTEM,
     PERSONA,
+    persona_for,
     TRANSCRIBE,
     UNINTELLIGIBLE,
     VOICE_FALLBACK,
@@ -29,6 +30,8 @@ from app.agent.state import EMPTY_PREFS, BrokerAgentState
 from app import finance
 from app.finance import fmt_etb, payment_schedule
 from app.geo import expand_with_adjacent, normalize_sub_cities
+from app.guardrails import looks_like_injection, reply_is_grounded, wants_a_human
+from app.language import detect_language, msg
 from app.repository import LedgerEntry, PropertyMatch
 from app.services.calendar import CalendarError, SlotUnavailable
 from app.services.routing import Stop
@@ -107,15 +110,15 @@ def property_facts(p: dict) -> dict:
     }
 
 
-def option_block(number: int, p: dict, blurb: str) -> str:
+def option_block(number: int, p: dict, blurb: str, lang: str = "en") -> str:
     """One numbered option, built from database values so the numbers shown always match the stored order."""
     price, sqm = float(p["price_etb"]), float(p["sqm"])
     bits = [f"{fmt_etb(price)} ({price / sqm:,.0f} ETB/sqm)"]
     if p.get("down_payment_pct") is not None:
         pct = float(p["down_payment_pct"])
-        bits.append(f"{pct:g}% down ({fmt_etb(price * pct / 100)})")
+        bits.append(msg("down", lang, pct=f"{pct:g}", amount=fmt_etb(price * pct / 100)))
     if p.get("delivery_date") is not None:
-        bits.append(f"delivery {p['delivery_date'].strftime('%b %Y')}")
+        bits.append(msg("delivery", lang, when=p["delivery_date"].strftime("%b %Y")))
     lines = [f"{number}. {p['title']} - {p['developer_name']}, {p['sub_city']}", "   " + " | ".join(bits)]
     if blurb:
         lines.append("   " + blurb)
@@ -125,6 +128,7 @@ def option_block(number: int, p: dict, blurb: str) -> str:
 DETAILS_RE = re.compile(r"^tell me more about option (\d+)\.?$", re.I)
 BOOK_OPTION_RE = re.compile(r"^(?:book a site visit for|i'd like to book a site visit for) option (\d+)\.?$", re.I)
 COMPARE_RE = re.compile(r"^compare these options( for me)?\.?$", re.I)
+AFFORD_RE = re.compile(r"^what can i afford\??$", re.I)
 CONSULT_RE = re.compile(r"^i'd like a phone consultation\.?$", re.I)
 SLOT_RE = re.compile(r"^book (call )?(?:[A-Za-z]{3} )(\d{1,2}) ([A-Za-z]{3}),? (\d{1,2}):(\d{2})$", re.I)
 
@@ -140,6 +144,8 @@ def quick_extraction(text: str, option_count: int, now: datetime) -> Extraction 
         return Extraction(intent="compare")
     if CONSULT_RE.match(text):
         return Extraction(intent="book_consultation")
+    if AFFORD_RE.match(text):
+        return Extraction(intent="affordability")
     if m := SLOT_RE.match(text):
         try:
             when = datetime.strptime(f"{m.group(2)} {m.group(3)} {now.year} {m.group(4)}:{m.group(5)}", "%d %b %Y %H:%M").replace(tzinfo=now.tzinfo)
@@ -151,13 +157,50 @@ def quick_extraction(text: str, option_count: int, now: datetime) -> Extraction 
     return None
 
 
-def option_buttons(count: int) -> list[list[dict]]:
-    rows = [[{"label": f"Details {n}", "text": f"Tell me more about option {n}"}, {"label": f"Book {n}", "text": f"Book a site visit for option {n}"}]
+def option_buttons(count: int, lang: str = "en") -> list[list[dict]]:
+    """Labels follow the buyer's language; the texts are the fixed English sentences the agent recognises in code."""
+    rows = [[{"label": msg("btn_details", lang, n=n), "text": f"Tell me more about option {n}"}, {"label": msg("btn_book", lang, n=n), "text": f"Book a site visit for option {n}"}]
             for n in range(1, count + 1)]
     if count > 1:
-        rows.append([{"label": "Compare all", "text": "Compare these options"}])
-    rows.append([{"label": "Phone consultation", "text": "I'd like a phone consultation"}])
+        rows.append([{"label": msg("btn_compare", lang), "text": "Compare these options"}])
+    rows.append([{"label": msg("btn_afford", lang), "text": "What can I afford?"}, {"label": msg("btn_consult", lang), "text": "I'd like a phone consultation"}])
     return rows
+
+
+PRICE_WORRY = re.compile(r"price|expens|cost|afford|budget|high|ዋጋ|ውድ", re.I)
+DELIVERY_WORRY = re.compile(r"deliver|delay|late|complet|finish|handover|ርክክብ|መዘግየት", re.I)
+TRUST_WORRY = re.compile(r"trust|reliab|scam|risk|reput|developer|አምነት|አልሚ", re.I)
+PAYMENT_WORRY = re.compile(r"payment|installment|down|upfront|ክፍያ", re.I)
+
+
+def objection_notes(worries: list[str], rows: list[dict], today: date) -> list[str]:
+    """A fact-based answer to a worry the buyer voiced, built from the stored data. Nothing here is written by a model."""
+    if not worries or not rows:
+        return []
+    text = " ".join(worries)
+    notes = []
+    if PRICE_WORRY.search(text):
+        per = sorted((float(r["price_etb"]) / float(r["sqm"]), r) for r in rows)
+        low = per[0][1]
+        notes.append(f"On price: the best value per square metre among these is {low['title']} at {per[0][0]:,.0f} ETB/sqm. Ask me to compare them, or tell me a lower budget and I'll search again.")
+    if DELIVERY_WORRY.search(text):
+        for r in rows:
+            parts = [f"{r['title']} ({r['developer_name']})"]
+            if r.get("construction_stage_pct") is not None:
+                parts.append(f"{float(r['construction_stage_pct']):g}% built")
+            if r.get("delivery_date") is not None:
+                parts.append(f"delivery {r['delivery_date'].strftime('%b %Y')}")
+            if r.get("reliability_score") is not None:
+                parts.append(f"developer reliability {round(float(r['reliability_score']) * 100)}%")
+            notes.append("On delivery: " + ", ".join(parts) + ".")
+    if TRUST_WORRY.search(text) and not DELIVERY_WORRY.search(text):
+        for r in rows:
+            if r.get("reliability_score") is not None:
+                notes.append(f"On the developer: {r['developer_name']} has a reliability score of {round(float(r['reliability_score']) * 100)}% in our records.")
+    if PAYMENT_WORRY.search(text):
+        for r in rows[:2]:
+            notes.append(f"On payments: {r['title']}: " + finance.describe(finance.summarize(payment_schedule(r, today)), fmt_etb) + ".")
+    return notes[:6]
 
 
 def say(text: str, **extra: Any) -> dict:
@@ -168,13 +211,39 @@ class AgentNodes:
     def __init__(self, deps: AgentDeps):
         self.d = deps
 
-    async def _write(self, prompt: str, fallback: str) -> str:
+    async def _write(self, prompt: str, fallback: str, lang: str = "en", facts: Any = None) -> str:
+        """Model-written text. If it states a figure that is not in `facts`, the plain fallback built from the facts is used instead."""
         try:
-            text = (await self.d.gateway.generate_text(prompt, system=PERSONA)).strip()
-            return text or fallback
+            text = (await self.d.gateway.generate_text(prompt, system=persona_for(lang))).strip()
         except Exception:
             log.exception("text generation failed; using deterministic fallback")
             return fallback
+        if not text:
+            return fallback
+        if facts is not None and not reply_is_grounded(text, facts):
+            log.warning("a generated reply stated a figure that is not in the facts; using the plain layout")
+            return fallback
+        return text
+
+    @staticmethod
+    def _lang(state: BrokerAgentState) -> str:
+        return state.get("language") or "en"
+
+    async def _compact(self, state: BrokerAgentState) -> dict:
+        """A long conversation keeps its latest messages and a short summary of the rest, so it never grows without limit."""
+        s, messages = self.d.settings, state.get("messages") or []
+        if len(messages) <= s.history_compact_after:
+            return {}
+        old = [m for m in messages[: -s.history_keep_recent] if getattr(m, "id", None)]
+        if not old:
+            return {}
+        previous = state.get("conversation_summary") or ""
+        transcript = history_text(old, limit=len(old))
+        fallback = (previous + " " + " ".join(str(m.content)[:100] for m in old if isinstance(m, HumanMessage))).strip()[-900:]
+        summary = await self._write(
+            f"Earlier summary: {previous or '(none)'}\n\nMessages to fold in:\n{transcript}\n\nWrite a summary of at most 100 words: what the buyer wants, "
+            "what was shown, what they liked or worried about, and anything booked. Facts only.", fallback)
+        return {"conversation_summary": summary, "messages": [RemoveMessage(id=m.id) for m in old]}
 
     def _local(self, dt: datetime) -> str:
         return dt.astimezone(ZoneInfo(self.d.settings.timezone)).strftime("%a %d %b, %H:%M")
@@ -186,8 +255,10 @@ class AgentNodes:
             "reply": None, "transcript_failed": False, "comparison_matrix": None, "booked": False,
             "lead_reg_failed": [], "selected_property_ids": [], "tour_start_iso": None,
             "query_embedding": None, "human_takeover": False, "intent": "", "quick_replies": [],
+            "injection": False, "handoff_reason": None, "objections_now": [],
         }
         inbound = state.get("inbound") or {}
+        lang = self._lang(state)
         if inbound.get("kind") == "voice":
             text = ""
             try:
@@ -200,14 +271,22 @@ class AgentNodes:
             except Exception:
                 log.exception("voice note could not be processed")
             if not text or UNINTELLIGIBLE in text.upper():
-                return {**reset, **say(VOICE_FALLBACK, transcript_failed=True),
-                        "messages": [HumanMessage(content="[voice note could not be understood]"), AIMessage(content=VOICE_FALLBACK)]}
-            return {**reset, "messages": [HumanMessage(content=text, additional_kwargs={"source": "voice"})]}
+                fallback = msg("voice_fallback", lang)
+                return {**reset, **say(fallback, transcript_failed=True),
+                        "messages": [HumanMessage(content="[voice note could not be understood]"), AIMessage(content=fallback)]}
+            source = {"source": "voice"}
+        else:
+            text = (inbound.get("text") or "").strip()
+            if not text:
+                return {**reset, **say(msg("unsupported", lang), transcript_failed=True)}
+            source = {}
 
-        text = (inbound.get("text") or "").strip()
-        if not text:
-            return {**reset, **say(UNSUPPORTED, transcript_failed=True)}
-        return {**reset, "messages": [HumanMessage(content=text)]}
+        # A tap on a button sends one of the fixed English sentences; it says nothing about the language the buyer speaks.
+        language = lang if quick_extraction(text, 99, self.d.now()) is not None else detect_language(text)
+        flags = {"language": language, "injection": looks_like_injection(text), "handoff_reason": wants_a_human(text)}
+        compacted = await self._compact(state)
+        removals = compacted.pop("messages", [])
+        return {**reset, **flags, **compacted, "messages": [*removals, HumanMessage(content=text, additional_kwargs=source)]}
 
     # ---------------- Node 2: supervisor router and CRM extraction ----------------
 
@@ -229,23 +308,31 @@ class AgentNodes:
             profile = {k: buyer[k] for k in ("full_name", "phone", "email") if buyer[k]}
         active = state.get("active_matches") or []
 
+        earlier = state.get("conversation_summary")
         prompt = extraction_prompt(
             now_iso=d.now().isoformat(), timezone=d.settings.timezone, prefs=prefs, profile=profile,
-            history=history_text(messages[:-1]), latest=str(messages[-1].content), options=options_text(active),
+            history=(f"Summary of the earlier conversation: {earlier}\n\n" if earlier else "") + history_text(messages[:-1]),
+            latest=str(messages[-1].content), options=options_text(active),
         )
         ex = quick_extraction(str(messages[-1].content), len(active), d.now())
+        if ex is None and state.get("injection"):
+            ex = Extraction(intent="small_talk")  # text that gives the agent orders is never read as a request: no search, booking or profile change
         if ex is None:
             try:
                 ex = await d.gateway.generate_structured(prompt, Extraction, system=EXTRACTION_SYSTEM)
             except Exception:
                 log.exception("extraction failed")
-                return say(TROUBLE, intent="error")
+                return say(msg("trouble", self._lang(state)), intent="error")
 
         if ex.objections:
             try:
                 await d.repo.add_objections(state["buyer_id"], ex.objections)
             except Exception:
                 log.exception("could not store the buyer's objections")  # the dossier is a nicety; the chat goes on
+
+        if (ex.intent == "search" and ex.objections and active and ex.max_budget_etb is None and ex.min_bedrooms is None
+                and ex.preferred_sub_cities is None and ex.ranking is None):
+            ex = ex.model_copy(update={"intent": "small_talk"})  # a worry voiced about the options shown is answered, not searched again
 
         new_prefs = dict(prefs)
         if ex.max_budget_etb is not None:
@@ -301,7 +388,8 @@ class AgentNodes:
             selected = list(pending.get("ids") or [])  # the buyer is answering "which time?", not "which unit?"
 
         return {
-            "intent": ex.intent, "urgency": ex.urgency, "query_text": query, "query_embedding": None, "ranking": ex.ranking,
+            "intent": ex.intent, "urgency": ex.urgency, "objections_now": list(ex.objections),
+            "monthly_budget_etb": ex.monthly_budget_etb if ex.monthly_budget_etb else state.get("monthly_budget_etb"), "query_text": query, "query_embedding": None, "ranking": ex.ranking,
             "buyer_preferences": new_prefs, "buyer_profile": new_profile, "preference_summary": summary,
             "deal_stage": stage, "selected_property_ids": selected, "tour_start_iso": ex.tour_start_iso,
             "search_scope": {
@@ -356,7 +444,7 @@ class AgentNodes:
             )
         except Exception:
             log.exception("search failed")
-            return say(TROUBLE, intent="error")
+            return say(msg("trouble", self._lang(state)), intent="error")
         return {"query_embedding": embedding, "active_matches": [slim(m) for m in matches]}
 
     async def constraint_relaxer(self, state: BrokerAgentState) -> dict:
@@ -387,19 +475,24 @@ class AgentNodes:
             "Write: an intro; exactly one short blurb per option, in the same order, about its standout feature (do not repeat "
             "prices or numbers); and a closing question offering to compare options or book a visit."
         )
+        lang = self._lang(state)
         try:
-            rec = await d.gateway.generate_structured(prompt, Recommendation, system=PERSONA)
+            rec = await d.gateway.generate_structured(prompt, Recommendation, system=persona_for(lang))
             if len(rec.blurbs) != len(rows) or not rec.intro.strip():
                 raise ValueError("recommendation does not line up with the options")
             intro, blurbs, closing = rec.intro.strip(), [b.strip() for b in rec.blurbs], rec.closing.strip()
+            written = " ".join([intro, *blurbs, closing])
+            if not reply_is_grounded(written, facts, prefs, state["query_text"], scope, [str(getattr(m, "content", "")) for m in state["messages"]]):
+                raise ValueError("the wording states a figure that is not in the facts")
         except Exception:
             log.exception("recommendation wording failed; using the plain layout")
-            intro = f"{widening} Here is what I found:".strip() if widened else "Here is what I found:"
+            note = widening if lang == "en" else msg("widened", lang)  # the English note also says how far the budget and areas were widened
+            intro = f"{note} {msg('found_intro', lang)}".strip() if widened else msg("found_intro", lang)
             blurbs = [", ".join(f["features"][:2]) for f in facts]
-            closing = "Would you like to compare them or book a visit?"
+            closing = msg("ask_next", lang)
 
-        text = "\n\n".join([intro, *[option_block(i, r, b) for i, (r, b) in enumerate(zip(rows, blurbs), start=1)], closing])
-        return {**say(text, quick_replies=option_buttons(len(rows))), "active_matches": matches}
+        text = "\n\n".join([intro, *[option_block(i, r, b, lang) for i, (r, b) in enumerate(zip(rows, blurbs), start=1)], closing])
+        return {**say(text, quick_replies=option_buttons(len(rows), lang)), "active_matches": matches}
 
     async def waitlist(self, state: BrokerAgentState) -> dict:
         scope, prefs = state["search_scope"], state["buyer_preferences"]
@@ -408,27 +501,29 @@ class AgentNodes:
         if stage in EARLY_STAGES:
             await self.d.repo.update_buyer(state["buyer_id"], deal_stage="INVENTORY_PENDING")
             out["deal_stage"] = "INVENTORY_PENDING"
+        lang = self._lang(state)
         if scope["relaxation_step"] > 0 and prefs.get("max_budget_etb"):
-            pct = round(scope["relaxation_step"] * self.d.settings.relax_budget_step_pct)
-            text = (
-                f"We don't have units matching those constraints even with a {pct}% buffer. "
-                "I've added you to the Priority Watchlist and I'll message you the moment a match appears."
-            )
+            text = msg("waitlist_buffer", lang, pct=round(scope["relaxation_step"] * self.d.settings.relax_budget_step_pct))
         else:
-            text = (
-                "We don't have a unit matching those criteria right now. I've added you to the Priority Watchlist "
-                "and I'll message you the moment a match appears."
-            )
+            text = msg("waitlist", lang)
         return {**say(text), **out, "active_matches": []}
 
     async def smalltalk(self, state: BrokerAgentState) -> dict:
+        lang = self._lang(state)
+        if state.get("injection"):
+            return say(msg("off_limits", lang))  # no model is asked to weigh instructions that came from the buyer's text
+        if state.get("objections_now") and state.get("active_matches"):
+            rows = await self.d.repo.get_properties([m["id"] for m in state["active_matches"]])
+            notes = objection_notes(state["objections_now"], rows, self.d.now().date())
+            if notes:
+                return say("\n".join(notes))
         prompt = (
             f"Conversation so far:\n{history_text(state['messages'][:-1])}\n\nThe buyer just wrote: {state['messages'][-1].content}\n"
             "Reply briefly. If this is a greeting or the buyer has not said what they want, welcome them and ask about "
             "budget, number of bedrooms and preferred area."
         )
         fallback = "Welcome! Tell me your budget, how many bedrooms you need and which area you prefer, and I'll find options across developers."
-        return say(await self._write(prompt, fallback))
+        return say(await self._write(prompt, msg("off_limits", lang) if lang != "en" else fallback, lang))
 
     # ---------------- details of one option (no model call: every line is a stored fact) ----------------
 
@@ -438,35 +533,77 @@ class AgentNodes:
         if not ids and len(active) == 1:
             ids = [active[0]["id"]]
         if not ids:
-            return say("Which option would you like to know more about? Reply with its number.")
+            return say(msg("which_option_details", self._lang(state)))
         rows = await self.d.repo.get_properties(ids[:1])
         if not rows:
-            return say("That option is no longer available. Tell me what you're looking for and I'll search again.")
+            return say(msg("option_gone", self._lang(state)))
         p = rows[0]
         number = next((i for i, m in enumerate(active, start=1) if m["id"] == str(p["id"])), 1)
         f = property_facts(p)
         summary = finance.summarize(payment_schedule(p, self.d.now().date()))
-        lines = [option_block(number, p, ""), "", f"{p['bedrooms']} bedrooms, {f['sqm']:g} sqm, {p['unit_type']}."]
+        lang = self._lang(state)
+        lines = [option_block(number, p, "", lang), "", msg("d_size", lang, beds=p["bedrooms"], sqm=f"{f['sqm']:g}", unit=p["unit_type"])]
         if f["construction_stage_pct"] is not None:
-            lines.append(f"Construction: {f['construction_stage_pct']:g}% complete.")
+            lines.append(msg("d_construction", lang, pct=f"{f['construction_stage_pct']:g}"))
         if f["est_rental_yield_pct"] is not None:
-            lines.append(f"Estimated rental yield: {f['est_rental_yield_pct']:g}%.")
+            lines.append(msg("d_yield", lang, pct=f"{f['est_rental_yield_pct']:g}"))
         if f["features"]:
-            lines.append("Features: " + ", ".join(f["features"][:6]) + ".")
-        lines += ["", "Payment plan: " + finance.describe(summary, fmt_etb) + f" (about {fmt_etb(summary['monthly_equivalent_etb'])} a month on average)."]
+            lines.append(msg("d_features", lang, items=", ".join(f["features"][:6])))
+        lines += ["", msg("d_plan", lang, plan=finance.describe(summary, fmt_etb), monthly=fmt_etb(summary["monthly_equivalent_etb"]))]
         if p.get("description"):
             lines += ["", p["description"]]
-        rows_ = [[{"label": f"Book {number}", "text": f"Book a site visit for option {number}"}]]
+        lines += objection_notes(state.get("objections_now") or [], rows, self.d.now().date())
+        rows_ = [[{"label": msg("btn_book", lang, n=number), "text": f"Book a site visit for option {number}"}]]
         if len(active) > 1:
-            rows_.append([{"label": "Compare all", "text": "Compare these options"}])
+            rows_.append([{"label": msg("btn_compare", lang), "text": "Compare these options"}])
         return {**say("\n".join(lines), quick_replies=rows_), "active_matches": active}
+
+    # ---------------- affordability: what the options mean for a monthly budget (all arithmetic, no model) ----------------
+
+    async def affordability(self, state: BrokerAgentState) -> dict:
+        lang, st = self._lang(state), self.d.settings
+        budget = state.get("monthly_budget_etb")
+        if not budget:
+            return say(msg("afford_need_budget", lang))
+        ids = list(state.get("selected_property_ids") or []) or [m["id"] for m in state.get("active_matches") or []]
+        if not ids:
+            return say(msg("find_first", lang))
+        rows = await self.d.repo.get_properties(ids)
+        today = self.d.now().date()
+        lines, scored = [msg("afford_intro", lang, budget=fmt_etb(budget)), ""], []
+        for i, p in enumerate(rows, start=1):
+            summary = finance.summarize(payment_schedule(p, today))
+            a = finance.affordability(float(p["price_etb"]), summary, float(budget), loan_share_pct=st.mortgage_financed_pct, rate_pct=st.mortgage_rate_pct, years=st.mortgage_years)
+            scored.append((a["monthly_during_construction_etb"], p["title"]))
+            key = "afford_fits" if a["fits_during_construction"] else "afford_stretch"
+            lines.append(f"{i}. {p['title']}: " + msg(key, lang, monthly=fmt_etb(a["monthly_during_construction_etb"])))
+            lines.append("   " + msg("afford_loan", lang, share=f"{st.mortgage_financed_pct:g}", years=st.mortgage_years, rate=f"{st.mortgage_rate_pct:g}", loan=fmt_etb(a["loan_monthly_etb"])))
+        if len(scored) > 1:
+            lines += ["", msg("afford_cheapest", lang, title=min(scored)[1])]
+        return say("\n".join(lines), quick_replies=option_buttons(len(rows), lang)[:-1])
+
+    # ---------------- hand-off: a buyer who asks for a person, or is plainly fed up, gets the broker ----------------
+
+    async def handoff(self, state: BrokerAgentState) -> dict:
+        d, s = self.d, self.d.settings
+        await d.repo.set_human_takeover(state["buyer_id"], True)
+        chat = s.broker_telegram_chat_id or s.demo_fallback_telegram_chat_id
+        if chat:
+            profile = state.get("buyer_profile") or {}
+            who = profile.get("full_name") or state.get("buyer_id")
+            why = "asked for a person" if state.get("handoff_reason") == "asked" else "sounds frustrated"
+            try:
+                await d.services.telegram.send_message(chat, f"Hand-off: {who} {why}. Last message: \"{str(state['messages'][-1].content)[:200]}\". The chat is yours now.")
+            except Exception:
+                log.exception("broker notification failed")
+        return {**say(msg("handoff", self._lang(state), broker=s.broker_name)), "human_takeover": True}
 
     # ---------------- Node 3B: cross-developer financial analyst ----------------
 
     async def analyst(self, state: BrokerAgentState) -> dict:
         ids = state.get("selected_property_ids") or [m["id"] for m in state.get("active_matches") or []]
         if not ids:
-            return say("I don't have any options to compare yet. Tell me your budget, bedrooms and preferred area and I'll find some.")
+            return say(msg("nothing_to_compare", self._lang(state)))
         rows = await self.d.repo.get_properties(ids)
         today = self.d.now().date()
         matrix = {}
@@ -488,7 +625,9 @@ class AgentNodes:
             f"{t}: {fmt_etb(v['price_etb'])}, {v['price_per_sqm_etb']:,} ETB/sqm, {v['payment_plan']}"
             for t, v in matrix.items()
         )
-        return {**say(await self._write(prompt, fallback)), "comparison_matrix": matrix}
+        lang = self._lang(state)
+        known = [matrix, state.get("buyer_preferences"), [str(getattr(m, "content", "")) for m in state["messages"]]]
+        return {**say(await self._write(prompt, fallback, lang, known), quick_replies=[[{"label": msg("btn_afford", lang), "text": "What can I afford?"}]]), "comparison_matrix": matrix}
 
     # ---------------- Node 3C: tour booking and lead registration ----------------
 
@@ -502,14 +641,15 @@ class AgentNodes:
             if len(active) == 1:
                 ids = [active[0]["id"]]
             elif not active:
-                return say("Let me find a few options first. What are you looking for (budget, bedrooms, area)?")
+                return say(msg("find_first", self._lang(state)))
             else:
-                return say("Which of the options would you like to visit? Reply with the numbers, for example 1 and 3.")
+                return say(msg("which_to_visit", self._lang(state)))
 
         profile = state.get("buyer_profile") or {}
-        missing = [label for key, label in (("full_name", "full name"), ("phone", "phone number")) if not profile.get(key)]
+        lang = self._lang(state)
+        missing = [msg(label, lang) for key, label in (("full_name", "full_name"), ("phone", "phone_number")) if not profile.get(key)]
         if missing:
-            return say(f"To register your visit with the developer I need your {' and '.join(missing)}. Could you share it?")
+            return say(msg("ask_contact", lang, missing=msg("and", lang).join(missing)))
 
         props = await d.repo.get_properties(ids)
         by_id = {str(p["id"]): p for p in props}
@@ -539,7 +679,7 @@ class AgentNodes:
         except CalendarError:
             # Without a readable calendar a visit cannot be confirmed safely; say so rather than risk a double booking.
             log.exception("calendar unavailable while booking")
-            return say(CALENDAR_DOWN)
+            return say(msg("calendar_down", self._lang(state)))
 
         tour = await d.repo.create_tour(
             buyer_id=state["buyer_id"], scheduled_start=start, stops=[p["id"] for p in ordered],
@@ -621,9 +761,10 @@ class AgentNodes:
         """A phone call instead of a visit: no stops, no route, no developer registration. The broker rings the buyer."""
         d, s = self.d, self.d.settings
         profile = state.get("buyer_profile") or {}
-        missing = [label for key, label in (("full_name", "full name"), ("phone", "phone number")) if not profile.get(key)]
+        lang = self._lang(state)
+        missing = [msg(label, lang) for key, label in (("full_name", "full_name"), ("phone", "phone_number")) if not profile.get(key)]
         if missing:
-            return say(f"To arrange the call I need your {' and '.join(missing)}. Could you share it?")
+            return say(msg("ask_contact_call", lang, missing=msg("and", lang).join(missing)))
         duration = timedelta(minutes=s.consultation_minutes)
         now, start = d.now(), self._parse_start(state.get("tour_start_iso"))
         try:
@@ -641,7 +782,7 @@ class AgentNodes:
                 return await self._offer_slots("That time was just taken.", max(start, now + timedelta(hours=1)), duration, call=True)
         except CalendarError:
             log.exception("calendar unavailable while booking a consultation")
-            return say(CALENDAR_DOWN)
+            return say(msg("calendar_down", self._lang(state)))
         tour = await d.repo.create_tour(buyer_id=state["buyer_id"], scheduled_start=start, stops=[], route_json=None, calendar_event_id=event_id, kind="CONSULTATION")
         if profile.get("email"):
             try:

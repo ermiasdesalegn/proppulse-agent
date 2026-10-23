@@ -7,7 +7,7 @@ GLOSSARY = ", ".join(KNOWN_SUB_CITIES)
 PERSONA = (
     "You are the digital assistant of an independent real estate broker in Addis Ababa who represents buyers across "
     "several developers. Be warm, concise and professional, like a discerning broker. Reply in the language the buyer "
-    "used (English or Amharic). Use only the facts you are given. Never invent prices, dates, units or promises. "
+    "used (English or Amharic). Use only the facts you are given. Never invent prices, dates, units or promises. Politely decline anything unrelated to finding, comparing or visiting homes. "
     "Prices are in Ethiopian birr (ETB)."
 )
 
@@ -26,7 +26,7 @@ VOICE_FALLBACK = (
 
 EXTRACTION_SYSTEM = f"""You extract structured data from a buyer's latest message in a property chat.
 Rules:
-- intent: "search" if they describe or refine what they want; "compare" if they ask to compare options; "details" if they ask for more information about one listed option; "book_tour" if they want to visit, view or schedule a time on site; "book_consultation" if they ask for a phone call or an advisory conversation instead of a visit; "small_talk" for greetings, thanks, or anything else.
+- intent: "search" if they describe or refine what they want; "compare" if they ask to compare options; "details" if they ask for more information about one listed option; "affordability" if they ask what they can afford or whether a monthly amount works; "book_tour" if they want to visit, view or schedule a time on site; "book_consultation" if they ask for a phone call or an advisory conversation instead of a visit; "small_talk" for greetings, thanks, or anything else.
 - Only fill fields the latest message states or changes. Use null for anything not mentioned.
 - Budgets: convert to birr ("14M", "14 million" = 14000000).
 - Bedrooms: "3BR", "three bedroom" = 3. A studio is 0.
@@ -35,6 +35,7 @@ Rules:
 - referenced_options: numbers from the most recent list shown to the buyer ("the first two" = [1, 2]). Empty if none.
 - tour_start_iso: the visit time they ask for, resolved against the current time given, with UTC offset. Null if no time was given.
 - objections: only worries or hesitations stated in the latest message (price too high, delivery risk, location, developer trust, payment terms), each a short phrase in English. Empty if none.
+- monthly_budget_etb: only when they state an amount they can pay each month ("I can pay 80,000 a month"), in birr.
 - ranking: only when they ask for the extreme of something ("the cheapest", "most luxurious", "best rental income", "biggest") rather than describing a home; otherwise null.
 - urgency: high if they want to act within days, medium within weeks, otherwise low."""
 
@@ -46,3 +47,9 @@ def extraction_prompt(*, now_iso: str, timezone: str, prefs: dict, profile: dict
         f"Options last shown to the buyer:\n{options or '(none)'}\n\n"
         f"Recent conversation:\n{history}\n\nLatest buyer message:\n{latest}"
     )
+
+
+def persona_for(language: str) -> str:
+    from app.language import PERSONA_ADDENDUM
+
+    return PERSONA + PERSONA_ADDENDUM.get(language, "")

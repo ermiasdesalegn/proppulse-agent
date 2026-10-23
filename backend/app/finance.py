@@ -131,3 +131,18 @@ def rank_by_reliability(matches: Sequence[Any], reliability: dict[str, float], *
         return m.similarity + weight * reliability.get(str(m.developer_id), 0.5)
 
     return sorted(matches, key=score, reverse=True)
+
+
+def monthly_payment(principal: float, annual_rate_pct: float, years: int) -> float:
+    """The level monthly payment on a loan (annuity formula)."""
+    n = max(int(years) * 12, 1)
+    r = annual_rate_pct / 1200.0
+    return principal / n if r == 0 else principal * r / (1 - (1 + r) ** -n)
+
+
+def affordability(price_etb: float, summary: dict, monthly_budget_etb: float, *, loan_share_pct: float, rate_pct: float, years: int) -> dict:
+    """How a unit sits against what the buyer can pay each month: during construction (the developer's plan) and, after handover, as a bank loan."""
+    during = float(summary["monthly_equivalent_etb"])
+    loan = monthly_payment(float(price_etb) * loan_share_pct / 100.0, rate_pct, years)
+    return {"monthly_during_construction_etb": round(during), "fits_during_construction": during <= monthly_budget_etb,
+            "loan_monthly_etb": round(loan), "loan_fits": loan <= monthly_budget_etb}

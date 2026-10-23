@@ -28,7 +28,14 @@ class BrokerAgentState(TypedDict, total=False):
     active_matches: list[dict]  # options shown most recently, in the order the buyer saw them
     pending_booking: dict | None  # {"ids": [...]} while a time is being chosen, so a tap on a slot knows which options it is for
 
+    language: str  # en or am: the language of the buyer's latest message
+    conversation_summary: str  # the older part of a long conversation, in a few sentences
+    monthly_budget_etb: float | None
+
     # turn
+    injection: bool  # the message tried to give the agent instructions
+    handoff_reason: str | None  # asked or frustrated: the broker should take over
+    objections_now: list[str]
     intent: str
     urgency: str
     query_text: str
