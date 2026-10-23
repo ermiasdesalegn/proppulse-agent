@@ -8,14 +8,14 @@ Only what changed costs anything. A unit is identified by developer + project + 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.config import Settings
 from app.geo import KNOWN_SUB_CITIES, normalize_sub_city
-from app.ingest.fetch import FetchError, Fetcher
+from app.ingest.fetch import Fetcher, FetchError
 from app.ingest.models import FloorPlanTags, ListingExtraction, ListingUnit, ScrapeProfile
 from app.ingest.parse import ParseResult, page_text, parse_date, parse_listing_html
 from app.ingest.text import content_hash, embedding_text
@@ -228,7 +228,7 @@ class IngestionService:
             plan = tags.get(digest)
             coords = (unit.lat, unit.lng) if unit.lat is not None and unit.lng is not None else await self.repo.coordinates_for(developer["id"], unit.project_name, unit.sub_city)
             amenities = {"tags": plan.tags if plan else [], "source": "announcement" if source == "text" else "scrape",
-                         "ingested_at": datetime.now(timezone.utc).isoformat()}
+                         "ingested_at": datetime.now(UTC).isoformat()}
             if plan and plan.net_to_gross_ratio is not None:
                 amenities["net_to_gross_ratio"] = plan.net_to_gross_ratio
             if plan and plan.summary:

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from datetime import date
 from html import escape
-from typing import Any
 
 from app import finance
 from app.finance import fmt_etb, payment_schedule

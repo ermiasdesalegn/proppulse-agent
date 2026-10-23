@@ -29,7 +29,7 @@ async def reset_demo(repo: Any, calendar: Any = None) -> dict:
                 log.exception("could not cancel calendar event %s", tour["calendar_event_id"])
 
     for table in CLEARED:
-        rows = await repo._fetch(f"with gone as (delete from {table} returning 1) select count(*)::int as n from gone")  # noqa: S608 - fixed names above
+        rows = await repo._fetch(f"with gone as (delete from {table} returning 1) select count(*)::int as n from gone")
         report["deleted"][table] = rows[0]["n"]
 
     # Units that came from scraping or announcements are not part of the demo; the seeded ones go back to their original price.
@@ -52,6 +52,6 @@ async def reset_demo(repo: Any, calendar: Any = None) -> dict:
     for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
         exists = await repo._fetch("select to_regclass(%s) as t", (table,))
         if exists and exists[0]["t"]:
-            rows = await repo._fetch(f"with gone as (delete from {table} where thread_id like 'tg:%%' or thread_id like 'web:%%' returning 1) select count(*)::int as n from gone")  # noqa: S608
+            rows = await repo._fetch(f"with gone as (delete from {table} where thread_id like 'tg:%%' or thread_id like 'web:%%' returning 1) select count(*)::int as n from gone")
             report["deleted"][table] = rows[0]["n"]
     return report

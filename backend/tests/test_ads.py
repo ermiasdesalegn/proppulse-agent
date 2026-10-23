@@ -2,7 +2,7 @@
 import httpx
 import pytest
 
-from app.ads import AdError, AdService, DEEPLINK, deep_link, facts_block, keyboard, property_code
+from app.ads import DEEPLINK, AdError, AdService, deep_link, keyboard, property_code
 from app.main import create_app
 from app.services.telegram import MockTelegramService, TelegramError
 from app.telegram_updates import parse_update
@@ -170,8 +170,8 @@ async def test_nothing_is_posted_without_a_channel_or_for_unavailable_units(repo
 
 
 async def test_ads_for_an_ingest_run_cover_new_units_and_price_cuts_only(repo, db_conn):
-    from app.ingest.sample import sample_listing
     from app.ingest.models import ScrapeProfile
+    from app.ingest.sample import sample_listing
 
     ingest, _, _ = make_ingest(repo)
     html, profile = sample_listing(2)

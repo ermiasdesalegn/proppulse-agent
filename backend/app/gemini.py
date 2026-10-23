@@ -11,10 +11,11 @@ import random
 import re
 import time
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Awaitable, Callable, Protocol, Sequence, TypeVar
+from typing import Any, Protocol, TypeVar
 
 import httpx
 from google import genai
@@ -41,7 +42,7 @@ class CallInfo:
 # Set by the gateway around each request (a mutable object, so it survives the copy a task makes of the context).
 CALL_INFO: ContextVar[CallInfo | None] = ContextVar("gemini_call_info", default=None)
 # Set by the caller (the agent's nodes) so each logged request can say which node and conversation it belongs to.
-CALL_CONTEXT: ContextVar[dict] = ContextVar("gemini_call_context", default={})
+CALL_CONTEXT: ContextVar[dict | None] = ContextVar("gemini_call_context", default=None)
 
 Recorder = Callable[[dict], None]
 
@@ -137,7 +138,7 @@ class GenAIBackend:
                     info.model = model
                     info.input_tokens, info.output_tokens = getattr(usage, "prompt_token_count", None), getattr(usage, "candidates_token_count", None)
                 return result
-            except (errors.ServerError, errors.ClientError, asyncio.TimeoutError) as exc:
+            except (TimeoutError, errors.ServerError, errors.ClientError) as exc:
                 if isinstance(exc, errors.ClientError) and not is_daily_quota(exc) and getattr(exc, "code", None) != 429:
                     raise  # a bad request would fail on every model
                 last = exc
@@ -193,7 +194,7 @@ class GenAIBackend:
 class _Job:
     factory: Callable[[], Awaitable[Any]]
     future: asyncio.Future
-    lane: "_Lane"
+    lane: _Lane
     attempt: int = 0
     operation: str = ""
     schema: str | None = None
@@ -316,7 +317,7 @@ class GeminiGateway:
         self._ensure_started(lane)
         assert lane.queue is not None
         future = asyncio.get_running_loop().create_future()
-        await lane.queue.put(_Job(factory, future, lane, operation=operation, schema=schema, context=dict(CALL_CONTEXT.get())))
+        await lane.queue.put(_Job(factory, future, lane, operation=operation, schema=schema, context=dict(CALL_CONTEXT.get() or {})))
         return await future
 
     async def aclose(self) -> None:

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -6,7 +6,7 @@ from psycopg import errors as pgerrors
 
 from app.repository import LedgerEntry
 
-NOW = datetime(2026, 11, 2, 10, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 2, 10, 0, tzinfo=UTC)
 
 
 async def vec_of(db_conn, title_like: str) -> list[float]:

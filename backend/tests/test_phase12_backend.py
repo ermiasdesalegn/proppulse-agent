@@ -1,6 +1,6 @@
 """Explainable lead score, tool tracing, analytics, calendar cancel and reset-demo."""
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -12,7 +12,7 @@ from app.events import EventBus
 from app.main import create_app
 from app.services.routing import MockRoutingService, Stop
 from app.tracing import Traced, plain, summarize_args, summarize_result, trace_repo, trace_services
-from tests.agent_helpers import FakeGateway, NOW, ext, make_agent, make_chat, make_services, new_buyer, say_to
+from tests.agent_helpers import NOW, FakeGateway, ext, make_agent, make_chat, make_services, new_buyer, say_to
 from tests.test_agent_graph import BOLE_3BR
 from tests.test_phase10_agent import CONTACT
 
@@ -119,7 +119,7 @@ def test_summaries_hide_message_bodies_addresses_and_vectors():
     assert plain("abel.tesfaye@example.com") == "a***@example.com"
     assert plain("x" * 200).endswith("(200 chars)") and plain(b"12345") == "5 bytes"
     assert plain([0.1] * 768) == {"vector": 768} and plain(list(range(50))) == {"count": 50, "first": 0}
-    assert plain(datetime(2026, 11, 2, 10, tzinfo=timezone.utc)) == "2026-11-02T10:00:00+00:00"
+    assert plain(datetime(2026, 11, 2, 10, tzinfo=UTC)) == "2026-11-02T10:00:00+00:00"
     args = summarize_args((), {"to": "a@b.test", "subject": "Hi", "html": "<p>secret</p>", "text": "hello there"})
     assert args == {"to": "a***@b.test", "subject": "Hi", "html": "13 chars", "text": "11 chars"}
 

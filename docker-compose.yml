@@ -1,0 +1,43 @@
+# The whole stack on one machine:  docker compose up --build
+# Dashboard http://localhost:3000, API http://localhost:8000. Copy .env.docker.example to .env.docker first.
+# Anything without a key (Telegram, email, calendar, routing) runs on a built-in mock, so the stack starts with only a Gemini key.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment: { POSTGRES_PASSWORD: proppulse, POSTGRES_DB: proppulse }
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d proppulse"], interval: 3s, timeout: 3s, retries: 20 }
+
+  setup:
+    build: ./backend
+    env_file: .env.docker
+    environment: { DATABASE_URL: "postgresql://postgres:proppulse@db:5432/proppulse" }
+    command: sh -c "python -m scripts.migrate && python -m scripts.seed tests/fixtures/seed_embeddings.json"
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+
+  backend:
+    build: ./backend
+    env_file: .env.docker
+    environment:
+      DATABASE_URL: "postgresql://postgres:proppulse@db:5432/proppulse"
+      TELEGRAM_MODE: "off"          # polling is for one machine; set a token and TELEGRAM_MODE=auto to talk to a real bot
+      TRUST_PROXY_HEADERS: "false"
+      PORT: "8000"
+    ports: ["8000:8000"]
+    depends_on: { setup: { condition: service_completed_successfully } }
+
+  frontend:
+    build:
+      context: ./frontend
+      args: { NEXT_PUBLIC_MAPBOX_TOKEN: "${NEXT_PUBLIC_MAPBOX_TOKEN:-}" }
+    environment:
+      BACKEND_URL: http://backend:8000
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-change-me-admin-key}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
+    ports: ["3000:3000"]
+    depends_on: [backend]
+
+volumes:
+  dbdata:

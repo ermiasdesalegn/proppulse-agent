@@ -1,7 +1,6 @@
 """The durable bus against a real Postgres: these tests commit what they write and remove it afterwards."""
 import asyncio
 
-import pytest
 import pytest_asyncio
 
 from app.config import get_settings

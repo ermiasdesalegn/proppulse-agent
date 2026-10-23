@@ -1,5 +1,4 @@
 """Live activity: the event bus, SSE framing, and the events the agent, chat service and proactive jobs publish."""
-import asyncio
 import json
 
 import httpx
@@ -190,7 +189,6 @@ async def test_chat_and_takeover_activity_is_published(spy_repo):
 
 
 async def test_proactive_sends_are_published(spy_repo, db_conn):
-    from tests.agent_helpers import make_proactive
 
     bus = EventBus()
     proactive, _, _ = make_proactive(spy_repo)

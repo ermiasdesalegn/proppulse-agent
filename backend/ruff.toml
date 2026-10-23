@@ -1,0 +1,28 @@
+line-length = 180          # the codebase keeps one idea per line; long, readable lines are deliberate
+target-version = "py312"
+extend-exclude = [".pgdata", "evals/recordings"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "RUF"]
+ignore = [
+  "E501",    # line length is set above and not enforced as an error
+  "S101",    # assert is how the tests work
+  "S608",    # SQL built from fixed identifiers (table names, order clauses chosen from a closed list), never from input
+  "S105", "S106",  # "password"-looking test values
+  "RUF001", "RUF002", "RUF003",  # Amharic text in strings and comments is intentional
+  "B008",    # FastAPI's Depends() in defaults is the framework's idiom
+  "RUF012", "S110", "S112",
+  "B905",    # zip() over equal-length sequences built together
+  "S311",    # random is used for retry jitter, not secrets
+  "ASYNC109",  # an explicit timeout argument is part of these helpers' API
+  "RUF007", "RUF059",
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S", "B", "RUF", "E402", "E731", "E741", "F841"]
+"evals/*" = ["S", "RUF"]
+"scripts/*" = ["S", "E402"]
+"app/demo.py" = ["S"]
+
+[lint.isort]
+known-first-party = ["app", "evals", "scripts", "tests"]

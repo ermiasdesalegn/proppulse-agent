@@ -7,10 +7,9 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from app.config import get_settings
+from app.demo_data import DEVELOPERS, P, embedding_text
 from app.embeddings import embed_documents
 from app.ingest.text import content_hash
-
-from app.demo_data import DEVELOPERS, P, embedding_text  # noqa: E402
 
 
 def stored_vectors(path: str, texts_by_hash: dict[str, str]) -> dict[str, list[float]]:

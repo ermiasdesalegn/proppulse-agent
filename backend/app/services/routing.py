@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import permutations
 from math import asin, cos, radians, sin, sqrt
-from typing import Protocol, Sequence
+from typing import Protocol
 
 import httpx
 

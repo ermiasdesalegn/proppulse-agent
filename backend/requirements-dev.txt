@@ -1,0 +1,4 @@
+# Test and quality tools (not needed to run the app)
+pgserver==0.1.4  # embedded Postgres + pgvector, so `pytest` works on a clean checkout
+ruff==0.17.2
+mypy==2.4.0

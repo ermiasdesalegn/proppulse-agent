@@ -7,7 +7,7 @@ from app.agent.prompts import VOICE_FALLBACK
 from app.agent.schemas import Recommendation
 from app.services.email import MockEmailService
 from app.services.routing import MockRoutingService
-from tests.agent_helpers import FakeGateway, NOW, ext, make_agent, make_services, new_buyer, say_to
+from tests.agent_helpers import FakeGateway, ext, make_agent, make_services, new_buyer, say_to
 
 BOLE_3BR = dict(max_budget_etb=25_000_000, min_bedrooms=3, preferred_sub_cities=["Bole"], search_query="3 bedroom apartment in Bole")
 

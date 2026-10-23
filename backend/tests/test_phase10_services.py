@@ -5,17 +5,18 @@ from datetime import date
 
 import httpx
 import pytest
-import pytest_asyncio
 
 from app.brochure import _latin, brochure_data, render_html, render_pdf
 from app.chat import Inbound, inline_keyboard
-from app.dossier import build_dossier, deliver_dossier, render_html as dossier_html, render_text as dossier_text
+from app.dossier import build_dossier, deliver_dossier
+from app.dossier import render_html as dossier_html
+from app.dossier import render_text as dossier_text
 from app.ingest.models import ExtractedUnit, ListingExtraction
 from app.main import create_app
 from app.services.email import Attachment, MockEmailService, ResendEmailService
 from app.services.telegram import ALLOWED_UPDATES, BotApiTelegramService
 from app.telegram_updates import parse_callback, parse_update
-from tests.agent_helpers import FakeGateway, NOW, ext, make_chat, make_services
+from tests.agent_helpers import NOW, FakeGateway, ext, make_chat, make_services
 from tests.test_agent_graph import BOLE_3BR
 from tests.test_ingest_service import make as make_ingest
 

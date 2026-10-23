@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from app.ads import BUTTONS, DEEPLINK
 from app.agent.graph import BrokerAgent
-from app.agent.nodes import TROUBLE, option_block
+from app.agent.nodes import option_block
 from app.config import Settings
 from app.events import excerpt
 from app.language import detect_language, msg

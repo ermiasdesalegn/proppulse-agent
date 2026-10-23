@@ -2,7 +2,7 @@
 never cost quota, and every number in them comes straight from the database."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
-from typing import Awaitable, Callable, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Protocol
 from urllib.parse import urljoin, urlsplit
 
 import httpx

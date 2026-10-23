@@ -10,12 +10,12 @@ import time
 
 from app.ads import AdService
 from app.config import get_settings
+from app.db import make_pool
 from app.gemini import GeminiGateway, GenAIBackend
 from app.ingest.fetch import HttpFetcher
 from app.ingest.models import FloorPlanTags
-from app.ingest.service import EXTRACT_SYSTEM, VISION_PROMPT, IngestionService
+from app.ingest.service import VISION_PROMPT, IngestionService
 from app.repository import Repository
-from app.db import make_pool
 from app.services import build_services
 
 

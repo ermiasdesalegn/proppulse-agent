@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 import httpx
 

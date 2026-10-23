@@ -1,5 +1,5 @@
 """Endpoints that feed the Command Center: board, deal moves, map data, tours, stats and voice-note audio."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -8,7 +8,7 @@ from app.main import create_app
 from app.repository import LedgerEntry
 from app.services.telegram import MockTelegramService, TelegramError
 from tests.agent_helpers import FakeGateway, make_chat, make_proactive, make_services
-from tests.test_proactive import NOAH, GIFT, make_buyer, pid
+from tests.test_proactive import GIFT, NOAH, make_buyer, pid
 
 pytestmark = pytest.mark.usefixtures("quiet_world")
 
@@ -128,7 +128,7 @@ async def test_properties_carry_coordinates_and_never_embeddings(spy_repo):
 async def test_tours_include_ordered_stops_and_the_route(spy_repo, db_conn):
     abel = await make_buyer(spy_repo, db_conn, "tours")
     route = {"geometry": "abc", "distance_meters": 15400, "duration_seconds": 3200, "bbox": [38.7, 8.9, 38.8, 9.0]}
-    await spy_repo.create_tour(buyer_id=abel["id"], scheduled_start=datetime.now(timezone.utc) + timedelta(days=1),
+    await spy_repo.create_tour(buyer_id=abel["id"], scheduled_start=datetime.now(UTC) + timedelta(days=1),
                                stops=[await pid(db_conn, GIFT), await pid(db_conn, NOAH)], route_json=route, calendar_event_id="e1")
     async with await make_client(spy_repo) as c:
         (tour,) = (await c.get("/api/tours", headers=ADMIN)).json()
@@ -143,7 +143,7 @@ async def test_stats_summarise_the_pipeline(spy_repo, db_conn):
         abel = await make_buyer(spy_repo, db_conn, "stats")
         await deal(spy_repo, db_conn, abel, NOAH)           # 495,000 expected
         await deal(spy_repo, db_conn, abel, GIFT, status="COMMISSION_PENDING")  # 692,000 expected
-        await spy_repo.create_tour(buyer_id=abel["id"], scheduled_start=datetime.now(timezone.utc) + timedelta(days=2),
+        await spy_repo.create_tour(buyer_id=abel["id"], scheduled_start=datetime.now(UTC) + timedelta(days=2),
                                    stops=[await pid(db_conn, NOAH)], route_json=None, calendar_event_id=None)
         after = (await c.get("/api/stats", headers=ADMIN)).json()
     assert after["buyers"] == before["buyers"] + 1 and after["qualified"] == before["qualified"] + 1

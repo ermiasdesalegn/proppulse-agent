@@ -21,7 +21,7 @@ from app.repository import Repository
 from app.services import Services, build_services
 from app.services.email import MockEmailService
 from app.services.google_calendar import GoogleCalendarService
-from app.services.routing import MockRoutingService, ResilientRoutingService
+from app.services.routing import ResilientRoutingService
 from app.services.telegram import MockTelegramService
 
 

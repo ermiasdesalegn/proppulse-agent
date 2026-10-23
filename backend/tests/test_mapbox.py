@@ -2,7 +2,14 @@ import httpx
 import pytest
 
 from app.services.routing import (
-    MapboxRoutingService, MockRoutingService, ResilientRoutingService, RoutingError, Stop, best_order, decode_polyline, encode_polyline,
+    MapboxRoutingService,
+    MockRoutingService,
+    ResilientRoutingService,
+    RoutingError,
+    Stop,
+    best_order,
+    decode_polyline,
+    encode_polyline,
 )
 
 A, B, C = Stop("a", 9.0147, 38.7636), Stop("b", 8.9950, 38.7860), Stop("c", 9.0235, 38.8690)

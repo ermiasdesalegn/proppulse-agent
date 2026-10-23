@@ -10,30 +10,29 @@ from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage
 
-from app.agent import emails
+from app import finance
+from app.agent import emails, scoring
 from app.agent.deps import AgentDeps
 from app.agent.prompts import (
     EXTRACTION_SYSTEM,
-    PERSONA,
-    persona_for,
     TRANSCRIBE,
     UNINTELLIGIBLE,
-    VOICE_FALLBACK,
     extraction_prompt,
+    persona_for,
 )
 from app.agent.schemas import Extraction, Recommendation
-from app.brochure import brochure_data, render_html as brochure_html, render_pdf as brochure_pdf
-from app.dossier import deliver_dossier
-from app.services.email import Attachment
-from app.agent import scoring
 from app.agent.state import EMPTY_PREFS, BrokerAgentState
-from app import finance
+from app.brochure import brochure_data
+from app.brochure import render_html as brochure_html
+from app.brochure import render_pdf as brochure_pdf
+from app.dossier import deliver_dossier
 from app.finance import fmt_etb, payment_schedule
 from app.geo import expand_with_adjacent, normalize_sub_cities
 from app.guardrails import looks_like_injection, reply_is_grounded, wants_a_human
 from app.language import detect_language, msg
 from app.repository import LedgerEntry, PropertyMatch
 from app.services.calendar import CalendarError, SlotUnavailable
+from app.services.email import Attachment
 from app.services.routing import Stop
 
 log = logging.getLogger(__name__)

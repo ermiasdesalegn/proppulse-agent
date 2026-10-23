@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any
 from uuid import UUID
 
 from psycopg import sql
+from pydantic import BaseModel
 
 from app.finance import rank_by_reliability
-from pydantic import BaseModel
 
 LEDGER_STATUSES = (
     "LEAD_REGISTERED", "TOUR_COMPLETED", "CONTRACT_SIGNED", "COMMISSION_PENDING", "COMMISSION_PAID", "CLOSED_LOST",
@@ -511,7 +512,7 @@ class Repository:
             raise LookupError(f"buyer {buyer_id} not found")
         known = list(buyer.get("objections") or [])
         seen = {o["text"].strip().lower() for o in known}
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         for text in texts:
             text = " ".join(str(text).split())[:300]
             if text and text.lower() not in seen:

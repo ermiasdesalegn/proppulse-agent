@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     mortgage_rate_pct: float = 12.0  # assumptions for the affordability estimate, not an offer from any bank
     mortgage_years: int = 20
     mortgage_financed_pct: float = 70.0
+    log_format: str = "text"  # text for a terminal, json for a log service such as Cloud Logging
+    trust_proxy_headers: bool = False  # true only behind a proxy you control (Cloud Run): then X-Forwarded-For names the client
+    rate_limit_public_per_minute: int = 120  # webhooks and the demo page, per client
+    rate_limit_failed_auth_per_minute: int = 10  # rejected admin keys, per client; past this the client is blocked for a minute
     broker_name: str = "Ermias Desalegn"
     broker_telegram_chat_id: str = ""  # where the broker's own notices go; falls back to DEMO_FALLBACK_TELEGRAM_CHAT_ID
     proactive_lookback_hours: int = 24  # how far back price drops and new listings count as news

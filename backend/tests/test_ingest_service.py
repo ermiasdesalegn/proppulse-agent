@@ -321,7 +321,7 @@ async def test_a_floor_plan_is_ignored_when_the_text_announces_several_units(rep
     assert any("exactly one new unit" in n for n in report["notes"])
 
 
-async def test_an_unreadable_floor_plan_never_blocks_the_unit(repo):
+async def test_an_unreadable_floor_plan_never_blocks_an_announced_unit(repo):
     gw = FakeGateway()
     gw.listing_extraction = announcement_units()
     gw.fail_image = True

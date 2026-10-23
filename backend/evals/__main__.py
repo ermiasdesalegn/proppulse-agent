@@ -11,7 +11,7 @@ import argparse
 import asyncio
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from evals import retrieval
@@ -22,7 +22,7 @@ SUITES = ("retrieval", "scenarios")
 
 
 async def run(args: argparse.Namespace) -> dict:
-    out: dict = {"mode": args.mode, "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    out: dict = {"mode": args.mode, "ran_at": datetime.now(UTC).isoformat(timespec="seconds")}
     if "retrieval" in args.suites:
         cases = retrieval.load_cases()
         env = await open_env(args.mode)

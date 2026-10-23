@@ -10,10 +10,11 @@ from __future__ import annotations
 import dataclasses
 import re
 import time
+from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
-from typing import Any, Iterable
 
 from app.gemini import CALL_CONTEXT
 
@@ -101,7 +102,7 @@ class Traced:
                 raise
             finally:
                 try:
-                    ctx = CALL_CONTEXT.get()
+                    ctx = CALL_CONTEXT.get() or {}
                     self._bus.publish(
                         "tool", tool=f"{self._prefix}.{name}", args=summarize_args(args, kwargs), result=summarize_result(result) if ok else None,
                         ms=round((time.monotonic() - started) * 1000), ok=ok, error=error, node=ctx.get("node"), buyer_id=ctx.get("buyer_id"),

@@ -20,8 +20,10 @@ export default function CrmPage() {
   const buyers = useApi<Buyer[]>("buyers", 15_000);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
 
-  useEffect(() => { if (dataVersion) void buyers.reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dataVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dataVersion) void buyers.reload() }, [dataVersion]);
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -89,8 +91,10 @@ function BuyerPanel({ buyer, onChanged }: { buyer: Buyer; onChanged: () => void 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
 
-  useEffect(() => { if (dataVersion) void messages.reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dataVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dataVersion) void messages.reload() }, [dataVersion]);
   // Scroll the transcript box itself; scrollIntoView would scroll the whole page as well.
   useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [messages.data?.length]);
 

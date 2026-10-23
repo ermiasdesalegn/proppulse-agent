@@ -4,7 +4,6 @@ from typing import Any, Protocol
 
 import httpx
 
-
 ALLOWED_UPDATES = ["message", "callback_query"]  # callback_query: taps on inline buttons
 
 

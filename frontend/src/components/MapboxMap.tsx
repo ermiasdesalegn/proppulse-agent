@@ -67,6 +67,8 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
   useEffect(() => {
     if (!container.current) return;
     mapboxgl.accessToken = token;
+    const pills = markers.current; // the same Map for the life of the component; copied so the cleanup below does not read a changed ref
+    const stops = stopMarkers;
     const map = new mapboxgl.Map({ container: container.current, style: styleFor(prefersDark()), center: CENTER, zoom: 11.2, attributionControl: true });
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
@@ -149,9 +151,9 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
       clearTimeout(failed);
       media.removeEventListener("change", onScheme);
       resize.disconnect();
-      markers.current.forEach((m) => m.remove());
-      markers.current.clear();
-      stopMarkers.current.forEach((m) => m.remove());
+      pills.forEach((m) => m.remove());
+      pills.clear();
+      stops.current.forEach((m) => m.remove());
       map.remove();
       mapRef.current = null;
     };

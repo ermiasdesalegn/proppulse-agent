@@ -13,14 +13,15 @@ import contextlib
 import json
 import logging
 from collections import deque
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 log = logging.getLogger(__name__)
 
 
 class Subscription:
-    def __init__(self, bus: "EventBus", backlog: list[dict]):
+    def __init__(self, bus: EventBus, backlog: list[dict]):
         self._bus = bus
         self.backlog = backlog
         self.queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=500)
@@ -38,7 +39,7 @@ class EventBus:
 
     def publish(self, kind: str, /, **data: Any) -> dict:
         # `kind` is positional-only and written last, so a payload field of the same name can never replace the event type.
-        event = {**data, "id": self._next_id, "ts": datetime.now(timezone.utc).isoformat(), "kind": kind}
+        event = {**data, "id": self._next_id, "ts": datetime.now(UTC).isoformat(), "kind": kind}
         self._next_id += 1
         self._fan_out(event)
         return event
@@ -84,7 +85,7 @@ class DurableEventBus(EventBus):
     # ---- publishing ----
 
     def publish(self, kind: str, /, **data: Any) -> dict:
-        event = {**data, "id": 0, "ts": datetime.now(timezone.utc).isoformat(), "kind": kind}  # the real id is the database's
+        event = {**data, "id": 0, "ts": datetime.now(UTC).isoformat(), "kind": kind}  # the real id is the database's
         try:
             self._outbox.put_nowait(event)
         except asyncio.QueueFull:
@@ -180,7 +181,7 @@ def format_sse(event: dict) -> str:
     return f"id: {event['id']}\nevent: {event['kind']}\ndata: {json.dumps(event, default=str)}\n\n"
 
 
-async def sse_frames(bus: EventBus, *, after_id: int = 0, is_disconnected: Callable[[], Awaitable[bool]], ping_seconds: float = 15.0):
+async def sse_frames(bus: EventBus, *, after_id: int = 0, is_disconnected: Callable[[], Awaitable[bool]], ping_seconds: float = 15.0) -> AsyncIterator[str]:
     """Server-Sent Events frames for one dashboard tab: recent history first, then live events, with a ping while idle."""
     sub = await bus.open(after_id)
     try:
@@ -190,7 +191,7 @@ async def sse_frames(bus: EventBus, *, after_id: int = 0, is_disconnected: Calla
         while not await is_disconnected():
             try:
                 event = await asyncio.wait_for(sub.queue.get(), timeout=ping_seconds)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": ping\n\n"  # keeps proxies from closing an idle stream
                 continue
             if event["id"] > sub.last_id:  # skip anything already replayed from history

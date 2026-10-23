@@ -4,7 +4,7 @@ from collections import Counter
 
 import pytest
 
-from evals import report, retrieval
+from evals import report
 from evals.retrieval import UNITS, Case, CaseResult, load_cases, misses, summarize
 from evals.scenarios import SCENARIOS
 
@@ -21,6 +21,7 @@ def test_the_dataset_is_well_formed():
 
 def test_every_labelled_unit_exists_in_the_demo_catalogue():
     import psycopg
+
     from tests.localdb import local_database_url
 
     with psycopg.connect(local_database_url()) as conn:

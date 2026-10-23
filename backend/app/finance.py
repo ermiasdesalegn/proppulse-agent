@@ -10,9 +10,10 @@ Anything missing falls back to the developer's plan, then to a generic one, so e
 from __future__ import annotations
 
 import calendar
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Sequence
+from typing import Any
 
 GENERIC_PLAN = {"installments": 8, "interval_months": 3, "handover_pct": 10.0}
 SIGNING_DELAY_DAYS = 7  # contract signing is assumed a week after the visit
@@ -112,7 +113,7 @@ def summarize(payments: Sequence[Payment]) -> dict[str, Any]:
     }
 
 
-def describe(summary: dict, fmt) -> str:
+def describe(summary: dict, fmt: Callable[[float], str]) -> str:
     """One line for chat, using the caller's money formatter."""
     parts = [f"{fmt(summary['down_payment_etb'])} on signing"]
     if summary["installment_count"]:

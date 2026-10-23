@@ -4,7 +4,14 @@ import pytest
 
 from app.ingest.models import ScrapeProfile
 from app.ingest.parse import (
-    page_text, parse_area, parse_bedrooms, parse_date, parse_float, parse_listing_html, parse_money, parse_percent,
+    page_text,
+    parse_area,
+    parse_bedrooms,
+    parse_date,
+    parse_float,
+    parse_listing_html,
+    parse_money,
+    parse_percent,
 )
 
 

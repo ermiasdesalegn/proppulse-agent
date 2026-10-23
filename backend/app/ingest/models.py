@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,15 +14,15 @@ class ListingUnit(BaseModel):
     bedrooms: int = Field(ge=0, le=20, description="0 for a studio")
     sqm: float = Field(gt=0, lt=100_000)
     price_etb: float = Field(gt=0, lt=1e12, description="Total price in Ethiopian birr")
-    title: Optional[str] = None
-    down_payment_pct: Optional[float] = Field(default=None, ge=0, le=100)
-    construction_stage_pct: Optional[float] = Field(default=None, ge=0, le=100)
-    est_rental_yield_pct: Optional[float] = Field(default=None, ge=0, le=100)
-    delivery_date: Optional[date] = None
-    lat: Optional[float] = Field(default=None, ge=-90, le=90)
-    lng: Optional[float] = Field(default=None, ge=-180, le=180)
-    description: Optional[str] = None
-    floor_plan_image_url: Optional[str] = None
+    title: str | None = None
+    down_payment_pct: float | None = Field(default=None, ge=0, le=100)
+    construction_stage_pct: float | None = Field(default=None, ge=0, le=100)
+    est_rental_yield_pct: float | None = Field(default=None, ge=0, le=100)
+    delivery_date: date | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    description: str | None = None
+    floor_plan_image_url: str | None = None
 
     @property
     def display_title(self) -> str:
@@ -40,15 +39,15 @@ class ExtractedUnit(BaseModel):
     bedrooms: int = Field(description="0 for a studio")
     sqm: float
     price_etb: float = Field(description="Total price in Ethiopian birr")
-    title: Optional[str] = None
-    down_payment_pct: Optional[float] = None
-    construction_stage_pct: Optional[float] = None
-    est_rental_yield_pct: Optional[float] = None
-    delivery_date: Optional[str] = Field(default=None, description="As written, for example 'June 2027' or 'Q3 2027'")
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-    description: Optional[str] = None
-    floor_plan_image_url: Optional[str] = None
+    title: str | None = None
+    down_payment_pct: float | None = None
+    construction_stage_pct: float | None = None
+    est_rental_yield_pct: float | None = None
+    delivery_date: str | None = Field(default=None, description="As written, for example 'June 2027' or 'Q3 2027'")
+    lat: float | None = None
+    lng: float | None = None
+    description: str | None = None
+    floor_plan_image_url: str | None = None
 
 
 class ListingExtraction(BaseModel):
@@ -59,7 +58,7 @@ class FloorPlanTags(BaseModel):
     """What the vision model reads from a floor-plan image."""
 
     tags: list[str] = Field(default_factory=list, description="Up to 12 short features, for example 'open-plan kitchen', 'maid room + bath', 'corner wrap-around balcony'")
-    net_to_gross_ratio: Optional[float] = Field(default=None, description="Usable area divided by total area as a number between 0 and 1, if it can be judged")
+    net_to_gross_ratio: float | None = Field(default=None, description="Usable area divided by total area as a number between 0 and 1, if it can be judged")
     summary: str = ""
 
 

@@ -73,7 +73,7 @@ def test_secrets_not_in_anything_git_would_commit():
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         cwd=REPO, capture_output=True, text=True, check=True,
     ).stdout.splitlines()
-    assert not [f for f in files if Path(f).name.startswith(".env") and Path(f).name != ".env.example"]
+    assert not [f for f in files if Path(f).name.startswith(".env") and not Path(f).name.endswith(".example")]  # only example files (no real values) may be committed
     secrets = [
         line.split("=", 1)[1].strip()
         for line in (REPO / "backend" / ".env").read_text(encoding="utf-8").splitlines()

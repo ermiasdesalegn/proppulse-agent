@@ -3,18 +3,16 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
-from typing import Literal
-
 from pydantic import BaseModel, Field, field_validator
 
 from app.ads import AdError
 from app.chat import ChatService, Conflict, Inbound
-from app.config import Settings
 from app.events import sse_frames
 from app.ingest.fetch import FetchError
 from app.ingest.models import ScrapeProfile
@@ -412,7 +410,7 @@ async def demo_js_listing():
     (the scraper must be allowed to reach this machine: SCRAPE_ALLOW_PRIVATE_HOSTS=true)."""
     import json as _json
 
-    from app.ingest.sample import PROFILE, sample_units
+    from app.ingest.sample import sample_units
 
     units = [dict(zip(("project", "type", "area", "price", "size", "down", "delivery", "desc"), u)) for u in sample_units(1)]
     page = ("<!doctype html><html><head><meta charset='utf-8'><title>Ayat units</title></head><body><h1>Ayat Real Estate</h1><div id='list'>Loading...</div>"
@@ -555,7 +553,7 @@ async def list_tours(limit: int = 100, repo: Repository = Depends(repo_of)):
 @router.get("/api/stats", dependencies=[Depends(require_admin)])
 async def stats(request: Request, repo: Repository = Depends(repo_of)):
     s = request.app.state.settings
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    since = datetime.now(UTC) - timedelta(hours=24)
     return {**await repo.stats(since), "high_value_threshold_etb": s.high_value_threshold_etb, "demo_reset_enabled": s.demo_reset_enabled}
 
 

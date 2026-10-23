@@ -20,8 +20,10 @@ export default function BoardPage() {
   const [pending, setPending] = useState<{ deal: Deal; to: LedgerStatus } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<ColumnId | null>(null);
+  // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
 
-  useEffect(() => { if (dataVersion) void board.reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dataVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dataVersion) void board.reload() }, [dataVersion]);
 
   async function commit(deal: Deal, to: LedgerStatus, extra: Extra = {}) {
     if (!board.data) return;

@@ -3,9 +3,9 @@ import time
 
 import pytest
 from google.genai import errors
+from pydantic import BaseModel
 
 from app.gemini import GeminiGateway, is_retryable
-from pydantic import BaseModel
 
 
 class FakeBackend:

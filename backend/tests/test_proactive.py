@@ -1,6 +1,6 @@
 """Proactive jobs on the real database (rolled back), with mock Telegram and email."""
 import itertools
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -250,7 +250,7 @@ async def book(repo, db_conn, buyer, start, *like):
 async def test_reminder_for_a_visit_within_24_hours(repo, db_conn):
     proactive, services, agent = make_proactive(repo)
     abel = await make_buyer(repo, db_conn, "tour")
-    tour = await book(repo, db_conn, abel, datetime.now(timezone.utc) + timedelta(hours=20), NOAH, GIFT)
+    tour = await book(repo, db_conn, abel, datetime.now(UTC) + timedelta(hours=20), NOAH, GIFT)
 
     out = await proactive.tour_reminders()
     assert out["sent"] == 1
@@ -267,7 +267,7 @@ async def test_reminder_for_a_visit_within_24_hours(repo, db_conn):
 async def test_only_visits_inside_the_window_are_reminded(repo, db_conn):
     proactive, services, _ = make_proactive(repo)
     abel = await make_buyer(repo, db_conn, "windows")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await book(repo, db_conn, abel, now + timedelta(hours=30), NOAH)   # too far away
     await book(repo, db_conn, abel, now - timedelta(hours=2), GIFT)    # already happened
     assert (await proactive.tour_reminders())["sent"] == 0 and services.telegram.messages == []
@@ -288,7 +288,7 @@ async def test_a_failed_reminder_leaves_the_visit_to_be_retried(repo, db_conn):
     services.telegram = Down()
     proactive, _, _ = make_proactive(repo, services=services)
     abel = await make_buyer(repo, db_conn, "retry")
-    tour = await book(repo, db_conn, abel, datetime.now(timezone.utc) + timedelta(hours=10), NOAH)
+    tour = await book(repo, db_conn, abel, datetime.now(UTC) + timedelta(hours=10), NOAH)
     assert (await proactive.tour_reminders())["failed"] == 1
     cur = await db_conn.execute("select reminder_sent from tours_and_appointments where id=%s", (tour["id"],))
     assert (await cur.fetchone())["reminder_sent"] is False
@@ -300,7 +300,7 @@ async def test_a_failed_reminder_leaves_the_visit_to_be_retried(repo, db_conn):
 async def test_web_buyers_get_the_reminder_in_their_transcript(repo, db_conn):
     proactive, services, _ = make_proactive(repo)
     web = await make_buyer(repo, db_conn, "webtour", telegram=False)
-    await book(repo, db_conn, web, datetime.now(timezone.utc) + timedelta(hours=5), NOAH)
+    await book(repo, db_conn, web, datetime.now(UTC) + timedelta(hours=5), NOAH)
     assert (await proactive.tour_reminders())["sent"] == 1
     assert services.telegram.messages == [] and "site visit" in (await repo.list_messages(web["id"]))[0]["content"]
 
@@ -366,7 +366,7 @@ async def test_the_daily_run_covers_all_three_jobs_and_is_safe_to_repeat(repo, d
     proactive, services, _ = make_proactive(repo)
     abel = await make_buyer(repo, db_conn, "all")
     await repo.update_property_price(await pid(db_conn, NOAH), 17_500_000)
-    await book(repo, db_conn, abel, datetime.now(timezone.utc) + timedelta(hours=6), GIFT)
+    await book(repo, db_conn, abel, datetime.now(UTC) + timedelta(hours=6), GIFT)
 
     first = await proactive.run_all()
     assert [j["job"] for j in first["jobs"]] == ["reverse_rag_alerts", "tour_reminders", "milestone_reminders"] and first["sent"] == 2

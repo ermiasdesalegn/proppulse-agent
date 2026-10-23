@@ -8,8 +8,8 @@ from argparse import Namespace
 import pytest
 
 from evals import report
-from evals.harness import RECORDING
 from evals.__main__ import run
+from evals.harness import RECORDING
 
 pytestmark = pytest.mark.skipif(not RECORDING.exists(), reason="no evaluation recording; run `python -m evals --mode record`")
 

@@ -12,21 +12,22 @@ from app.agent.checkpointer import open_checkpointer
 from app.agent.deps import AgentDeps
 from app.agent.graph import BrokerAgent
 from app.api import router
-from app.chat import ChatService
-from app.config import get_settings
-from app.db import make_pool
 from app.calllog import ModelCallLog
+from app.chat import ChatService
+from app.config import Settings, get_settings
+from app.db import make_pool
 from app.events import DurableEventBus
-from app.ingest.browser import BrowserFetcher, Politeness
-from app.tracing import trace_repo, trace_services
 from app.gemini import get_gateway
+from app.ingest.browser import BrowserFetcher, Politeness
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
+from app.observability import GuardMiddleware
 from app.proactive import ProactiveService
 from app.repository import Repository
 from app.services import build_services
 from app.services.telegram import BotApiTelegramService
 from app.telegram_updates import TelegramPoller, TelegramUpdateHandler
+from app.tracing import trace_repo, trace_services
 
 log = logging.getLogger("proppulse")
 
@@ -104,12 +105,14 @@ async def lifespan(app: FastAPI):
         await pool.close()
 
 
-def create_app(*, use_lifespan: bool = True) -> FastAPI:
-    s = get_settings()
+def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -> FastAPI:
+    s = settings or get_settings()
     app = FastAPI(title="PropPulse AI", lifespan=lifespan if use_lifespan else None)
     app.add_middleware(
         CORSMiddleware, allow_origins=[s.frontend_origin], allow_methods=["GET", "POST"], allow_headers=["*"]
     )
+    app.add_middleware(GuardMiddleware, public_per_minute=s.rate_limit_public_per_minute, failed_auth_per_minute=s.rate_limit_failed_auth_per_minute,
+                       trust_proxy=s.trust_proxy_headers)
     app.include_router(router)
 
     @app.get("/health")

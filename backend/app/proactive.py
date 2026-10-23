@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage

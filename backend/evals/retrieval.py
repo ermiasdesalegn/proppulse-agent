@@ -11,8 +11,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from statistics import mean
 
-from langchain_core.messages import HumanMessage
-
 from app.agent.nodes import should_relax_constraints
 from evals.harness import Env
 

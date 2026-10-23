@@ -10,8 +10,9 @@ phone numbers). Small bare numbers (option numbers, bedroom counts, days) are or
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 NUMBER = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?:\s*(million|m|k|%|sqm|etb|birr)(?![a-z]))?", re.I)
 SCALE = {"m": 1e6, "million": 1e6, "k": 1e3}

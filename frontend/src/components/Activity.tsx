@@ -14,7 +14,9 @@ export function useBuyerNames(): (id: string | null) => string {
   const { dataVersion } = useLive();
   const { data, reload } = useApi<Buyer[]>("buyers", 20_000);
   // A brand-new buyer appears in the live stream before the list knows them, so refresh when messages arrive.
-  useEffect(() => { if (dataVersion) void reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dataVersion]);
+  // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dataVersion) void reload() }, [dataVersion]);
   const names = new Map((data ?? []).map((b) => [b.id, displayName(b)]));
   return (id) => (id ? names.get(id) ?? "a buyer" : "the broker");
 }

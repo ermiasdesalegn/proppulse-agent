@@ -6,11 +6,11 @@ that every reply states only numbers it was given.
 """
 from __future__ import annotations
 
-import re
 import traceback
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from app import finance
 from app.ads import property_code
@@ -45,7 +45,7 @@ class Turn:
 @dataclass
 class Scenario:
     name: str
-    fn: Callable[["Ctx"], Awaitable[None]]
+    fn: Callable[[Ctx], Awaitable[None]]
     tags: tuple[str, ...] = ()
     known_gap: str | None = None  # why this is expected to fail today, and the phase that fixes it
 

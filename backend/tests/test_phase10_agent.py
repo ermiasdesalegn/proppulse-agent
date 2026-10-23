@@ -1,5 +1,4 @@
 """Phase 10 behaviour through the real graph: buttons read in code, option details, consultations, objections, brochure and dossier."""
-from datetime import datetime
 
 import pytest
 

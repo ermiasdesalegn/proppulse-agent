@@ -53,7 +53,9 @@ export function ScoreHistory({ history }: { history: BuyerProfile["score"]["hist
 export default function ScorePanel({ buyerId }: { buyerId: string }) {
   const { dataVersion } = useLive();
   const profile = useApi<BuyerProfile>(`buyers/${buyerId}/profile`, 20_000);
-  useEffect(() => { if (dataVersion) void profile.reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dataVersion]);
+  // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dataVersion) void profile.reload() }, [dataVersion]);
 
   const data = profile.data;
   if (profile.loading && !data) return <Empty>Loading...</Empty>;
