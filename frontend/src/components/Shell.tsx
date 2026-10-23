@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
@@ -99,11 +99,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <ControlBar />
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.main key={pathname} className="mx-auto w-full max-w-[1500px] flex-1 p-4 md:p-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
-              {children}
-            </motion.main>
-          </AnimatePresence>
+          <motion.main key={pathname} className="mx-auto w-full max-w-[1500px] flex-1 p-4 md:p-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
+            {children}
+          </motion.main>
         </div>
       </div>
     </LiveProvider>
