@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 244 245 247;
+  --panel: 255 255 255;
+  --raised: 249 250 252;
+  --line: 222 226 233;
+  --ink: 22 28 39;
+  --muted: 96 107 124;
+  --accent: 12 118 108;
+  --good: 21 128 61;
+  --warn: 180 83 9;
+  --bad: 185 28 28;
+  --ayat: 55 102 214;
+  --noah: 202 112 8;
+  --gift: 143 52 226;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 13 16 21;
+    --panel: 20 25 33;
+    --raised: 27 33 43;
+    --line: 41 49 63;
+    --ink: 232 236 242;
+    --muted: 148 160 178;
+    --accent: 52 190 172;
+    --good: 74 222 128;
+    --warn: 251 191 36;
+    --bad: 248 113 113;
+    --ayat: 120 160 255;
+    --noah: 251 191 36;
+    --gift: 192 132 252;
+    color-scheme: dark;
+  }
+}
+
+html, body { height: 100%; }
+body { @apply bg-bg text-ink font-sans antialiased; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Thin, theme-aware scrollbars for the transcript and board columns */
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+
+@keyframes pulse-ring { 0% { opacity: .9; } 100% { opacity: 0; transform: scale(1.25); } }
+.pulse-ring { animation: pulse-ring 1.2s ease-out infinite; transform-origin: center; transform-box: fill-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring { animation: none; }
+  * { scroll-behavior: auto !important; }
+}
