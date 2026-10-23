@@ -77,6 +77,11 @@ def commission_ready_notice(row: dict) -> str:
     return f"Commission ready to collect: {row['developer_name']} - {row['property_title']} ({row.get('full_name') or 'buyer'}).{amount}"
 
 
+def price_increase_notice(item: dict) -> str:
+    return (f"Price increase: {item['title']} ({item['sub_city']}) went from {fmt_etb(float(item['old_price_etb']))} to "
+            f"{fmt_etb(float(item['price_etb']))}, up {_drop(item)}. Buyers are not alerted about increases; you may want to tell anyone who was considering it.")
+
+
 def takeover_match_notice(buyer: dict, item: dict) -> str:
     return (f"{buyer.get('full_name') or 'A buyer'} (you have this chat) matches {item['title']} in {item['sub_city']} at "
             f"{fmt_etb(float(item['price_etb']))}" + (f", down {_drop(item)}." if item["kind"] == "PRICE_DROP" else ", a new listing."))

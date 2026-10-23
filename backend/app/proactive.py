@@ -102,6 +102,14 @@ class ProactiveService:
         s, now, out = self.settings, self.now(), _result("reverse_rag_alerts", dry_run)
         since = now - timedelta(hours=s.proactive_lookback_hours)
 
+        for r in await self.repo.recent_price_increases(since):  # buyers hear about drops; the broker hears about increases
+            if dry_run:
+                out["details"].append({"would": "notify broker", "price_increase": r["title"]})
+            elif await self._notify_broker("PRICE_INCREASE", f"up:ph{r['price_history_id']}", msg.price_increase_notice(r), property_id=r["property_id"]):
+                out["sent"] += 1
+            else:
+                out["skipped"] += 1
+
         news: list[dict] = []
         for r in await self.repo.recent_price_drops(since):
             news.append({**r, "kind": "PRICE_DROP", "event_ref": f"ph{r['price_history_id']}"})

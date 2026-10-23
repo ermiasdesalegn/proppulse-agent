@@ -37,7 +37,7 @@ function Body({ a }: { a: Analytics }) {
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
         <Stat icon="buyers" label="Buyers" value={a.totals.buyers} hint={`${a.totals.messages.toLocaleString("en-US")} messages in ${a.days} days`} />
         <Stat icon="calendar" label="Tours and calls booked" value={a.totals.tours} hint={`last ${a.days} days`} />
         <Stat icon="money" label="Commission in the pipeline" value={fmtEtb(a.commission.open_etb)} hint={`${openDeals} open deal${openDeals === 1 ? "" : "s"}`} />

@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import re
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -376,7 +377,7 @@ class AgentNodes:
         summary = state.get("preference_summary", "")
         has_prefs = bool(new_prefs["max_budget_etb"] or new_prefs["min_bedrooms"] is not None or new_prefs["preferred_sub_cities"])
         if has_prefs and (new_prefs != prefs or not summary):
-            summary = await self._refresh_preference_vector(state["buyer_id"], new_prefs, query, summary)
+            summary = await self._refresh_preference_vector(state["buyer_id"], new_prefs, query, summary, state["messages"])
 
         selected: list[str] = []
         if ex.referenced_options:
@@ -405,7 +406,17 @@ class AgentNodes:
         where = " or ".join(prefs.get("preferred_sub_cities") or [])
         return " ".join(filter(None, [f"{beds} bedroom" if beds is not None else "", "home", f"in {where}" if where else ""]))
 
-    async def _refresh_preference_vector(self, buyer_id: str, prefs: dict, query: str, previous: str) -> str:
+    @staticmethod
+    def _preference_text(summary: str, query: str, history: Sequence[AnyMessage]) -> str:
+        """What the buyer's preference vector is made from: their limits plus the last few things they actually said, so it follows the whole conversation and not only the latest message."""
+        recent: list[str] = []
+        for text in [*[str(m.content) for m in history if isinstance(m, HumanMessage)][-8:], query]:
+            text = " ".join(text.split())[:200]
+            if text and text not in recent:
+                recent.append(text)
+        return f"{summary}. They said: {' / '.join(recent[-6:])}"[:1200] if recent else summary
+
+    async def _refresh_preference_vector(self, buyer_id: str, prefs: dict, query: str, previous: str, history: Sequence[AnyMessage] = ()) -> str:
         parts = [
             fmt_etb(prefs["max_budget_etb"]) if prefs["max_budget_etb"] else "",
             f"{prefs['min_bedrooms']}BR" if prefs["min_bedrooms"] is not None else "",
@@ -414,7 +425,7 @@ class AgentNodes:
         ]
         summary = ", ".join(p for p in parts if p)
         try:
-            vector = await self.d.gateway.embed_query(summary)
+            vector = await self.d.gateway.embed_query(self._preference_text(summary, query, history))
             await self.d.repo.set_preference_embedding(buyer_id, summary, vector)
             return summary
         except Exception:

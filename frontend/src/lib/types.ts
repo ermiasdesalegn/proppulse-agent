@@ -153,7 +153,7 @@ export interface IngestReport {
   full_sync: boolean;
   found: number;
   created: { title: string; price_etb: number; area: string; property_id?: string | null; floor_plan_tags?: string[] }[];
-  price_changed: { title: string; old_price_etb: number; new_price_etb: number; change_pct: number }[];
+  price_changed: { title: string; old_price_etb: number; new_price_etb: number; change_pct: number; kind?: "PRICE_DROP" | "PRICE_INCREASE" }[];
   image_updated: { title: string }[];
   reactivated: { title: string }[];
   removed: { title: string }[];

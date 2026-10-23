@@ -269,6 +269,16 @@ class Repository:
             (since,),
         )
 
+    async def recent_price_increases(self, since: datetime) -> list[dict]:
+        return await self._fetch(
+            f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
+            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join properties p on p.id = ph.property_id "
+            f"join developers d on d.id = p.developer_id "
+            f"where ph.detected_at >= %s and ph.change_pct > 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb "
+            f"order by ph.detected_at",
+            (since,),
+        )
+
     async def recent_new_listings(self, since: datetime) -> list[dict]:
         # Seed rows are demo inventory, not market events, so they never trigger "new launch" messages.
         return await self._fetch(

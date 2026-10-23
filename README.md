@@ -40,7 +40,7 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 ## Features
 - **Chat agent:** preference extraction, hybrid and reverse vector search, ranking by price, size, yield or developer reliability, comparisons, brochures (PDF), payment plans, bank-loan affordability estimates, conversation memory, Amharic replies.
 - **Bookings:** Google Calendar availability, Mapbox route ordering for multi-stop tours, phone consultations, lead emails, commission ledger, pre-tour dossier.
-- **Proactive jobs:** price-drop alerts, new-listing matches, 24 h tour and milestone reminders (idempotent, scheduler-triggered).
+- **Proactive jobs:** price-drop alerts to matching buyers, price-increase notices to the broker, new-listing matches, 24 h tour and milestone reminders (idempotent, scheduler-triggered).
 - **Market ingestion:** reads developer pages (CSS selectors or a browser for JavaScript pages) or pasted announcements and webhooks; only new units cost a model call.
 - **Channel ads:** composes and posts listings with Ask / Compare / Book buttons that deep-link back to the bot. Real posts need an explicit second step.
 
@@ -56,6 +56,13 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 | Analytics | Pipeline, commission, messages per day, lead scores, worries, reply time, model usage, evaluation results |
 | Studio | Read listing pages and announcements, floor plans, price simulator, channel ads, scrape health |
 | Chat Simulator | Talk to the agent as a buyer, with the same buttons Telegram shows |
+
+| Page | Look |
+|---|---|
+| Analytics | ![Analytics](docs/screenshots/analytics.jpg) |
+| Studio | ![Studio](docs/screenshots/studio.jpg) |
+
+The dashboard is near-black with one orange accent, grouped navigation, KPI cards that show how each figure moved against the previous 30 days, a Deal Board with a styled "Move to" menu, and bulk select with CSV export on the CRM list. It works on a phone.
 
 ## Run it
 

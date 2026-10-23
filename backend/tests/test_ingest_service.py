@@ -63,6 +63,7 @@ async def test_a_preview_reports_every_change_and_touches_nothing(repo, db_conn)
     report = await run(service, 2, full_sync=True, dry_run=True)
 
     assert [(c["title"], c["old_price_etb"], c["new_price_etb"], c["change_pct"]) for c in report["price_changed"]] == [("Ayat Heights 2BR Apartment", 6_800_000, 6_200_000, -8.82)]
+    assert [c["kind"] for c in report["price_changed"]] == ["PRICE_DROP"]
     assert [c["title"] for c in report["created"]] == ["Ayat Garden Residences 2BR Townhouse"]
     assert [r["title"] for r in report["removed"]] == ["Ayat Square Studios Studio"] and report["sync"] == "preview"
     assert await ayat_units(db_conn) == before, "nothing written"

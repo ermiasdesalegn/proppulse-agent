@@ -21,7 +21,7 @@ Phases 9–17 are done and committed locally (foundation, SRS completion, evalua
 
 Done when: lint, types, unit tests, build and e2e selectors pass, and every page has been compared against the reference at desktop and phone width.
 
-## Phase 19 — Close the SRS gaps and finish
+## Phase 19 — Close the SRS gaps and finish (done)
 
 1. Buyer preference vector built from cumulative chat history (SRS 3.3), then re-record the evals.
 2. Label price increases as `PRICE_INCREASE` and tell the broker (SRS 3.2).

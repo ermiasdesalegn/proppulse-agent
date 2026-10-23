@@ -57,7 +57,7 @@ export function Stat({ label, value, hint, icon, trend }: { label: string; value
     <div className="card flex items-start gap-4 rounded-xl border p-5 transition-colors hover:border-[#333]">
       {icon && <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-accent/20 bg-accent/10 text-accent"><Icon name={icon} className="h-5 w-5" /></span>}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-muted">{label}</p>
+        <p className="text-sm leading-snug text-muted">{label}</p>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
           <p className="tnum text-2xl font-semibold tracking-tight text-white">{value}</p>
           {pct !== null && <span className={clsx("tnum text-xs font-semibold", pct >= 0 ? "text-accent" : "text-bad")}>{pct >= 0 ? "\u2191" : "\u2193"} {Math.abs(pct)}%</span>}

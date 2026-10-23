@@ -77,6 +77,25 @@ async def test_price_drop_alerts_only_the_buyers_it_suits(repo, db_conn):
         assert await repo.list_messages(silent["id"]) == []
 
 
+async def test_a_price_increase_tells_the_broker_and_never_the_buyer(repo, db_conn):
+    proactive, services, _ = make_proactive(repo, broker_telegram_chat_id="999")
+    abel = await make_buyer(repo, db_conn, "abel")
+    await repo.update_property_price(await pid(db_conn, NOAH), 22_000_000)
+
+    preview = await proactive.reverse_rag_alerts(dry_run=True)
+    assert {"would": "notify broker", "price_increase": "Noah Bole Towers 3BR Apartment"} in preview["details"] and services.telegram.messages == []
+
+    out = await proactive.reverse_rag_alerts()
+    assert out["sent"] == 1
+    assert [m["chat_id"] for m in services.telegram.messages] == ["999"], "only the broker is told"
+    assert "Price increase: Noah Bole Towers 3BR Apartment" in services.telegram.messages[0]["text"] and "up 11.1%" in services.telegram.messages[0]["text"]
+    assert await repo.list_messages(abel["id"]) == []
+    assert [e["kind"] for e in await repo.list_events(audience="broker")] == ["PRICE_INCREASE"]
+
+    again = await proactive.reverse_rag_alerts()
+    assert again["sent"] == 0 and len(services.telegram.messages) == 1, "the same increase is announced once"
+
+
 async def test_running_the_job_again_never_repeats_a_message(repo, db_conn):
     proactive, services, _ = make_proactive(repo)
     await make_buyer(repo, db_conn, "abel")
@@ -188,13 +207,15 @@ async def test_buyers_who_already_have_a_deal_or_no_preferences_are_left_alone(r
     assert out["sent"] == 0 and services.telegram.messages == []
 
 
-async def test_a_price_increase_or_unchanged_price_alerts_nobody(repo, db_conn):
+async def test_a_price_increase_or_unchanged_price_alerts_no_buyer(repo, db_conn):
     proactive, services, _ = make_proactive(repo)
     await make_buyer(repo, db_conn, "abel")
     same = await repo.update_property_price(await pid(db_conn, NOAH), 19_800_000)
     up = await repo.update_property_price(await pid(db_conn, NOAH), 21_000_000)
     assert same["changed"] is False and up["change_pct"] > 0
-    assert (await proactive.reverse_rag_alerts())["sent"] == 0
+    out = await proactive.reverse_rag_alerts()
+    assert out["sent"] == 1, "only the broker's notice about the increase"
+    assert services.telegram.messages == [] and [e["audience"] for e in await repo.list_events()] == ["broker"]
 
 
 async def test_a_drop_that_has_since_been_reversed_is_not_announced(repo, db_conn):
@@ -204,7 +225,9 @@ async def test_a_drop_that_has_since_been_reversed_is_not_announced(repo, db_con
     unit = await pid(db_conn, NOAH)
     await repo.update_property_price(unit, 17_500_000)
     await repo.update_property_price(unit, 19_800_000)  # back to the original price
-    assert (await proactive.reverse_rag_alerts())["sent"] == 0 and services.telegram.messages == []
+    out = await proactive.reverse_rag_alerts()
+    assert services.telegram.messages == [] and all(e["audience"] == "broker" for e in await repo.list_events()), "no buyer is told about a drop that no longer holds"
+    assert out["sent"] <= 1
 
 
 async def test_only_the_latest_drop_is_announced_and_with_the_current_price(repo, db_conn):

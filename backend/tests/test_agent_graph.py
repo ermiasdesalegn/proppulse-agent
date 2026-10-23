@@ -44,6 +44,16 @@ async def test_search_returns_matches_and_writes_the_crm(spy_repo, db_conn, vect
     assert pref["d"] == 768 and "25M ETB" in pref["s"] and "Bole" in pref["s"]
 
 
+async def test_the_preference_vector_follows_the_whole_conversation(spy_repo, vector_of):
+    gw = FakeGateway([ext(**BOLE_3BR), ext(**{**BOLE_3BR, "min_bedrooms": 4, "search_query": "quiet with a garden"})], vector=await vector_of("Noah Bole Towers 3BR%"))
+    agent, buyer = make_agent(spy_repo, gw), await new_buyer(spy_repo, "cumulative")
+    await say_to(agent, buyer, "I want a 3 bedroom in Bole, 25M")
+    await say_to(agent, buyer, "somewhere quiet with a garden please, still 25M and 4 bedrooms")
+    embedded = [text for kind, text in gw.calls if kind == "embed" and "They said" in text]
+    assert embedded, "a preference vector was built"
+    assert "3 bedroom in Bole" in embedded[-1] and "quiet with a garden" in embedded[-1], embedded[-1]
+
+
 async def test_step_1_relaxation_finds_a_unit_slightly_over_budget_and_says_so(spy_repo, vector_of):
     gw = FakeGateway([ext(max_budget_etb=16_000_000, min_bedrooms=3, preferred_sub_cities=["Bole"], search_query="3BR Bole")],
                      vector=await vector_of("Gift Bole Court%"))

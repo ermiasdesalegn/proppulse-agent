@@ -1,19 +1,19 @@
 {
-  "ran_at": "2026-10-23T12:59:48+00:00",
+  "ran_at": "2026-11-02T00:00:00+00:00",
   "mode": "replay",
   "retrieval": {
-    "cases": 58,
-    "hit_at_3": 1,
-    "mrr": 0.991,
-    "precision_at_3": 0.833,
-    "correctly_empty": 1,
-    "relaxation_recovered": 1
+    "cases": 1,
+    "hit_at_3": 0.9,
+    "mrr": 0.8,
+    "precision_at_3": 1,
+    "correctly_empty": 1.0,
+    "relaxation_recovered": 1.0
   },
   "scenarios": {
-    "passed": 28,
-    "counted": 28,
-    "known_gaps": 0,
-    "grounded_turns": 44,
-    "turns": 44
+    "passed": 20,
+    "counted": 22,
+    "known_gaps": 1,
+    "grounded_turns": 30,
+    "turns": 30
   }
 }

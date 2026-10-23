@@ -44,7 +44,7 @@ export function ReportView({ report }: { report: IngestReport }) {
         {" "}<span className="tnum">{c.created}</span> new, <span className="tnum">{c.price_changed}</span> price changes, <span className="tnum">{c.removed}</span> removed, <span className="tnum">{c.unchanged}</span> unchanged{c.skipped ? `, ${c.skipped} skipped` : ""}.
       </p>
       <Section title="New units" tone="good" items={report.created.map((u) => <span key={u.title}>{u.title} <span className="text-muted">- {u.area}, {fmtEtb(u.price_etb)}{u.floor_plan_tags?.length ? `, plan: ${u.floor_plan_tags.join(", ")}` : ""}</span></span>)} />
-      <Section title="Price changes" tone="warn" items={report.price_changed.map((u) => <span key={u.title}>{u.title} <span className="tnum text-muted">- {fmtEtb(u.old_price_etb)} to {fmtEtb(u.new_price_etb)} </span><Pill tone={u.change_pct < 0 ? "good" : "warn"}>{u.change_pct > 0 ? "+" : ""}{fmtPct(u.change_pct)}</Pill></span>)} />
+      <Section title="Price changes" tone="warn" items={report.price_changed.map((u) => <span key={u.title}>{u.title} <span className="tnum text-muted">- {fmtEtb(u.old_price_etb)} to {fmtEtb(u.new_price_etb)} </span><Pill tone={u.change_pct < 0 ? "good" : "warn"}>{u.change_pct < 0 ? "Price drop" : "Price increase"} {u.change_pct > 0 ? "+" : ""}{fmtPct(u.change_pct)}</Pill></span>)} />
       <Section title="No longer on the page" tone="bad" items={report.removed.map((u) => u.title)} />
       <Section title="Back on the page" tone="good" items={report.reactivated.map((u) => u.title)} />
       <Section title="Skipped" tone="neutral" items={report.skipped.map((s) => `${s.title ?? "A unit"}: ${s.reason}`)} />
