@@ -1,36 +1,73 @@
 # PropPulse AI
 
-An AI agent for a single independent real-estate broker in Addis Ababa. Buyers chat on Telegram (or the web simulator); the agent finds matching units, books site visits, and the broker watches and steers everything from a dashboard.
+An AI sales assistant for an independent real-estate broker in Addis Ababa. Buyers chat on Telegram in English or Amharic; the agent finds matching units, answers worries from stored facts, books site visits and calls, and sends proactive follow-ups. The broker watches and steers everything from a live Command Center.
 
-## What it does
-- **Chat agent** (LangGraph + Gemini): extracts preferences, runs hybrid + reverse search over Supabase pgvector, relaxes filters when nothing fits, recommends numbered options, compares units, books tours.
-- **Tour booking**: Google Calendar availability, Mapbox route ordering, lead emails to developers, commission ledger.
-- **Proactive jobs**: price-drop alerts, tour reminders, milestone reminders (idempotent, cron-triggered).
-- **Market ingestion**: reads developer listing pages (CSS selectors) or pasted announcements; only new units cost a model call.
-- **Channel ads**: composes and posts listings to a Telegram channel with Ask / Compare / Book buttons that deep-link back to the bot.
-- **Command Center** (Next.js): CRM, live chat with takeover, board, map, studio (ingest, ads, price simulator).
+**Stack:** FastAPI · LangGraph · Gemini · Supabase Postgres + pgvector · Next.js 14 · Telegram · Google Calendar · Mapbox · Cloud Run + Vercel.
 
-Anything with no credentials runs on a mock, so the whole system works offline.
+## How it fits together
 
-## Layout
-| Path | Contents |
+```
+ Buyer ── Telegram / web chat ──▶ FastAPI ──▶ LangGraph agent ──▶ Gemini (text, structured, embeddings, voice, images)
+                                     │              │
+        Cloud Scheduler ─────────────┤              ├─▶ Supabase Postgres + pgvector (units, buyers, chats, checkpoints, event log)
+        (proactive, reminders,       │              ├─▶ Google Calendar (availability, bookings)
+         market scrape)              │              └─▶ Mapbox (routes), Resend (developer emails)
+                                     ▼
+                       Durable event log ──live stream──▶ Next.js Command Center (CRM, takeover, board, map, brain, analytics, studio)
+```
+
+**The agent graph:** `intake` (language, prompt-injection and hand-off checks, history compaction) → `router` (buttons parsed in code, model only for free text) → one of `discovery` (hybrid + reverse search, ranking), `relaxer` (widens filters when nothing fits), `recommend`, `details`, `affordability`, `analyst` (comparisons), `scheduler` (visits and calls) → `human_gate`, `handoff` or `smalltalk`. Every step is traced, and each model request and tool call shows up in the dashboard timeline.
+
+## What makes it dependable
+- **Numbers are never invented.** Prices, payment plans, mortgage estimates and rankings are computed in code (`app/finance.py`); the model only words them. A groundedness check verifies every figure in every reply against the unit facts or the buyer's own words.
+- **Measured, not just demonstrated.** An evaluation suite replays recorded model answers for free and fails the build if quality drops (table below).
+- **Safe by construction.** Prompt-injection and abuse guardrails, secrets stripped from every log line, rate limits on public endpoints, a block on repeated wrong keys, row-level security on every table. See [SECURITY.md](SECURITY.md).
+- **Works offline.** Anything without credentials runs on a built-in mock, so the whole system can be tried without keys.
+- **Respectful scraping.** robots.txt, pacing, size caps, private-address refusal, a refusal to wipe the catalogue after a suspiciously small scrape, plus a health card that flags broken sources.
+
+## Evaluation (replayed from a recording, 27 seconds, no network)
+
+| Check | Result |
 |---|---|
-| `backend/app` | FastAPI app, agent graph, services, ingestion, ads, proactive jobs |
-| `backend/migrations` | SQL schema (001–005) |
-| `backend/scripts` | `migrate`, `seed`, and live checks |
-| `backend/tests` | pytest suite (452 tests) |
-| `frontend` | Next.js 14 dashboard |
+| Retrieval, 58 labelled buyer messages (English, Amharic, mixed; 14 deliberately hard) | hit@3 **100%**, MRR **0.99**, precision@3 **83%** |
+| Requests nothing matches | returned empty **5 of 5** |
+| Filter widening recovers a match | **100%** |
+| Conversation scenarios through the real graph (search, booking, conflicts, consultations, takeover, voice, ad links, alerts, injection, Amharic, hand-off, affordability) | **28 / 28** |
+| Replies whose every figure is grounded | **44 / 44** |
 
-## Setup
+`python -m evals --check` fails if anything gets worse; the same guard runs inside `pytest` and CI. Full tables: [backend/evals/REPORT.md](backend/evals/REPORT.md). Method and limits: [backend/evals/README.md](backend/evals/README.md).
+
+## Features
+- **Chat agent:** preference extraction, hybrid and reverse vector search, ranking by price, size, yield or developer reliability, comparisons, brochures (PDF), payment plans, bank-loan affordability estimates, conversation memory, Amharic replies.
+- **Bookings:** Google Calendar availability, Mapbox route ordering for multi-stop tours, phone consultations, lead emails, commission ledger, pre-tour dossier.
+- **Proactive jobs:** price-drop alerts, new-listing matches, 24 h tour and milestone reminders (idempotent, scheduler-triggered).
+- **Market ingestion:** reads developer pages (CSS selectors or a browser for JavaScript pages) or pasted announcements and webhooks; only new units cost a model call.
+- **Channel ads:** composes and posts listings with Ask / Compare / Book buttons that deep-link back to the bot. Real posts need an explicit second step.
+
+## The Command Center
+
+| Page | What it does |
+|---|---|
+| Overview | Live numbers, activity and the proactive messages that went out |
+| CRM & Takeover | Every buyer, the full chat, voice notes, one-click takeover, and a panel explaining the lead score signal by signal |
+| Deal Board | Drag deals through the commission stages; each card links to its dossier |
+| Agent Brain | The live graph and a timeline of every step with model requests, tokens, fall-backs and tool calls |
+| Map & Tours | Mapbox map with price pins, clusters and driving routes (falls back to a drawn map without a token) |
+| Analytics | Pipeline, commission, messages per day, lead scores, worries, reply time, model usage, evaluation results |
+| Studio | Read listing pages and announcements, floor plans, price simulator, channel ads, scrape health |
+| Chat Simulator | Talk to the agent as a buyer, with the same buttons Telegram shows |
+
+## Run it
+
 ```bash
 cd backend
-python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
-cp .env.example .env          # fill in keys
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
+cp .env.example .env          # fill in keys (only GEMINI_API_KEY and the database are essential)
 .venv/Scripts/python -m scripts.migrate
 .venv/Scripts/python -m scripts.seed
 .venv/Scripts/python -m app   # http://localhost:8000
 ```
-Start the server with `python -m app`, not `uvicorn` directly: on Windows the database driver needs the selector event loop that launcher sets.
+Start the server with `python -m app`, not `uvicorn`: on Windows the database driver needs the event loop that launcher selects.
 
 ```bash
 cd frontend
@@ -38,59 +75,36 @@ cp .env.example .env.local    # backend URL, admin key, dashboard password
 npm install && npm run dev    # http://localhost:3000
 ```
 
+Or everything in containers: `cp .env.docker.example .env && docker compose up --build`.
+
 ## Checks
 ```bash
-cd backend && .venv/Scripts/python -m pytest              # offline, no credentials: runs on an embedded Postgres + pgvector (backend/.pgdata)
-.venv/Scripts/python -m pytest --live                      # also runs the tests that call the real Gemini API
-# TEST_DATABASE_URL=postgresql://... uses an existing pgvector database instead of the embedded one (CI does this)
-.venv/Scripts/python -m evals --check                      # quality guard: retrieval, conversations, invented numbers (from a recording, no network)
-.venv/Scripts/python -m scripts.live_check                 # Telegram/DB
-.venv/Scripts/python -m scripts.live_model_check           # Gemini (read-only)
-.venv/Scripts/python -m scripts.live_services_check        # Calendar + Mapbox (books and deletes one test event)
-cd ../frontend && npm test && npm run typecheck && npm run build
+cd backend
+.venv/Scripts/python -m pytest              # ~745 tests, offline, on an embedded Postgres + pgvector
+.venv/Scripts/python -m pytest --live       # also the tests that call the real Gemini API
+.venv/Scripts/python -m evals --check       # quality guard from the recording
+.venv/Scripts/python -m ruff check . && .venv/Scripts/python -m mypy
+cd ../frontend && npm run lint && npm run typecheck && npm test && npm run build
+npm run e2e                                  # Playwright, needs a running stack
 ```
+GitHub Actions runs all of this plus a Docker build on every push ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
-## The Command Center
+## Deploy
+Supabase + Cloud Run + Vercel, scripted: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Design choices and the reasons for them: [docs/DECISIONS.md](docs/DECISIONS.md). Checks that need a real browser, real accounts or a native Amharic reader: `docs/MANUAL_TESTS_PHASE*.md`.
 
-| Page | What it does |
+## Layout
+| Path | Contents |
 |---|---|
-| Overview | Live numbers, activity and the proactive messages that went out |
-| CRM & Takeover | Every buyer, the full chat, voice notes you can play, and one-click takeover. Each buyer has a panel that explains the lead score signal by signal, shows how it grew, lists the worries they raised and links to the booking dossier |
-| Deal Board | Drag deals through the commission stages; each card links to its pre-tour dossier |
-| Agent Brain | The live graph, a timeline of every step with the model requests and tool calls made in it (which model answered, tokens, fall-backs, search arguments and results) |
-| Map & Tours | Live Mapbox map with price pins coloured by developer, clusters, and the driving route, numbered stops, distance and time of any tour. Falls back to a drawn map without a token |
-| Analytics | Pipeline, commission, messages per day, lead scores, buyer worries, reply time, model usage and the evaluation results |
-| Studio | Read listing pages and announcements, floor-plan upload, price simulator, channel ads |
-| Chat Simulator | Talk to the agent as a buyer, with the same buttons Telegram shows |
+| `backend/app` | FastAPI app, agent graph, finance, guardrails, ingestion, ads, proactive jobs, observability |
+| `backend/migrations` | SQL schema 001–009 |
+| `backend/evals` | Evaluation suite, recordings and reports |
+| `backend/scripts` | `migrate`, `seed`, live checks, `post_deploy_check` |
+| `backend/tests` | pytest suite |
+| `frontend` | Next.js dashboard, vitest and Playwright tests |
+| `deploy` | Cloud Run and Scheduler scripts |
 
-Optional settings: `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local` (a public `pk.` token) for the live map, and
-`DEMO_RESET_ENABLED=true` in `backend/.env` to show the Reset demo button on a demo instance.
+## Live integrations
+Google Calendar (service account shared on the calendar with "Make changes to events") and Mapbox switch on automatically once their keys are set (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID`, `MAPBOX_TOKEN`); force with `CALENDAR_BACKEND` / `ROUTING_BACKEND`. `NEXT_PUBLIC_MAPBOX_TOKEN` (a public `pk.` token) enables the live map. `DEMO_RESET_ENABLED=true` shows the Reset demo button on a demo instance. Never commit `.env` or the service-account file.
 
-## Evaluation
-
-The agent is measured, not just demonstrated. `backend/evals` runs three checks from a recording of the real model's answers (free, 27 seconds):
-
-- **Retrieval** (58 labelled buyer messages in English, Amharic and mixed, 14 of them deliberately hard): hit@3 100%, MRR 0.99, precision@3 83%; requests nothing matches come back empty 5 of 5 times; the widening loop rescues 3 of 3 too-tight requests. A threshold sweep shows why the similarity cut-off is 0.64.
-- **Conversations** (28 scripted scenarios through the real graph: search, widening, comparison, booking, conflicts, consultations, takeover, voice, ad links, price-drop alerts, reminders, prompt injection, Amharic, hand-off, affordability): all 28 pass.
-- **Groundedness**: every reply is checked so that each price, size, percentage or year comes from the unit facts or the buyer's own words (44 of 44).
-
-`python -m evals --check` fails if anything gets worse, and the same check runs inside `pytest`. Full tables: [backend/evals/REPORT.md](backend/evals/REPORT.md); method and limits: [backend/evals/README.md](backend/evals/README.md).
-
-## Going live
-- **Google Calendar**: enable the Calendar API, create a service account, download its JSON key, share the calendar with the account's email with "Make changes to events". Set `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_CALENDAR_ID`.
-- **Mapbox**: set `MAPBOX_TOKEN` (optionally `OFFICE_LAT` / `OFFICE_LNG`).
-- Both switch on automatically once set; force with `CALENDAR_BACKEND` / `ROUTING_BACKEND` (`mock`, `google`/`mapbox`, `auto`).
-- Never commit `.env` or the service-account file (both are git-ignored).
-
-## Demo script (about 5 minutes)
-1. **Dashboard → Chat**: as a new buyer say "I have 15 million birr, looking for a 2BR in Bole or CMC." Get numbered options.
-2. Reply "compare 1 and 2", then "book option 1 tomorrow afternoon". Show the event in Google Calendar and the lead email.
-3. **Studio → price simulator**: cut a unit's price. The matching buyer gets a Telegram price-drop alert.
-4. **Studio → Read a listing page**: load the sample "a week later" page, preview the diff (new, price change, removed), apply.
-5. **Studio → Ads**: preview, confirm, post. Tap *Ask AI About This Unit* in the channel to land back in the bot.
-6. **Chat → Take over**: pause the agent for a buyer, reply as the broker, then hand back.
-
-## Notes
-- Recommendation numbering is rendered in code, so "option 2" always means the stored match.
-- The scraper refuses private addresses, caps response sizes, and will not wipe the catalogue after a suspiciously small scrape.
-- Real channel posts need an explicit second step; previews are the default.
+## Demo
+The recorded walkthrough script is in [docs/LOOM_SCRIPT.md](docs/LOOM_SCRIPT.md). To start a demo from a clean state, use **Reset demo** in the control bar (needs `DEMO_RESET_ENABLED=true`, and asks you to type RESET).
