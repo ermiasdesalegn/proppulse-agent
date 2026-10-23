@@ -30,15 +30,36 @@ class ListingUnit(BaseModel):
         return self.title or f"{self.project_name} {self.unit_type}"
 
 
+class ExtractedUnit(BaseModel):
+    """The shape the language model is asked for. It deliberately has no numeric limits: Gemini's structured-output schema
+    rejects them (for example `exclusiveMinimum`). Each unit is validated against ListingUnit afterwards."""
+
+    project_name: str
+    unit_type: str = Field(description="For example '3BR Apartment', 'Studio', '4BR Villa'")
+    sub_city: str = Field(description="Neighbourhood, for example Bole, CMC, Kazanchis, Ayat, Sarbet, Lebu")
+    bedrooms: int = Field(description="0 for a studio")
+    sqm: float
+    price_etb: float = Field(description="Total price in Ethiopian birr")
+    title: Optional[str] = None
+    down_payment_pct: Optional[float] = None
+    construction_stage_pct: Optional[float] = None
+    est_rental_yield_pct: Optional[float] = None
+    delivery_date: Optional[str] = Field(default=None, description="As written, for example 'June 2027' or 'Q3 2027'")
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    description: Optional[str] = None
+    floor_plan_image_url: Optional[str] = None
+
+
 class ListingExtraction(BaseModel):
-    units: list[ListingUnit] = Field(default_factory=list)
+    units: list[ExtractedUnit] = Field(default_factory=list)
 
 
 class FloorPlanTags(BaseModel):
     """What the vision model reads from a floor-plan image."""
 
     tags: list[str] = Field(default_factory=list, description="Up to 12 short features, for example 'open-plan kitchen', 'maid room + bath', 'corner wrap-around balcony'")
-    net_to_gross_ratio: Optional[float] = Field(default=None, ge=0, le=1, description="Usable area divided by total area, if it can be judged")
+    net_to_gross_ratio: Optional[float] = Field(default=None, description="Usable area divided by total area as a number between 0 and 1, if it can be judged")
     summary: str = ""
 
 

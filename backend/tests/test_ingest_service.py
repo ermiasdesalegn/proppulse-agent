@@ -4,7 +4,7 @@ import pytest
 from app.config import get_settings
 from app.events import EventBus
 from app.ingest.fetch import FetchError
-from app.ingest.models import ListingExtraction, ListingUnit, ScrapeProfile
+from app.ingest.models import ExtractedUnit, ListingExtraction, ScrapeProfile
 from app.ingest.sample import PROFILE, sample_listing
 from app.ingest.service import ExtractionError, IngestionService
 from tests.agent_helpers import FakeGateway
@@ -161,7 +161,8 @@ async def test_the_per_run_vision_limit_protects_the_model_quota(repo):
 # ---------------- announcements read by the model ----------------
 
 def announcement_units():
-    return ListingExtraction(units=[ListingUnit(project_name="Ayat Lake View", unit_type="3BR Apartment", sub_city="ayat", bedrooms=3, sqm=130, price_etb=11_900_000, down_payment_pct=25)])
+    return ListingExtraction(units=[ExtractedUnit(project_name="Ayat Lake View", unit_type="3BR Apartment", sub_city="ayat", bedrooms=3, sqm=130, price_etb=11_900_000,
+                                                  down_payment_pct=25, delivery_date="Q3 2027")])
 
 
 async def test_an_announcement_is_read_by_the_model_and_marked_as_such(repo, db_conn):
@@ -174,6 +175,21 @@ async def test_an_announcement_is_read_by_the_model_and_marked_as_such(repo, db_
     assert unit["vision_amenities"]["source"] == "announcement"
     cur = await db_conn.execute("select sub_city from properties where title = 'Ayat Lake View 3BR Apartment'")
     assert (await cur.fetchone())["sub_city"] == "Ayat", "area names are normalised"
+
+
+async def test_one_bad_unit_from_the_model_is_reported_and_the_rest_are_kept(repo, db_conn):
+    gw = FakeGateway()
+    gw.listing_extraction = ListingExtraction(units=[
+        ExtractedUnit(project_name="Ayat Lake View", unit_type="3BR Apartment", sub_city="Ayat", bedrooms=3, sqm=130, price_etb=11_900_000, delivery_date="Q3 2027"),
+        ExtractedUnit(project_name="Ayat Broken", unit_type="Studio", sub_city="Ayat", bedrooms=0, sqm=40, price_etb=0),       # a price of zero
+        ExtractedUnit(project_name="Ayat Huge", unit_type="Villa", sub_city="Ayat", bedrooms=4, sqm=-5, price_etb=9_000_000),  # a negative size
+    ])
+    service, _, _ = make(repo, gateway=gw)
+    report = await service.run(developer_slug="ayat", source="text", text="Three units announced.")
+    assert report["counts"]["created"] == 1 and len(report["parse_errors"]) == 2
+    assert report["parse_errors"][0] == "Ayat Broken Studio: price_etb is missing or out of range"
+    cur = await db_conn.execute("select delivery_date from properties where title = 'Ayat Lake View 3BR Apartment'")
+    assert str((await cur.fetchone())["delivery_date"]) == "2027-09-30", "'Q3 2027' as written becomes a real date"
 
 
 async def test_an_announcement_never_retires_units_unless_asked(repo):

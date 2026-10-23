@@ -11,11 +11,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.config import Settings
 from app.geo import KNOWN_SUB_CITIES, normalize_sub_city
 from app.ingest.fetch import FetchError, Fetcher
 from app.ingest.models import FloorPlanTags, ListingExtraction, ListingUnit, ScrapeProfile
-from app.ingest.parse import ParseResult, page_text, parse_listing_html
+from app.ingest.parse import ParseResult, page_text, parse_date, parse_listing_html
 from app.ingest.text import content_hash, embedding_text
 from app.repository import Repository
 
@@ -48,16 +50,25 @@ class IngestionService:
 
     # ---------------- reading the source ----------------
 
-    async def extract_with_model(self, text: str, developer_name: str) -> list[ListingUnit]:
+    async def extract_with_model(self, text: str, developer_name: str) -> tuple[list[ListingUnit], list[str]]:
+        """Units read by the model, plus a note for each one that failed validation (the rest are kept)."""
         prompt = f"Developer: {developer_name}\n\nText to read:\n{text[:12_000]}"
         try:
             result = await self.gateway.generate_structured(prompt, ListingExtraction, system=EXTRACT_SYSTEM)
         except Exception:
             log.exception("model extraction failed")
             raise ExtractionError("The language model could not read this text right now. Try again in a few minutes.") from None
-        for unit in result.units:
-            unit.sub_city = normalize_sub_city(unit.sub_city)
-        return result.units
+        units: list[ListingUnit] = []
+        rejected: list[str] = []
+        for raw in result.units:
+            data = raw.model_dump()
+            data["delivery_date"] = parse_date(data["delivery_date"])
+            data["sub_city"] = normalize_sub_city(data["sub_city"])
+            try:
+                units.append(ListingUnit(**data))
+            except ValidationError as exc:
+                rejected.append(f"{raw.project_name} {raw.unit_type}: {exc.errors()[0]['loc'][0]} is missing or out of range")
+        return units, rejected
 
     async def run(
         self, *, developer_slug: str, source: str, html: str | None = None, text: str | None = None, url: str | None = None,
@@ -87,11 +98,11 @@ class IngestionService:
                     notes.append("The selectors matched no unit cards on this page; the page layout may have changed.")
             else:
                 notes.append("No selectors were given, so the page was read with the language model.")
-                units = await self.extract_with_model(page_text(html), developer["name"])
+                units, parse_errors = await self.extract_with_model(page_text(html), developer["name"])
         elif source == "text":
             if not text or not text.strip():
                 raise ValueError("there is no announcement text to read")
-            units = await self.extract_with_model(text, developer["name"])
+            units, parse_errors = await self.extract_with_model(text, developer["name"])
         else:
             raise ValueError(f"unknown source {source!r}")
 

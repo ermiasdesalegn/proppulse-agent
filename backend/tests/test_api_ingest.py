@@ -3,7 +3,6 @@ import pytest
 import pytest_asyncio
 
 from app.ingest.fetch import FetchError
-from app.ingest.models import ListingExtraction, ListingUnit
 from app.ingest.sample import sample_listing
 from app.main import create_app
 from tests.agent_helpers import FakeGateway, make_chat
