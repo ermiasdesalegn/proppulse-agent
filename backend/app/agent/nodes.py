@@ -24,13 +24,14 @@ from app.agent.scoring import lead_score
 from app.agent.state import EMPTY_PREFS, BrokerAgentState
 from app.geo import expand_with_adjacent, normalize_sub_cities
 from app.repository import LedgerEntry, PropertyMatch
-from app.services.calendar import SlotUnavailable
+from app.services.calendar import CalendarError, SlotUnavailable
 from app.services.routing import Stop
 
 log = logging.getLogger(__name__)
 
 UNSUPPORTED = "I can read text and voice messages. What kind of home are you looking for (budget, bedrooms, area)?"
 TROUBLE = "I'm having trouble right now. Please send that again in a moment."
+CALENDAR_DOWN = "I can't reach the broker's calendar right now, so I haven't booked anything. Please try again in a few minutes."
 EARLY_STAGES = {"NEW", "QUALIFIED", "INVENTORY_PENDING"}
 
 
@@ -412,27 +413,32 @@ class AgentNodes:
         props = await d.repo.get_properties(ids)
         by_id = {str(p["id"]): p for p in props}
         stops = [Stop(str(p["id"]), p["lat"], p["lng"]) for p in props if p["lat"] is not None and p["lng"] is not None]
-        plan = await d.services.routing.plan_route(stops) if len(stops) == len(props) else None
+        origin = (s.office_lat, s.office_lng) if s.office_lat is not None and s.office_lng is not None else None
+        plan = await d.services.routing.plan_route(stops, origin=origin) if len(stops) == len(props) else None
         ordered = [by_id[i] for i in plan.order] if plan else props
         minutes = s.tour_duration_minutes * len(ordered) + (plan.duration_seconds // 60 if plan else 0)
         duration = timedelta(minutes=math.ceil(minutes / 15) * 15)
 
         now = d.now()
         start = self._parse_start(state.get("tour_start_iso"))
-        if start is None:
-            return await self._offer_slots("When would you like to go?", now + timedelta(hours=2), duration)
-        end = start + duration
-        if start < now + timedelta(hours=1) or not await d.services.calendar.is_available(start, end):
-            return await self._offer_slots("That time isn't free.", max(start, now + timedelta(hours=2)), duration)
-
         title = " + ".join(p["title"] for p in ordered)
         try:
-            event_id = await d.services.calendar.book(
-                start=start, end=end, summary=f"Site visit: {profile['full_name']}",
-                description=f"{profile['full_name']} {profile['phone']} - {title}", location=ordered[0]["sub_city"],
-            )
-        except SlotUnavailable:
-            return await self._offer_slots("That time was just taken.", max(start, now + timedelta(hours=2)), duration)
+            if start is None:
+                return await self._offer_slots("When would you like to go?", now + timedelta(hours=2), duration)
+            end = start + duration
+            if start < now + timedelta(hours=1) or not await d.services.calendar.is_available(start, end):
+                return await self._offer_slots("That time isn't free.", max(start, now + timedelta(hours=2)), duration)
+            try:
+                event_id = await d.services.calendar.book(
+                    start=start, end=end, summary=f"Site visit: {profile['full_name']}",
+                    description=f"{profile['full_name']} {profile['phone']} - {title}", location=ordered[0]["sub_city"],
+                )
+            except SlotUnavailable:
+                return await self._offer_slots("That time was just taken.", max(start, now + timedelta(hours=2)), duration)
+        except CalendarError:
+            # Without a readable calendar a visit cannot be confirmed safely; say so rather than risk a double booking.
+            log.exception("calendar unavailable while booking")
+            return say(CALENDAR_DOWN)
 
         tour = await d.repo.create_tour(
             buyer_id=state["buyer_id"], scheduled_start=start, stops=[p["id"] for p in ordered],
@@ -477,8 +483,8 @@ class AgentNodes:
 
         lines = [f"Your site visit is booked for {self._local(start)} with {s.broker_name}.", "", "Route:"]
         lines += [f"{i}. {p['title']} ({p['sub_city']})" for i, p in enumerate(ordered, start=1)]
-        if plan and len(ordered) > 1:  # a single stop has no driving to report
-            lines += ["", f"About {plan.distance_meters / 1000:.1f} km of driving, roughly {plan.duration_seconds // 60} minutes between stops."]
+        if plan and plan.distance_meters > 0:  # a lone stop with no starting point has no driving to report
+            lines += ["", f"About {plan.distance_meters / 1000:.1f} km of driving in total, roughly {plan.duration_seconds // 60} minutes."]
         devs = ", ".join(sorted({p["developer_name"] for p in ordered}))
         lines += ["", f"I've notified {devs} that you're visiting with us."]
         if profile.get("email"):

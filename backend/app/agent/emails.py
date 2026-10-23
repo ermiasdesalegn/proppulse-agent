@@ -41,6 +41,6 @@ def buyer_itinerary(*, broker_name: str, buyer: dict, stops: list[dict], start: 
         f"<p>Hello {escape(buyer.get('full_name') or '')},</p>"
         f"<p>Your site visit is confirmed for <b>{escape(_when(start))}</b> with {escape(broker_name)}.</p>"
         f"<ol style='list-style:none;padding:0'>{rows}</ol>"
-        + (f"<p>Total driving: about {distance_km:.1f} km, {drive_minutes} minutes between stops.</p>" if len(stops) > 1 and distance_km > 0 else "")
+        + (f"<p>Total driving: about {distance_km:.1f} km, roughly {drive_minutes} minutes.</p>" if distance_km > 0 else "")
     )
     return "Your property tour is confirmed", html

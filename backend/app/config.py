@@ -49,9 +49,15 @@ class Settings(BaseSettings):
     tour_duration_minutes: int = 60
     tour_buffer_minutes: int = 30
 
-    # "mock" or the live implementation; "auto" picks live when credentials exist.
-    calendar_backend: str = "mock"
-    routing_backend: str = "mock"
+    google_service_account_json: str = ""  # the key as raw JSON, or the path to the JSON file
+    google_calendar_id: str = ""
+    mapbox_token: str = ""
+    office_lat: float | None = None  # where tours start from; leave unset to start at the first stop
+    office_lng: float | None = None
+
+    # "mock", the live implementation, or "auto" to use live whenever its credentials exist.
+    calendar_backend: str = "auto"
+    routing_backend: str = "auto"
     email_backend: str = "auto"
     telegram_backend: str = "auto"
 

@@ -210,6 +210,26 @@ def test_container_uses_mocks_without_credentials_and_live_services_with_them():
     assert isinstance(live.email, ResendEmailService) and isinstance(live.telegram, BotApiTelegramService)
 
 
-def test_container_refuses_backends_that_do_not_exist_yet():
-    with pytest.raises(NotImplementedError):
+def test_container_refuses_live_backends_without_credentials_and_unknown_names():
+    from app.services.calendar import CalendarError
+
+    with pytest.raises(CalendarError, match="missing"):
         build_services(Settings(_env_file=None, calendar_backend="google"))
+    with pytest.raises(ValueError, match="MAPBOX_TOKEN"):
+        build_services(Settings(_env_file=None, routing_backend="mapbox"))
+    with pytest.raises(ValueError, match="unknown backend"):
+        build_services(Settings(_env_file=None, routing_backend="osrm"))
+
+
+def test_auto_picks_live_calendar_and_routing_only_when_credentials_exist():
+    from app.services.google_calendar import GoogleCalendarService
+    from app.services.routing import ResilientRoutingService
+    from tests.test_google_calendar import SERVICE_ACCOUNT
+
+    bare = build_services(Settings(_env_file=None))
+    assert isinstance(bare.calendar, MockCalendarService) and isinstance(bare.routing, MockRoutingService)
+    live = build_services(Settings(_env_file=None, google_service_account_json=json.dumps(SERVICE_ACCOUNT), google_calendar_id="cal@x.test", mapbox_token="pk.test"))
+    assert isinstance(live.calendar, GoogleCalendarService) and isinstance(live.routing, ResilientRoutingService)
+    forced_mock = build_services(Settings(_env_file=None, calendar_backend="mock", routing_backend="mock", mapbox_token="pk.test",
+                                          google_service_account_json=json.dumps(SERVICE_ACCOUNT), google_calendar_id="cal@x.test"))
+    assert isinstance(forced_mock.calendar, MockCalendarService) and isinstance(forced_mock.routing, MockRoutingService)

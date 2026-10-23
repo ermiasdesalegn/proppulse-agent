@@ -6,6 +6,7 @@ import pytest
 from app.agent.prompts import VOICE_FALLBACK
 from app.agent.schemas import Recommendation
 from app.services.email import MockEmailService
+from app.services.routing import MockRoutingService
 from tests.agent_helpers import FakeGateway, NOW, ext, make_agent, make_services, new_buyer, say_to
 
 BOLE_3BR = dict(max_budget_etb=25_000_000, min_bedrooms=3, preferred_sub_cities=["Bole"], search_query="3 bedroom apartment in Bole")
@@ -316,6 +317,46 @@ async def test_a_single_stop_visit_does_not_report_driving_time(spy_repo, vector
     assert "km of driving" not in res.reply
     buyer_mail = next(m for m in email.sent if m["to"] == "abel@buyer.test")
     assert "Total driving" not in buyer_mail["html"]
+
+
+async def test_an_unreachable_calendar_means_no_booking_and_a_clear_message(spy_repo, db_conn, vector_of):
+    from app.services.calendar import CalendarError, MockCalendarService
+
+    class Down(MockCalendarService):
+        async def is_available(self, start, end):
+            raise CalendarError("Google Calendar returned 503")
+
+        async def find_slots(self, **kw):
+            raise CalendarError("Google Calendar returned 503")
+
+    services = make_services()
+    services.calendar = Down()
+    gw = FakeGateway([ext(**BOLE_3BR), ext("book_tour", **BOOK)], vector=await vector_of("Noah Bole Towers 3BR%"))
+    agent, buyer = make_agent(spy_repo, gw, services=services), await new_buyer(spy_repo, "caldown")
+    await say_to(agent, buyer, "3BR Bole")
+    res = await say_to(agent, buyer, "book both")
+    assert not res.state["booked"] and "can't reach the broker's calendar" in res.reply
+    assert (await spy_repo.list_ledger()) == [] or all(r["buyer_id"] != buyer["id"] for r in await spy_repo.list_ledger())
+    cur = await db_conn.execute("select count(*) n from tours_and_appointments where buyer_id=%s", (buyer["id"],))
+    assert (await cur.fetchone())["n"] == 0
+
+
+async def test_tours_start_from_the_office_when_one_is_configured(spy_repo, vector_of):
+    seen = {}
+
+    class Spy(MockRoutingService):
+        async def plan_route(self, stops, *, origin=None):
+            seen["origin"] = origin
+            return await super().plan_route(stops, origin=origin)
+
+    services = make_services()
+    services.routing = Spy()
+    gw = FakeGateway([ext(**BOLE_3BR), ext("book_tour", **BOOK)], vector=await vector_of("Noah Bole Towers 3BR%"))
+    agent, buyer = make_agent(spy_repo, gw, services=services, office_lat=9.0, office_lng=38.75), await new_buyer(spy_repo, "office")
+    await say_to(agent, buyer, "3BR Bole")
+    res = await say_to(agent, buyer, "book both")
+    assert seen["origin"] == (9.0, 38.75) and res.state["booked"]
+    assert "km of driving in total" in res.reply
 
 
 async def test_missing_contact_details_are_requested_before_booking(spy_repo, db_conn, vector_of):
