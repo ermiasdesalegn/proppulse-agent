@@ -18,6 +18,7 @@ from app.agent.nodes import option_block
 from app.config import Settings
 from app.events import excerpt
 from app.language import detect_language, msg
+from app.projects import PROJECT_LINK
 from app.repository import Repository
 from app.services import Services
 
@@ -79,6 +80,7 @@ class ChatService:
     def __init__(self, repo: Repository, agent: BrokerAgent, services: Services, settings: Settings, events: Any = None):
         self.repo, self.agent, self.services, self.settings, self.events = repo, agent, services, settings, events
         self._locks: dict[str, asyncio.Lock] = {}
+        self.projects: Any = None  # ProjectService, set by the application
 
     def _emit(self, kind: str, **data: Any) -> None:
         if self.events:
@@ -99,6 +101,8 @@ class ChatService:
             shown = inbound.text if inbound.kind == "text" else "[voice note]"
             if inbound.start_payload and (link := DEEPLINK.match(inbound.start_payload)):
                 shown = f"Opened a channel ad: {dict(BUTTONS)[link.group(1)]}"
+            elif inbound.start_payload and PROJECT_LINK.match(inbound.start_payload):
+                shown = "Opened a project ad"
             stored = await self.repo.add_message(
                 buyer["id"], "buyer", shown, source=inbound.kind, telegram_file_id=inbound.file_id
             )
@@ -106,11 +110,32 @@ class ChatService:
                        channel=inbound.channel, text=excerpt(shown))
             if buyer["human_takeover"]:
                 return await self._while_broker_has_the_chat(buyer, inbound, shown)
+            if self.projects is not None:
+                about_a_project = await self._project_turn(buyer, inbound)
+                if about_a_project is not None:
+                    return about_a_project
             if inbound.start_payload:
                 opened = await self._from_channel_ad(buyer, inbound, stored)
                 if opened is not None:
                     return opened
             return await self._agent_turn(buyer, inbound, stored)
+
+    async def _project_turn(self, buyer: dict, inbound: Inbound) -> Outcome | None:
+        """Buttons and names of projects (developers that publish no prices) are handled in code, with no model call."""
+        lang = detect_language(inbound.text or "")
+        try:
+            if inbound.start_payload:
+                answer = await self.projects.handle_link(buyer, inbound.start_payload, lang)
+            elif inbound.kind == "text":
+                answer = await self.projects.handle_text(buyer, inbound.text, lang)
+            else:
+                return None
+        except Exception:
+            log.exception("project handling failed; the agent answers instead")
+            return None
+        if answer is None:
+            return None
+        return await self._say(buyer, inbound, answer[0], answer[1] or None)
 
     async def _say(self, buyer: dict, inbound: Inbound, text: str, quick_replies: list | None = None) -> Outcome:
         buyer_id = str(buyer["id"])

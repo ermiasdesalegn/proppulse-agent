@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio
 
 from app.main import create_app
+from app.projects import ProjectService
 from tests.agent_helpers import FakeGateway, make_chat, make_proactive
 from tests.test_proactive import NOAH, make_buyer, pid
 
@@ -19,6 +20,7 @@ async def client_for(repo, **overrides):
     proactive, _, _ = make_proactive(repo, services=services, **{**OVERRIDES, **overrides})
     app = create_app(use_lifespan=False)
     app.state.settings, app.state.repo, app.state.chat, app.state.proactive = chat.settings, repo, chat, proactive
+    app.state.projects = ProjectService(repo, FakeGateway(), services, chat.settings, proactive=proactive)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
     return client, services
 
@@ -61,7 +63,7 @@ async def test_an_empty_cron_secret_never_matches_an_empty_header(spy_repo):
 async def test_the_daily_run_reports_every_job(api):
     client, _ = api
     body = (await client.post("/api/cron/daily-proactive-run", params={"dry_run": "true"}, headers=CRON)).json()
-    assert body["dry_run"] is True and [j["job"] for j in body["jobs"]] == ["reverse_rag_alerts", "tour_reminders", "milestone_reminders"]
+    assert body["dry_run"] is True and [j["job"] for j in body["jobs"]] == ["reverse_rag_alerts", "tour_reminders", "milestone_reminders", "promotion_ads"]
     combined = (await client.post("/api/cron/reminders", headers=ADMIN)).json()
     assert [j["job"] for j in combined["jobs"]] == ["tour_reminders", "milestone_reminders"]
 

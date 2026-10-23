@@ -31,6 +31,7 @@ from app.finance import fmt_etb, payment_schedule
 from app.geo import expand_with_adjacent, normalize_sub_cities
 from app.guardrails import looks_like_injection, reply_is_grounded, wants_a_human
 from app.language import detect_language, msg
+from app.projects import suggest_projects
 from app.repository import LedgerEntry, PropertyMatch
 from app.services.calendar import CalendarError, SlotUnavailable
 from app.services.email import Attachment
@@ -516,6 +517,9 @@ class AgentNodes:
             text = msg("waitlist_buffer", lang, pct=round(scope["relaxation_step"] * self.d.settings.relax_budget_step_pct))
         else:
             text = msg("waitlist", lang)
+        block, buttons = await suggest_projects(self.d.repo, prefs, lang)
+        if block:  # developers that publish no prices: the buyer can still ask for one
+            return {**say(f"{text}\n\n{block}", quick_replies=buttons), **out, "active_matches": []}
         return {**say(text), **out, "active_matches": []}
 
     async def smalltalk(self, state: BrokerAgentState) -> dict:

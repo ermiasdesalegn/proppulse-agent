@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     email_backend: str = "auto"
     telegram_backend: str = "auto"
 
+    project_crawl_max_pages: int = 40  # pages read when crawling one developer's site for projects
+    project_price_request_email: bool = False  # also email the developer's sales office when a buyer asks a price (off: only the broker is told)
     scrape_polite: bool = True  # obey robots.txt and wait between requests to the same site
     scrape_min_interval_seconds: float = 2.0
     scrape_failures_before_alert: int = 3

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from psycopg_pool import PoolTimeout
 
 from app.ads import AdService
 from app.agent.checkpointer import open_checkpointer
@@ -23,6 +24,7 @@ from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
 from app.observability import GuardMiddleware
 from app.proactive import ProactiveService
+from app.projects import ProjectService
 from app.repository import Repository
 from app.services import build_services
 from app.services.telegram import BotApiTelegramService
@@ -50,8 +52,15 @@ async def lifespan(app: FastAPI):
     if "Proactor" in type(asyncio.get_running_loop()).__name__:
         raise RuntimeError("psycopg cannot run on Windows' Proactor event loop. Start the server with: python -m app")
     s = get_settings()
-    pool = make_pool(s)
-    await pool.open(wait=True, timeout=20)
+    for attempt in (1, 2, 3):  # a hosted database can be slow to answer; a failed wait closes its pool, so each try uses a fresh one
+        pool = make_pool(s)
+        try:
+            await pool.open(wait=True, timeout=20)
+            break
+        except PoolTimeout:
+            if attempt == 3:
+                raise RuntimeError("The database did not answer in 60 seconds. Check DATABASE_URL and your internet connection, then start again.") from None
+            log.warning("the database is slow to answer (attempt %d of 3), still trying", attempt)
     checkpointer = await open_checkpointer(s)
     gateway = get_gateway()
     real_services = build_services(s)
@@ -71,6 +80,8 @@ async def lifespan(app: FastAPI):
     browser_fetcher = BrowserFetcher(http=http_fetcher, allow_private=s.scrape_allow_private_hosts, politeness=politeness)  # starts Chromium on first use
     ingest = IngestionService(repo, gateway, http_fetcher, s, events=events, browser=browser_fetcher)
     ads = AdService(repo, gateway, services, s, events=events)
+    projects = ProjectService(repo, gateway, services, s, fetcher=http_fetcher, proactive=proactive, ads=ads, events=events)
+    chat.projects = projects
     handler = TelegramUpdateHandler(chat)
 
     poller, telegram_status = None, "webhook" if s.telegram_mode == "webhook" else "off"
@@ -88,7 +99,7 @@ async def lifespan(app: FastAPI):
             log.error("Telegram is unavailable, continuing without it: %s", exc)
 
     app.state.settings, app.state.repo, app.state.chat, app.state.proactive = s, repo, chat, proactive
-    app.state.events, app.state.ingest, app.state.ads = events, ingest, ads
+    app.state.events, app.state.ingest, app.state.ads, app.state.projects = events, ingest, ads, projects
     app.state.telegram_handler, app.state.checkpointer_kind = handler, checkpointer.kind
     app.state.telegram_mode = telegram_status
     try:

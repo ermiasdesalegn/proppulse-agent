@@ -688,3 +688,107 @@ class Repository:
         row = await self._one(sql, {"d": days})
         assert row is not None
         return {k: {"current": float(row[f"{k}_current"]), "previous": float(row[f"{k}_previous"])} for k in parts}
+
+    # ---- projects: developers that publish no unit prices ----
+
+    _PROJECT_COLUMNS = (
+        "pr.id, pr.developer_id, pr.name, pr.slug, pr.source_url, pr.sub_city, pr.location_text, pr.summary, pr.bedrooms_min, pr.bedrooms_max, "
+        "pr.sqm_min, pr.sqm_max, pr.floors, pr.status, pr.price_from_etb, pr.price_note, pr.image_url, pr.promo_text, pr.promo_discount_pct, "
+        "pr.promo_until, pr.content_hash, pr.last_seen_at, d.name as developer_name, d.slug as developer_slug, d.sales_email"
+    )
+
+    async def upsert_project(self, developer_id: UUID | str, data: dict) -> tuple[dict, str]:
+        """Insert or refresh one project. Returns the row and what happened: created, updated or unchanged."""
+        existing = await self._one("select id, content_hash from projects where developer_id = %s and slug = %s", (str(developer_id), data["slug"]))
+        values = (data["name"], data["source_url"], data.get("sub_city"), data.get("location_text"), data.get("summary"), data.get("bedrooms_min"),
+                  data.get("bedrooms_max"), data.get("sqm_min"), data.get("sqm_max"), data.get("floors"), data.get("status", "SELLING"),
+                  data.get("image_url"), data.get("promo_text"), data.get("promo_discount_pct"), data.get("promo_until"), data["content_hash"])
+        if existing is None:
+            row = await self._one(
+                "insert into projects (developer_id, slug, name, source_url, sub_city, location_text, summary, bedrooms_min, bedrooms_max, sqm_min, "
+                "sqm_max, floors, status, image_url, promo_text, promo_discount_pct, promo_until, content_hash) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+                (str(developer_id), data["slug"], *values))
+            assert row is not None
+            return row, "created"
+        if existing["content_hash"] == data["content_hash"]:
+            await self._fetch("update projects set last_seen_at = now() where id = %s returning id", (existing["id"],))
+            return existing, "unchanged"
+        row = await self._one(
+            "update projects set name = %s, source_url = %s, sub_city = %s, location_text = %s, summary = %s, bedrooms_min = %s, bedrooms_max = %s, "
+            "sqm_min = %s, sqm_max = %s, floors = %s, status = %s, image_url = %s, promo_text = %s, promo_discount_pct = %s, promo_until = %s, "
+            "content_hash = %s, last_seen_at = now() where id = %s returning *", (*values, existing["id"]))
+        assert row is not None
+        return row, "updated"
+
+    async def get_project(self, project_id: UUID | str) -> dict | None:
+        return await self._one(f"select {self._PROJECT_COLUMNS} from projects pr join developers d on d.id = pr.developer_id where pr.id = %s", (str(project_id),))
+
+    async def find_project_by_code(self, code: str) -> dict | None:
+        rows = await self._fetch("select id from projects where replace(id::text, '-', '') like %s limit 2", (code.lower() + "%",))
+        return rows[0] if len(rows) == 1 else None
+
+    async def list_projects(self, *, only_selling: bool = False) -> list[dict]:
+        where = "where pr.status = 'SELLING' " if only_selling else ""
+        return await self._fetch(
+            f"select {self._PROJECT_COLUMNS}, (select count(*) from price_requests q where q.project_id = pr.id and q.status = 'OPEN') as open_requests "
+            f"from projects pr join developers d on d.id = pr.developer_id {where}order by d.name, pr.name")
+
+    async def search_projects(self, *, sub_cities: Sequence[str] | None = None, min_bedrooms: int | None = None, limit: int = 2) -> list[dict]:
+        """Projects still selling that fit the buyer's area and size. An empty area list means anywhere."""
+        areas = list(sub_cities or [])
+        return await self._fetch(
+            f"select {self._PROJECT_COLUMNS} from projects pr join developers d on d.id = pr.developer_id "
+            "where pr.status = 'SELLING' and (cardinality(%s::text[]) = 0 or pr.sub_city = any(%s::text[])) "
+            "and (%s::int is null or pr.bedrooms_max is null or pr.bedrooms_max >= %s::int) "
+            "order by (pr.promo_text is not null and (pr.promo_until is null or pr.promo_until >= current_date)) desc, pr.name limit %s",
+            (areas, areas, min_bedrooms, min_bedrooms, limit))
+
+    async def set_project_price(self, project_id: UUID | str, price_from_etb: float | None, note: str | None) -> dict | None:
+        return await self._one("update projects set price_from_etb = %s, price_note = %s where id = %s returning *", (price_from_etb, note, str(project_id)))
+
+    async def set_project_promo(self, project_id: UUID | str, text: str | None, discount_pct: float | None, until: Any) -> dict | None:
+        return await self._one("update projects set promo_text = %s, promo_discount_pct = %s, promo_until = %s where id = %s returning *",
+                               (text, discount_pct, until, str(project_id)))
+
+    async def create_price_request(self, project_id: UUID | str, buyer_id: UUID | str) -> tuple[dict, bool]:
+        """One open request per buyer and project. Returns the request and whether it is new (or was reopened)."""
+        row = await self._one("insert into price_requests (project_id, buyer_id) values (%s, %s) on conflict (project_id, buyer_id) do nothing returning *",
+                              (str(project_id), str(buyer_id)))
+        if row is not None:
+            return row, True
+        again = await self._one("select * from price_requests where project_id = %s and buyer_id = %s", (str(project_id), str(buyer_id)))
+        assert again is not None
+        if again["status"] == "ANSWERED":  # asked before and was told; asking again reopens it
+            reopened = await self._one("update price_requests set status = 'OPEN', answered_at = null where id = %s returning *", (again["id"],))
+            return reopened or again, True
+        return again, False
+
+    async def open_price_requests(self, project_id: UUID | str) -> list[dict]:
+        return await self._fetch(
+            "select q.id, q.buyer_id, q.created_at, b.full_name, b.telegram_id, b.thread_id, b.email, b.human_takeover from price_requests q "
+            "join buyers_crm b on b.id = q.buyer_id where q.project_id = %s and q.status = 'OPEN' order by q.id", (str(project_id),))
+
+    async def answer_price_request(self, request_id: int) -> None:
+        await self._fetch("update price_requests set status = 'ANSWERED', answered_at = now() where id = %s returning id", (request_id,))
+
+    async def list_price_requests(self, limit: int = 100) -> list[dict]:
+        return await self._fetch(
+            "select q.id, q.status, q.created_at, q.answered_at, pr.name as project_name, b.full_name as buyer_name, b.thread_id from price_requests q "
+            "join projects pr on pr.id = q.project_id join buyers_crm b on b.id = q.buyer_id order by q.id desc limit %s", (limit,))
+
+    async def projects_with_live_promotion(self) -> list[dict]:
+        return await self._fetch(
+            f"select {self._PROJECT_COLUMNS} from projects pr join developers d on d.id = pr.developer_id "
+            "where pr.status = 'SELLING' and pr.promo_text is not null and (pr.promo_until is null or pr.promo_until >= current_date) order by pr.name")
+
+    async def claim_project_post(self, *, project_id: UUID | str, kind: str, promo_key: str, chat_id: str, text: str) -> dict | None:
+        return await self._one(
+            "insert into project_posts (project_id, kind, promo_key, chat_id, text) values (%s, %s, %s, %s, %s) "
+            "on conflict (project_id, promo_key) where kind = 'PROMO' do nothing returning *", (str(project_id), kind, promo_key, chat_id, text))
+
+    async def set_project_post_message(self, post_id: int, message_id: int) -> None:
+        await self._fetch("update project_posts set telegram_message_id = %s where id = %s returning id", (message_id, post_id))
+
+    async def release_project_post(self, post_id: int) -> None:
+        await self._fetch("delete from project_posts where id = %s returning id", (post_id,))

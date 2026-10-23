@@ -42,6 +42,7 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 - **Bookings:** Google Calendar availability, Mapbox route ordering for multi-stop tours, phone consultations, lead emails, commission ledger, pre-tour dossier.
 - **Proactive jobs:** price-drop alerts to matching buyers, price-increase notices to the broker, new-listing matches, 24 h tour and milestone reminders (idempotent, scheduler-triggered).
 - **Market ingestion:** reads developer pages (CSS selectors or a browser for JavaScript pages) or pasted announcements and webhooks; only new units cost a model call.
+- **Projects (price on request):** most Addis developers publish projects, not unit prices. The bot lists matching projects with an **Ask the price** button; the broker is told, enters the price once, and every waiting buyer is messaged. Projects come from a polite same-site crawl or by hand, and live offers are advertised to the channel once each.
 - **Channel ads:** composes and posts listings with Ask / Compare / Book buttons that deep-link back to the bot. Real posts need an explicit second step.
 
 ## The Command Center

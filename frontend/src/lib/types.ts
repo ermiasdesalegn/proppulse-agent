@@ -341,3 +341,49 @@ export interface Analytics {
     scenarios?: { passed: number; counted: number; known_gaps: number; grounded_turns: number; turns: number };
   } | null;
 }
+
+export interface Project {
+  id: string;
+  developer_id: string;
+  developer_name: string;
+  developer_slug: string;
+  name: string;
+  source_url: string;
+  sub_city: string | null;
+  location_text: string | null;
+  summary: string | null;
+  bedrooms_min: number | null;
+  bedrooms_max: number | null;
+  sqm_min: number | null;
+  sqm_max: number | null;
+  floors: number | null;
+  status: "SELLING" | "SOLD_OUT" | "UPCOMING";
+  price_from_etb: number | null;
+  price_note: string | null;
+  image_url: string | null;
+  promo_text: string | null;
+  promo_discount_pct: number | null;
+  promo_until: string | null;
+  last_seen_at: string;
+  open_requests: number;
+}
+
+export interface PriceRequest {
+  id: number;
+  status: "OPEN" | "ANSWERED";
+  created_at: string;
+  answered_at: string | null;
+  project_name: string;
+  buyer_name: string | null;
+  thread_id: string;
+}
+
+export interface CrawlReport {
+  developer: string;
+  dry_run: boolean;
+  pages_read: number;
+  created: { name: string; area: string | null; status: string; offer: string | null; source_url: string }[];
+  updated: { name: string; area: string | null; status: string; offer: string | null; source_url: string }[];
+  unchanged: string[];
+  notes: string[];
+}

@@ -52,6 +52,10 @@ def proactive_of(request: Request):
     return request.app.state.proactive
 
 
+def projects_of(request: Request):
+    return request.app.state.projects
+
+
 def chat_of(request: Request) -> ChatService:
     return request.app.state.chat
 
@@ -130,8 +134,12 @@ async def web_chat_messages(session_id: str, after_id: int = 0, repo: Repository
 # ---------------- proactive jobs ----------------
 
 @router.post("/api/cron/daily-proactive-run", dependencies=[Depends(require_cron_or_admin)])
-async def daily_proactive_run(dry_run: bool = False, proactive=Depends(proactive_of)):
-    return await proactive.run_all(dry_run)
+async def daily_proactive_run(dry_run: bool = False, proactive=Depends(proactive_of), projects=Depends(projects_of)):
+    result = await proactive.run_all(dry_run)
+    result["jobs"].append(await projects.run_promotion_ads(dry_run))  # developers' current offers, advertised once each
+    for key in ("sent", "skipped", "failed"):
+        result[key] = sum(j[key] for j in result["jobs"])
+    return result
 
 
 @router.post("/api/cron/reverse-rag-alerts", dependencies=[Depends(require_cron_or_admin)])
@@ -654,3 +662,82 @@ async def broker_reply(body: BrokerReplyIn, chat: ChatService = Depends(chat_of)
         raise HTTPException(409, str(exc)) from None
     except Exception:
         raise HTTPException(502, "The message could not be delivered to the buyer") from None
+
+
+# ---------------- projects: developers that publish no unit prices ----------------
+
+class CrawlIn(BaseModel):
+    url: str | None = Field(default=None, max_length=500)
+    dry_run: bool = True
+
+
+class ProjectPriceIn(BaseModel):
+    price_from_etb: float | None = Field(default=None, gt=0, lt=1e12)
+    note: str | None = Field(default=None, max_length=200)
+
+
+class ProjectPromoIn(BaseModel):
+    text: str | None = Field(default=None, max_length=300)
+    discount_pct: float | None = Field(default=None, gt=0, le=100)
+    until: date | None = None
+
+
+class ProjectAdIn(BaseModel):
+    dry_run: bool = True
+
+
+def _project_error(exc: Exception) -> HTTPException:
+    return HTTPException(404 if isinstance(exc, LookupError) else 422, str(exc.args[0] if exc.args else exc))
+
+
+@router.get("/api/projects", dependencies=[Depends(require_admin)])
+async def list_projects(repo: Repository = Depends(repo_of)):
+    return await repo.list_projects()
+
+
+@router.get("/api/price-requests", dependencies=[Depends(require_admin)])
+async def list_price_requests(repo: Repository = Depends(repo_of)):
+    return await repo.list_price_requests()
+
+
+@router.post("/api/developers/{slug}/crawl-projects", dependencies=[Depends(require_admin)])
+async def crawl_projects(slug: str, body: CrawlIn, projects=Depends(projects_of)):
+    from app.projects import ProjectError
+
+    try:
+        return await projects.crawl_developer(slug, body.url, dry_run=body.dry_run)
+    except (ProjectError, LookupError) as exc:
+        raise _project_error(exc) from None
+
+
+@router.put("/api/projects/{project_id}/price", dependencies=[Depends(require_admin)])
+async def set_project_price(project_id: UUID, body: ProjectPriceIn, projects=Depends(projects_of)):
+    from app.projects import ProjectError
+
+    try:
+        return await projects.set_price(project_id, body.price_from_etb, body.note)
+    except (ProjectError, LookupError) as exc:
+        raise _project_error(exc) from None
+
+
+@router.put("/api/projects/{project_id}/promo", dependencies=[Depends(require_admin)])
+async def set_project_promo(project_id: UUID, body: ProjectPromoIn, repo: Repository = Depends(repo_of)):
+    row = await repo.set_project_promo(project_id, (body.text or "").strip() or None, body.discount_pct if body.text else None, body.until if body.text else None)
+    if row is None:
+        raise HTTPException(404, "project not found")
+    return {"ok": True}
+
+
+@router.post("/api/projects/{project_id}/ad", dependencies=[Depends(require_admin)])
+async def project_ad(project_id: UUID, body: ProjectAdIn, projects=Depends(projects_of)):
+    from app.projects import ProjectError
+
+    try:
+        return await projects.publish_ad(project_id, dry_run=body.dry_run)
+    except (ProjectError, LookupError) as exc:
+        raise _project_error(exc) from None
+
+
+@router.post("/api/cron/promotion-ads", dependencies=[Depends(require_cron_or_admin)])
+async def promotion_ads(dry_run: bool = False, projects=Depends(projects_of)):
+    return await projects.run_promotion_ads(dry_run)

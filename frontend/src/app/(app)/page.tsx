@@ -11,12 +11,12 @@ import type { ProactiveEvent, Stats } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
 const KIND_LABEL: Record<string, string> = {
-  PRICE_DROP: "Price drop", PRICE_INCREASE: "Price increase", NEW_LISTING: "New listing", TOUR_REMINDER: "Tour reminder", MILESTONE_REMINDER: "Payment reminder",
+  PRICE_DROP: "Price drop", PRICE_INCREASE: "Price increase", PRICE_REQUEST: "Price request", PROJECT_PRICE: "Price shared", NEW_LISTING: "New listing", TOUR_REMINDER: "Tour reminder", MILESTONE_REMINDER: "Payment reminder",
   MILESTONE_OVERDUE: "Overdue payment", COMMISSION_READY: "Commission ready", TAKEOVER_MATCH: "Match in a chat you hold",
 };
 
 const KIND_ICON: Record<string, IconName> = {
-  PRICE_DROP: "deals", PRICE_INCREASE: "deals", NEW_LISTING: "listing", TOUR_REMINDER: "calendar", MILESTONE_REMINDER: "clock", MILESTONE_OVERDUE: "clock", COMMISSION_READY: "money", TAKEOVER_MATCH: "chat",
+  PRICE_DROP: "deals", PRICE_INCREASE: "deals", PRICE_REQUEST: "chat", PROJECT_PRICE: "money", NEW_LISTING: "listing", TOUR_REMINDER: "calendar", MILESTONE_REMINDER: "clock", MILESTONE_OVERDUE: "clock", COMMISSION_READY: "money", TAKEOVER_MATCH: "chat",
 };
 
 export default function OverviewPage() {

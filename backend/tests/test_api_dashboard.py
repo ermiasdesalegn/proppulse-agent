@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.main import create_app
+from app.projects import ProjectService
 from app.repository import LedgerEntry
 from app.services.telegram import MockTelegramService, TelegramError
 from tests.agent_helpers import FakeGateway, make_chat, make_proactive, make_services
@@ -21,6 +22,7 @@ async def make_client(repo, services=None):
     proactive, _, _ = make_proactive(repo, services=services, admin_api_key="test-admin-key")
     app = create_app(use_lifespan=False)
     app.state.settings, app.state.repo, app.state.chat, app.state.proactive = chat.settings, repo, chat, proactive
+    app.state.projects = ProjectService(repo, FakeGateway(), services, chat.settings, proactive=proactive)
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 

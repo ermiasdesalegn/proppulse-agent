@@ -99,6 +99,16 @@ MESSAGES: dict[str, dict[str, str]] = {
     "btn_book": {"en": "Book {n}", "am": "ቀጠሮ {n}"},
     "btn_compare": {"en": "Compare all", "am": "ሁሉንም አወዳድር"},
     "btn_consult": {"en": "Phone consultation", "am": "የስልክ ምክክር"},
+    "proj_header": {"en": "These projects are in your area, but the developer has not published prices. I can ask for the price:", "am": "እነዚህ ፕሮጀክቶች በፈለጉት አካባቢ ናቸው፣ ግን አልሚው ዋጋ አላወጣም። ዋጋውን ልጠይቅልዎ እችላለሁ፦"},
+    "btn_ask_price": {"en": "Ask the price", "am": "ዋጋውን ጠይቅ"},
+    "proj_ask_hint": {"en": "The price is not published. Tap Ask the price and I will get it for you.", "am": "ዋጋው አልወጣም። «ዋጋውን ጠይቅ» ን ይጫኑ፣ አግኝቼ እነግርዎታለሁ።"},
+    "proj_price_asked": {"en": "I have asked {developer} for the price of {project} and will message you here as soon as I have it. I can also arrange a site visit if you like.",
+                         "am": "የ{project} ዋጋ ከ{developer} ጠይቄያለሁ፣ እንዳገኘሁ እዚሁ እነግርዎታለሁ። ከፈለጉ የቦታ ጉብኝትም ማመቻቸት እችላለሁ።"},
+    "proj_price_again": {"en": "You already asked about {project}. I am waiting for {developer}'s answer and will tell you as soon as it arrives.",
+                         "am": "ስለ {project} አስቀድመው ጠይቀዋል። የ{developer}ን መልስ እየጠበቅሁ ነው፣ እንደደረሰ እነግርዎታለሁ።"},
+    "proj_price_known": {"en": "Good news: {project} by {developer} starts from {price}{note}. Would you like to book a site visit?",
+                         "am": "ደስ የሚል ዜና፦ የ{developer} {project} ዋጋ ከ{price} ይጀምራል{note}። የቦታ ጉብኝት ልያዝልዎ?"},
+    "proj_not_found": {"en": "I could not find that project. Tell me the area and size you want and I will look.", "am": "ያንን ፕሮጀክት ማግኘት አልቻልኩም። የሚፈልጉትን አካባቢና መጠን ይንገሩኝ፣ እፈልጋለሁ።"},
     "btn_afford": {"en": "What can I afford?", "am": "ምን መግዛት እችላለሁ?"},
 }
 

@@ -13,7 +13,7 @@ from app.ingest.text import content_hash
 log = logging.getLogger(__name__)
 
 # Deleted in this order: ledger rows block deleting buyers, and tours (with their stops) go with the buyer.
-CLEARED = ("proactive_events", "commission_ledger", "buyers_crm", "channel_posts", "ingest_runs", "inbound_announcements", "event_log", "model_calls", "price_history")
+CLEARED = ("proactive_events", "project_posts", "commission_ledger", "buyers_crm", "channel_posts", "ingest_runs", "inbound_announcements", "event_log", "model_calls", "price_history")
 
 
 async def reset_demo(repo: Any, calendar: Any = None) -> dict:
@@ -47,6 +47,10 @@ async def reset_demo(repo: Any, calendar: Any = None) -> dict:
 
     for d in DEVELOPERS:
         await repo._fetch("update developers set payment_plan = %s where slug = %s returning id", (Jsonb(d["payment_plan"]), d["slug"]))
+
+    from app.demo_projects import restore_demo_projects
+
+    report["projects"] = await restore_demo_projects(repo)  # price requests went with the buyers; prices and offers go back to the demo state
 
     # The agent's saved conversations (LangGraph checkpoints) belong to the buyers just removed.
     for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):

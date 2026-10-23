@@ -63,7 +63,7 @@ export default function StudioPage() {
             </div>
             <div>
               <label htmlFor="new-price" className="block text-sm font-medium">New price (ETB)</label>
-              <input id="new-price" type="number" min="1" step="1000" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={selected ? String(Number(selected.price_etb)) : ""}
+              <input id="new-price" type="number" min="1" step="any" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={selected ? String(Number(selected.price_etb)) : ""}
                 className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm" />
             </div>
             <Button variant="primary" disabled={busy || !selected || !(Number(price) > 0)} onClick={() => selected && void apply(selected.id, Number(price))}>Apply price change</Button>
