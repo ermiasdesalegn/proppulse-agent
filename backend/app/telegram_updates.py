@@ -28,8 +28,10 @@ def parse_update(update: dict) -> Inbound | None:
         return Inbound(**base, kind="voice", file_id=voice["file_id"], mime_type=voice.get("mime_type") or "audio/ogg")
     if (text := message.get("text")) is not None:
         text = text.strip()
-        if text.split("@")[0] == "/start":
-            text = "Hello"
+        command, _, payload = text.partition(" ")
+        if command.split("@")[0] == "/start":
+            # A bare /start is a greeting. With a payload it is a tap on a channel ad button.
+            return Inbound(**base, kind="text", text="Hello", start_payload=payload.strip() or None)
         return Inbound(**base, kind="text", text=text)
     if any(key in message for key in UNREADABLE_KEYS):
         return Inbound(**base, kind="text", text="")

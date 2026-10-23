@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.ads import BUTTONS, DEEPLINK
 from app.agent.graph import BrokerAgent
-from app.agent.nodes import TROUBLE
+from app.agent.nodes import TROUBLE, option_block
 from app.config import Settings
 from app.events import excerpt
 from app.repository import Repository
@@ -37,6 +38,7 @@ class Inbound:
     text: str = ""
     file_id: str | None = None
     mime_type: str = "audio/ogg"
+    start_payload: str | None = None  # what followed /start, for example "ask_1a2b3c4d" from a channel ad button
 
     @property
     def thread_id(self) -> str:
@@ -80,6 +82,8 @@ class ChatService:
         async with self._lock(inbound.thread_id):
             buyer = await self.repo.get_buyer(buyer["id"]) or buyer  # re-read: takeover may have flipped while we waited
             shown = inbound.text if inbound.kind == "text" else "[voice note]"
+            if inbound.start_payload and (link := DEEPLINK.match(inbound.start_payload)):
+                shown = f"Opened a channel ad: {dict(BUTTONS)[link.group(1)]}"
             stored = await self.repo.add_message(
                 buyer["id"], "buyer", shown, source=inbound.kind, telegram_file_id=inbound.file_id
             )
@@ -87,7 +91,55 @@ class ChatService:
                        channel=inbound.channel, text=excerpt(shown))
             if buyer["human_takeover"]:
                 return await self._while_broker_has_the_chat(buyer, inbound, shown)
+            if inbound.start_payload:
+                opened = await self._from_channel_ad(buyer, inbound, stored)
+                if opened is not None:
+                    return opened
             return await self._agent_turn(buyer, inbound, stored)
+
+    async def _say(self, buyer: dict, inbound: Inbound, text: str) -> Outcome:
+        buyer_id = str(buyer["id"])
+        sent = await self.repo.add_message(buyer_id, "agent", text)
+        self._emit("message", role="agent", buyer_id=buyer_id, message_id=sent["id"], source="text", channel=inbound.channel, text=excerpt(text))
+        if inbound.channel == "telegram" and inbound.chat_id is not None:
+            await self._send_telegram(inbound.chat_id, text)
+        return Outcome(buyer_id=buyer_id, reply=text)
+
+    async def _from_channel_ad(self, buyer: dict, inbound: Inbound, stored: dict) -> Outcome | None:
+        """A buyer tapped a button on a channel ad. Load that unit into the conversation so 'option 1' means it."""
+        link = DEEPLINK.match(inbound.start_payload or "")
+        if link is None:
+            return None  # not one of ours: treat it as a plain /start
+        action, code = link.groups()
+        found = await self.repo.find_property_by_code(code)
+        rows = await self.repo.get_properties([found["id"]]) if found else []
+        if not rows or rows[0]["status"] != "AVAILABLE":
+            return await self._say(buyer, inbound, "That listing is no longer available. Tell me your budget, bedrooms and preferred area and I'll find similar options.")
+        unit = rows[0]
+
+        def slim(row: dict, similarity: float) -> dict:
+            return {"id": str(row["id"]), "developer_id": str(row["developer_id"]), "title": row["title"], "sub_city": row["sub_city"],
+                    "price_etb": float(row["price_etb"]), "bedrooms": row["bedrooms"], "similarity": similarity}
+
+        thread = inbound.thread_id
+        if action == "ask":
+            tags = (unit.get("vision_amenities") or {}).get("tags") or []
+            text = (f"Here are the details.\n\n{option_block(1, unit, ', '.join(tags[:3]))}\n\n"
+                    "Would you like to compare it with similar options, or book a site visit?")
+            await self.agent.add_message(thread, AIMessage(content=text), active_matches=[slim(unit, 1.0)])
+            return await self._say(buyer, inbound, text)
+
+        if action == "cmp":
+            similar = await self.repo.similar_properties(unit["id"], threshold=self.settings.similarity_threshold, limit=2)
+            more = await self.repo.get_properties([s["id"] for s in similar])
+            options = [slim(unit, 1.0)] + [slim(r, float(s["similarity"])) for r, s in zip(more, similar)]
+            note = f"You opened {unit['title']}." + (" For comparison I also found similar options." if more else " I found nothing similar to compare it with.")
+            await self.agent.add_message(thread, AIMessage(content=note), active_matches=options)
+            synthetic = "Compare these options for me."
+        else:
+            await self.agent.add_message(thread, AIMessage(content=f"You opened {unit['title']}."), active_matches=[slim(unit, 1.0)])
+            synthetic = "I'd like to book a site visit for option 1."
+        return await self._agent_turn(buyer, replace(inbound, text=synthetic, start_payload=None), stored)
 
     async def _while_broker_has_the_chat(self, buyer: dict, inbound: Inbound, shown: str) -> Outcome:
         await self.agent.add_message(

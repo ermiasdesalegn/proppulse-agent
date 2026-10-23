@@ -18,6 +18,10 @@ class TelegramService(Protocol):
 
     async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int: ...
 
+    async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int: ...
+
+    async def get_me(self) -> dict: ...
+
     async def download_file(self, file_id: str) -> bytes: ...
 
 
@@ -54,6 +58,12 @@ class BotApiTelegramService:
 
     async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int:
         return (await self._request("sendLocation", chat_id=chat_id, latitude=latitude, longitude=longitude))["message_id"]
+
+    async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int:
+        params: dict[str, Any] = {"chat_id": chat_id, "photo": photo_url, "caption": caption[:1024]}
+        if reply_markup:
+            params["reply_markup"] = reply_markup
+        return (await self._request("sendPhoto", **params))["message_id"]
 
     async def get_updates(self, offset: int | None, timeout: int = 25) -> list[dict]:
         params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
@@ -93,6 +103,8 @@ class MockTelegramService:
         self.messages: list[dict] = []
         self.actions: list[tuple] = []
         self.locations: list[tuple] = []
+        self.photos: list[dict] = []
+        self.username = "mock_bot"
         self._files = files or {}
 
     async def send_message(
@@ -107,6 +119,13 @@ class MockTelegramService:
     async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int:
         self.locations.append((chat_id, latitude, longitude))
         return len(self.locations)
+
+    async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int:
+        self.photos.append(dict(chat_id=chat_id, photo_url=photo_url, caption=caption, reply_markup=reply_markup))
+        return 1000 + len(self.photos)
+
+    async def get_me(self) -> dict:
+        return {"id": 1, "username": self.username}
 
     async def download_file(self, file_id: str) -> bytes:
         return self._files[file_id]

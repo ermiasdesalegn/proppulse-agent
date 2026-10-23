@@ -37,8 +37,14 @@ class FakeGateway:
         self.audio: list[bytes] = []
 
     async def generate_structured(self, prompt, schema, *, system=None):
+        from app.ads import AdCopy
         from app.ingest.models import ListingExtraction
 
+        if schema is AdCopy:
+            self.calls.append(("ad_copy", prompt))
+            if getattr(self, "fail_ad_copy", False):
+                raise RuntimeError("gemini down")
+            return AdCopy(headline="HEADLINE", pitch="PITCH")
         if schema is ListingExtraction:
             self.calls.append(("extraction", prompt))
             if getattr(self, "fail_listing_extraction", False):

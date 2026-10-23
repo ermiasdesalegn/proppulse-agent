@@ -129,7 +129,8 @@ class IngestionService:
             old_price = float(existing["price_etb"])
             if abs(old_price - unit.price_etb) > 0.005:
                 changed = True
-                report["price_changed"].append({"title": existing["title"], "old_price_etb": old_price, "new_price_etb": unit.price_etb, "change_pct": _pct(old_price, unit.price_etb)})
+                report["price_changed"].append({"title": existing["title"], "property_id": str(existing["id"]), "old_price_etb": old_price,
+                                                "new_price_etb": unit.price_etb, "change_pct": _pct(old_price, unit.price_etb)})
                 if not dry_run:
                     await self.repo.update_property_price(existing["id"], unit.price_etb)
             if unit.floor_plan_image_url and unit.floor_plan_image_url != existing["floor_plan_image_url"]:

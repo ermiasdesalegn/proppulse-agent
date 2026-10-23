@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.ads import AdError
 from app.chat import ChatService, Conflict, Inbound
 from app.config import Settings
 from app.events import sse_frames
@@ -216,7 +217,8 @@ async def ingest(body: IngestIn, request: Request, service: IngestionService = D
         raise HTTPException(422, str(exc)) from None
     except ExtractionError as exc:
         raise HTTPException(502, str(exc)) from None
-    report["ads"] = await _announce(request, report) if body.publish_ads and not body.dry_run else []
+    wants_ads = body.publish_ads or request.app.state.settings.ads_auto_publish
+    report["ads"] = await _announce(request, report) if wants_ads and not body.dry_run else []
     return report
 
 
@@ -267,13 +269,39 @@ async def scrape_market(request: Request, dry_run: bool = False, publish_ads: bo
         line = {"developer": dev["name"], "new": c["created"], "price changes": c["price_changed"], "removed": c["removed"], "unchanged": c["unchanged"]}
         if report["sync"].startswith("skipped"):
             line["warning"] = report["sync"]
-        if publish_ads and not dry_run:
+        if (publish_ads or request.app.state.settings.ads_auto_publish) and not dry_run:
             line["ads posted"] = len([a for a in await _announce(request, report) if a.get("posted")])
         details.append(line)
     if not configured:
         details.append({"note": "No developer has a scrape address saved yet. Save one with PUT /api/developers/{slug}/scrape, or use Studio to read a page."})
     job = {"job": "market_scraper", "dry_run": dry_run, **totals, "details": details}
     return {"dry_run": dry_run, **totals, "jobs": [job]}
+
+
+# ---------------- channel ads ----------------
+
+class AdPublishIn(BaseModel):
+    property_id: UUID
+    kind: Literal["MANUAL", "NEW_LISTING", "PRICE_DROP"] = "MANUAL"
+    dry_run: bool = True  # previewing is the default: a post on the public channel cannot be taken back from here
+
+
+@router.post("/api/ads/publish", dependencies=[Depends(require_admin)])
+async def publish_ad(body: AdPublishIn, request: Request):
+    ads = getattr(request.app.state, "ads", None)
+    if ads is None:
+        raise HTTPException(503, "Ads are not available")
+    try:
+        return await ads.publish(body.property_id, kind=body.kind, dry_run=body.dry_run)
+    except LookupError:
+        raise HTTPException(404, "Property not found") from None
+    except AdError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.get("/api/ads", dependencies=[Depends(require_admin)])
+async def list_ads(limit: int = 20, repo: Repository = Depends(repo_of)):
+    return await repo.list_channel_posts(min(max(limit, 1), 100))
 
 
 # ---------------- live activity stream ----------------

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ads import AdService
 from app.agent.checkpointer import open_checkpointer
 from app.agent.deps import AgentDeps
 from app.agent.graph import BrokerAgent
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
     chat = ChatService(repo, agent, services, s, events=events)
     proactive = ProactiveService(repo, agent, services, s, events=events)
     ingest = IngestionService(repo, gateway, HttpFetcher(allow_private=s.scrape_allow_private_hosts), s, events=events)
+    ads = AdService(repo, gateway, services, s, events=events)
     handler = TelegramUpdateHandler(chat)
 
     poller, telegram_status = None, "webhook" if s.telegram_mode == "webhook" else "off"
@@ -58,7 +60,7 @@ async def lifespan(app: FastAPI):
             log.error("Telegram is unavailable, continuing without it: %s", exc)
 
     app.state.settings, app.state.repo, app.state.chat, app.state.proactive = s, repo, chat, proactive
-    app.state.events, app.state.ingest = events, ingest
+    app.state.events, app.state.ingest, app.state.ads = events, ingest, ads
     app.state.telegram_handler, app.state.checkpointer_kind = handler, checkpointer.kind
     app.state.telegram_mode = telegram_status
     try:
