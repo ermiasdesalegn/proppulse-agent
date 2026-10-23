@@ -14,9 +14,9 @@ interface LiveValue {
 
 const LiveContext = createContext<LiveValue>({ events: [], status: "connecting", dataVersion: 0 });
 
-const KINDS = ["turn_started", "node", "turn_finished", "turn_failed", "message", "takeover", "proactive"] as const;
-const DATA_KINDS = new Set(["message", "takeover", "proactive", "turn_finished"]);
-const KEEP = 400;
+const KINDS = ["turn_started", "node", "turn_finished", "turn_failed", "message", "takeover", "proactive", "model_call", "tool", "demo_reset"] as const;
+const DATA_KINDS = new Set(["message", "takeover", "proactive", "turn_finished", "demo_reset"]);
+const KEEP = 800; // a turn is now about fifteen events (steps, model requests, tool calls)
 
 /** One shared event stream for the whole dashboard. The browser reconnects by itself and resumes from the last id it saw. */
 export function LiveProvider({ children }: { children: React.ReactNode }) {

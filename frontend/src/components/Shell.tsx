@@ -12,6 +12,7 @@ const NAV = [
   { href: "/board", label: "Deal Board" },
   { href: "/brain", label: "Agent Brain" },
   { href: "/map", label: "Map & Tours" },
+  { href: "/analytics", label: "Analytics" },
   { href: "/studio", label: "Studio" },
   { href: "/chat", label: "Chat Simulator" },
 ];

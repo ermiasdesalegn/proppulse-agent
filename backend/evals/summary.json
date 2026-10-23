@@ -1,0 +1,19 @@
+{
+  "ran_at": "2026-11-02T00:00:00+00:00",
+  "mode": "replay",
+  "retrieval": {
+    "cases": 1,
+    "hit_at_3": 0.9,
+    "mrr": 0.8,
+    "precision_at_3": 1,
+    "correctly_empty": 1.0,
+    "relaxation_recovered": 1.0
+  },
+  "scenarios": {
+    "passed": 20,
+    "counted": 22,
+    "known_gaps": 1,
+    "grounded_turns": 30,
+    "turns": 30
+  }
+}

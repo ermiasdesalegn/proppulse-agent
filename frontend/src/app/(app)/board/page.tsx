@@ -106,6 +106,7 @@ export default function BoardPage() {
                           <p className="text-xs text-muted">{d.property_title}</p>
                           <p className="tnum mt-1 text-xs">{fmtEtb(d.property_price_etb)} <span className="text-muted">- commission</span> {fmtEtb(d.expected_commission_etb)}</p>
                           {d.next_buyer_milestone_date && <p className="mt-1 text-xs text-warn">Payment due {fmtDate(d.next_buyer_milestone_date)}</p>}
+                          {d.tour_id && <Link href={`/tours/${d.tour_id}`} className="mt-1 inline-block text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>}
                           <div className="mt-2 flex items-center justify-between gap-2">
                             <ScoreBar score={d.lead_score} />
                             <label className="sr-only" htmlFor={`move-${d.id}`}>Move deal for {d.buyer_name} to</label>

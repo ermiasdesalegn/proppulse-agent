@@ -60,3 +60,44 @@ announcement itself.
 
 PDFs use the built-in Latin-1 fonts, so characters outside that range (Amharic) are replaced by `?` rather than crashing. The HTML
 brochure and the chat show them correctly. A bundled Unicode font for Amharic PDFs is planned with the rest of the Amharic work.
+
+## The lead score is a list of earned signals, not a number
+
+Each point comes from one named signal (gave a name, shared a phone number, stated a budget, asked to visit...). Signals are kept once
+earned, so a buyer who asked to visit does not lose interest by saying thank you, and the score only ever rises. The earned signals are
+stored with the buyer, and every rise is written to `lead_score_history` with what raised it. That is what lets the CRM answer "why
+62?" and draw how the score grew. Buyers scored before this existed keep their old score; the panel says how many points have no
+recorded reason instead of guessing.
+
+## What the inspector shows, and what it hides
+
+Every model request is logged (model, latency, tokens, fall-backs) and every tool call (search, calendar, routing, email, Telegram) is
+reported with its arguments and a summary of its result. Arguments are summarised on purpose: message bodies become a length, email
+addresses are masked, embeddings become their size, long lists become a count. The inspector therefore shows what the agent decided
+and how long it took without turning the event log into a second copy of every buyer's messages. Events are kept 30 days.
+
+## Mapbox on the page: a public token, with a drawn fallback
+
+The browser needs a token, so the page accepts only a public one (`pk.`); a secret token is never put in the bundle. Without a token,
+or if Mapbox refuses it or is slow, the page falls back to the original drawn map, so the dashboard never shows a blank box. Units that
+are close together gather into numbered clusters; zooming or clicking opens them. While a tour is chosen the map shows only that visit's
+units, its route and numbered stops.
+
+## Chart colours were validated, and one set failed
+
+The three developer colours were checked with the palette validator in light and dark. The light set passed. The original dark set failed
+the lightness band (the amber was too light to sit evenly beside the blue and purple), so the dark colours were re-stepped
+(`#4E86EE`, `#C98009`, `#9D63E0` on the `#141921` surface) and now pass for colour-blind separation and contrast. Charts use one hue
+for magnitude, thin bars with rounded ends, values at the bar tip, hover details, and a "view as table" for every chart.
+
+## Analytics are counted in the database, in parallel
+
+Every figure on the Analytics page is a query over tables the system already keeps. The queries run side by side, which took the page
+from 8.8 s to 3.5 s against the hosted database. The numbers are honest about the free tier: the page reports how often a model request had
+to fall back to another model and how long replies really take.
+
+## Reset demo is off unless asked for, and asks twice
+
+Resetting wipes every buyer, conversation, booking, deal and log, restores prices, removes scraped units and cancels the calendar events
+the system created. The endpoint refuses unless `DEMO_RESET_ENABLED=true` is set, the dashboard only shows the button then, and the
+dialog needs the word RESET typed. It is meant for a demo instance, never for real data.

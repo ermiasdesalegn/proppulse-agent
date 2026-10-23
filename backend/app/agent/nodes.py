@@ -24,7 +24,7 @@ from app.agent.schemas import Extraction, Recommendation
 from app.brochure import brochure_data, render_html as brochure_html, render_pdf as brochure_pdf
 from app.dossier import deliver_dossier
 from app.services.email import Attachment
-from app.agent.scoring import lead_score
+from app.agent import scoring
 from app.agent.state import EMPTY_PREFS, BrokerAgentState
 from app import finance
 from app.finance import fmt_etb, payment_schedule
@@ -260,7 +260,8 @@ class AgentNodes:
                 new_profile[key] = value
 
         query = ex.search_query or state.get("query_text") or self._query_from_prefs(new_prefs)
-        score = max(buyer["lead_score"], lead_score(new_profile, new_prefs, ex.intent, ex.urgency))
+        earned = scoring.merge(buyer.get("score_breakdown"), scoring.signals(new_profile, new_prefs, ex.intent, ex.urgency))
+        score = max(buyer["lead_score"], scoring.total(earned))  # a score recorded before breakdowns existed is never lowered
         stage = buyer["deal_stage"]
         if stage == "NEW" and new_prefs["max_budget_etb"] and (
             new_prefs["min_bedrooms"] is not None or new_prefs["preferred_sub_cities"] or ex.search_query
@@ -274,10 +275,17 @@ class AgentNodes:
                 updates[k] = new_prefs[k]
         if score != buyer["lead_score"]:
             updates["lead_score"] = score
+        if earned != (buyer.get("score_breakdown") or {}):
+            updates["score_breakdown"] = earned
         if stage != buyer["deal_stage"]:
             updates["deal_stage"] = stage
         if updates:
             await d.repo.update_buyer(state["buyer_id"], **updates)
+        if score > buyer["lead_score"]:
+            try:
+                await d.repo.record_score(state["buyer_id"], score, scoring.gained(buyer.get("score_breakdown"), earned))
+            except Exception:
+                log.exception("could not record the score history")  # the history is a nicety; the chat goes on
 
         summary = state.get("preference_summary", "")
         has_prefs = bool(new_prefs["max_budget_etb"] or new_prefs["min_bedrooms"] is not None or new_prefs["preferred_sub_cities"])

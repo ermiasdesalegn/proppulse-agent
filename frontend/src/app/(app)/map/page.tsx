@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import clsx from "@/components/clsx";
 import { Card, DEVELOPER_COLOR, DEVELOPER_VAR, Empty, ErrorNote, Pill } from "@/components/ui";
@@ -8,6 +10,11 @@ import { fmtDateTime, fmtEtb, kmFromMeters } from "@/lib/format";
 import { decodePolyline, type LatLng } from "@/lib/polyline";
 import type { Property, Tour } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
+
+// A public Mapbox token (pk.) switches on live tiles, clustering and real driving routes. Without one the page draws its own map.
+const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+const HAS_LIVE_MAP = TOKEN.startsWith("pk.");
+const MapboxMap = dynamic(() => import("@/components/MapboxMap"), { ssr: false, loading: () => <Empty>Loading the map...</Empty> });
 
 const W = 900, H = 560;
 const DEVELOPERS = [{ slug: "ayat", name: "Ayat" }, { slug: "noah", name: "Noah" }, { slug: "gift", name: "Gift" }];
@@ -28,6 +35,9 @@ export default function MapPage() {
   const [tourId, setTourId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [developer, setDeveloper] = useState<string | null>(null);
+  const [simple, setSimple] = useState(false);
+  const [mapProblem, setMapProblem] = useState<string | null>(null);
+  const liveMap = HAS_LIVE_MAP && !simple && !mapProblem;
 
   const located = useMemo(() => (properties.data ?? []).filter((p) => p.lat !== null && p.lng !== null), [properties.data]);
   const tour = tours.data?.find((t) => t.id === tourId) ?? null;
@@ -58,13 +68,15 @@ export default function MapPage() {
   }, [pins]);
 
   const stopIds = new Set(tour?.stops.map((s) => s.property_id));
+  // What the live map shows: the developer filter, and only the visit's own units while a tour is chosen.
+  const shown = useMemo(() => located.filter((p) => (!developer || p.developer_slug === developer) && (!tour || stopIds.has(p.id))), [located, developer, tour]); // eslint-disable-line react-hooks/exhaustive-deps
   const routeXY = route.map(([lat, lng]) => projection.project(lat, lng));
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold">Map & Tours</h1>
-        <p className="text-sm text-muted">Inventory across Addis Ababa, coloured by developer. Pick a tour to see its route. This map is drawn locally and needs no map key; live Mapbox tiles can replace it later.</p>
+        <p className="text-sm text-muted">Inventory across Addis Ababa, coloured by developer. Pick a tour to see its route, the order of the stops, the distance and the driving time. {liveMap ? "Nearby units gather into a numbered cluster; zoom in or click one to open it." : HAS_LIVE_MAP ? "Showing the simple map." : "This map is drawn locally. Add a public Mapbox token to get live tiles."}</p>
       </div>
       {(properties.error || tours.error) && <ErrorNote>{properties.error ?? tours.error}</ErrorNote>}
 
@@ -77,10 +89,14 @@ export default function MapPage() {
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: `rgb(${DEVELOPER_VAR[d.slug]})` }} />{d.name}
               </button>
             ))}
-            <span className="ml-auto text-xs text-muted">{located.length} units</span>
+            <span className="ml-auto text-xs text-muted">{liveMap ? shown.length : located.length} units</span>
+            {HAS_LIVE_MAP && <button onClick={() => { setSimple(!liveMap); setMapProblem(null); }} className="rounded-full border border-line px-3 py-1 text-xs font-medium hover:bg-raised">{liveMap ? "Use simple map" : "Use live map"}</button>}
           </div>
+          {mapProblem && <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-xs text-warn">{mapProblem}. Showing the simple map instead.</p>}
 
-          {properties.loading ? <Empty>Loading the map...</Empty> : (
+          {properties.loading ? <Empty>Loading the map...</Empty> : liveMap ? (
+            <MapboxMap token={TOKEN} properties={shown} selectedId={selectedId} onSelect={setSelectedId} route={route} stops={tour?.stops ?? []} onFailure={setMapProblem} />
+          ) : (
             <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Map of available units in Addis Ababa" onClick={() => setSelectedId(null)}>
               <rect width={W} height={H} fill="rgb(var(--raised))" />
               {[0.2, 0.4, 0.6, 0.8].map((f) => <g key={f} stroke="rgb(var(--line))" strokeWidth="0.6" strokeDasharray="3 5"><line x1={W * f} y1="0" x2={W * f} y2={H} /><line x1="0" y1={H * f} x2={W} y2={H * f} /></g>)}
@@ -135,9 +151,10 @@ export default function MapPage() {
                     <button onClick={() => setTourId(t.id === tourId ? null : t.id)} aria-pressed={t.id === tourId}
                       className={clsx("w-full border-b border-line/60 px-4 py-3 text-left text-sm hover:bg-raised", t.id === tourId && "bg-accent/10")}>
                       <p className="font-medium">{t.full_name ?? t.thread_id}</p>
-                      <p className="text-xs text-muted">{fmtDateTime(t.scheduled_start)} - {t.stops.length} stop{t.stops.length === 1 ? "" : "s"}</p>
+                      <p className="text-xs text-muted">{fmtDateTime(t.scheduled_start)} - {t.kind === "CONSULTATION" ? "phone call" : `${t.stops.length} stop${t.stops.length === 1 ? "" : "s"}`}</p>
                       {t.mapbox_route_json && <p className="tnum text-xs text-muted">{kmFromMeters(t.mapbox_route_json.distance_meters)}, about {Math.round(t.mapbox_route_json.duration_seconds / 60)} min driving</p>}
                     </button>
+                    <Link href={`/tours/${t.id}`} className="block border-b border-line/60 px-4 pb-2 text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>
                   </li>
                 ))}
               </ul>

@@ -50,6 +50,22 @@ cd backend && .venv/Scripts/python -m pytest              # offline, no credenti
 cd ../frontend && npm test && npm run typecheck && npm run build
 ```
 
+## The Command Center
+
+| Page | What it does |
+|---|---|
+| Overview | Live numbers, activity and the proactive messages that went out |
+| CRM & Takeover | Every buyer, the full chat, voice notes you can play, and one-click takeover. Each buyer has a panel that explains the lead score signal by signal, shows how it grew, lists the worries they raised and links to the booking dossier |
+| Deal Board | Drag deals through the commission stages; each card links to its pre-tour dossier |
+| Agent Brain | The live graph, a timeline of every step with the model requests and tool calls made in it (which model answered, tokens, fall-backs, search arguments and results) |
+| Map & Tours | Live Mapbox map with price pins coloured by developer, clusters, and the driving route, numbered stops, distance and time of any tour. Falls back to a drawn map without a token |
+| Analytics | Pipeline, commission, messages per day, lead scores, buyer worries, reply time, model usage and the evaluation results |
+| Studio | Read listing pages and announcements, floor-plan upload, price simulator, channel ads |
+| Chat Simulator | Talk to the agent as a buyer, with the same buttons Telegram shows |
+
+Optional settings: `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local` (a public `pk.` token) for the live map, and
+`DEMO_RESET_ENABLED=true` in `backend/.env` to show the Reset demo button on a demo instance.
+
 ## Evaluation
 
 The agent is measured, not just demonstrated. `backend/evals` runs three checks from a recording of the real model's answers (free, 27 seconds):

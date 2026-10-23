@@ -78,6 +78,9 @@ class CalendarService(Protocol):
     async def book(self, *, start: datetime, end: datetime, summary: str, description: str = "", location: str = "") -> str:
         """Return the calendar event id. Raises SlotUnavailable if the time is taken."""
 
+    async def cancel(self, event_id: str) -> None:
+        """Remove an event this service created. Cancelling one that is already gone is not an error."""
+
 
 class MockCalendarService:
     """In-memory calendar with business hours, working days and travel buffer."""
@@ -111,3 +114,6 @@ class MockCalendarService:
         event_id = f"mock-evt-{uuid.uuid4().hex[:12]}"
         self.events[event_id] = dict(start=start, end=end, summary=summary, description=description, location=location)
         return event_id
+
+    async def cancel(self, event_id: str) -> None:
+        self.events.pop(event_id, None)

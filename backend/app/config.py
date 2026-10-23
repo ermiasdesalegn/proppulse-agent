@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     ads_auto_publish: bool = False  # post new listings and price drops to the channel without being asked
     telegram_channel_id: str = ""
 
+    demo_reset_enabled: bool = False  # lets the dashboard's Reset Demo button wipe conversations and restore the demo catalogue
     broker_name: str = "Ermias Desalegn"
     broker_telegram_chat_id: str = ""  # where the broker's own notices go; falls back to DEMO_FALLBACK_TELEGRAM_CHAT_ID
     proactive_lookback_hours: int = 24  # how far back price drops and new listings count as news

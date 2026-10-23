@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "@/components/clsx";
+import ScorePanel from "@/components/ScorePanel";
 import { Button, Card, Empty, ErrorNote, Pill, ScoreBar } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { displayName, fmtDateTime, fmtEtb, stageLabel, timeAgo } from "@/lib/format";
@@ -135,6 +136,11 @@ function BuyerPanel({ buyer, onChanged }: { buyer: Buyer; onChanged: () => void 
           <div className="col-span-2 sm:col-span-3"><Fact label="What the agent understood" value={buyer.preference_summary} /></div>
         </dl>
       </header>
+
+      <details className="border-b border-line">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium hover:bg-raised">Lead score, worries and bookings</summary>
+        <ScorePanel buyerId={buyer.id} />
+      </details>
 
       <div ref={scroller} className="max-h-[32rem] min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-label="Conversation">
         {messages.error && <ErrorNote>{messages.error}</ErrorNote>}

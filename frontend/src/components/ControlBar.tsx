@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { errorMessage, post } from "@/lib/api";
-import type { JobSummary } from "@/lib/types";
+import type { JobSummary, Stats } from "@/lib/types";
+import { useApi } from "@/lib/useApi";
 import { Button, ErrorNote } from "./ui";
 
 type JobKey = "scraper" | "alerts" | "reminders";
@@ -49,6 +50,7 @@ export default function ControlBar() {
             {running === job.key ? "Running..." : job.label}
           </Button>
         ))}
+        <ResetDemo />
         <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm">
           <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
           <span title="Preview who would be contacted without sending anything">Preview only</span>
@@ -94,4 +96,47 @@ export default function ControlBar() {
 
 function summarise(detail: Record<string, unknown>): string {
   return Object.entries(detail).map(([k, v]) => `${k.replace(/_/g, " ")}: ${Array.isArray(v) ? v.join(", ") : String(v)}`).join("  |  ");
+}
+
+/** Wipes the conversations and restores the demo catalogue. Only offered when the backend allows it, and only after typing RESET. */
+function ResetDemo() {
+  const stats = useApi<Stats>("stats");
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!stats.data?.demo_reset_enabled) return null;
+
+  async function reset() {
+    setBusy(true); setError(null);
+    try {
+      await post("demo/reset", { confirm: "RESET" });
+      window.location.href = "/";
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="danger" onClick={() => { setOpen(true); setTyped(""); setError(null); }}>Reset demo</Button>
+      {open && (
+        <div role="dialog" aria-modal="true" aria-labelledby="reset-title" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-line bg-panel p-5 shadow-xl">
+            <h2 id="reset-title" className="text-base font-semibold">Reset the demo?</h2>
+            <p className="mt-2 text-sm text-muted">This deletes every buyer, conversation, booking, deal, alert and log, cancels the calendar events the system created, puts every unit back to its original price, and removes units that were added by the scraper. It cannot be undone.</p>
+            <label htmlFor="reset-confirm" className="mt-4 block text-sm font-medium">Type RESET to confirm</label>
+            <input id="reset-confirm" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoFocus
+              className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent" />
+            {error && <div className="mt-3"><ErrorNote>{error}</ErrorNote></div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+              <Button variant="danger" disabled={busy || typed !== "RESET"} onClick={() => void reset()}>{busy ? "Resetting..." : "Reset everything"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

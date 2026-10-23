@@ -60,7 +60,21 @@ def check(results: dict) -> int:
     return 1 if problems else 0
 
 
+def summary(results: dict) -> dict:
+    """The few numbers the dashboard shows. Small, committed, and refreshed by every report run."""
+    out: dict = {"ran_at": results["ran_at"], "mode": results["mode"]}
+    if r := results.get("retrieval"):
+        s = r["summary"]
+        out["retrieval"] = {"cases": s["overall"]["cases"], "hit_at_3": s["overall"]["hit_at_3"], "mrr": s["overall"]["mrr"], "precision_at_3": s["overall"]["precision_at_3"],
+                            "correctly_empty": s["no_match_expected"]["correctly_empty"], "relaxation_recovered": s["relaxation"]["recovered"]}
+    if sc := results.get("scenarios"):
+        out["scenarios"] = {"passed": sc["passed"], "counted": sc["counted"], "known_gaps": sc["known_gaps"], "grounded_turns": sc["grounded_turns"], "turns": sc["turns"]}
+    return out
+
+
 def write(results: dict) -> None:
+    if "retrieval" in results and "scenarios" in results:  # a partial run must not overwrite the full picture
+        (HERE / "summary.json").write_text(json.dumps(summary(results), indent=2), encoding="utf-8")
     out = ["# Evaluation report", "", f"Run on {results['ran_at']} in `{results['mode']}` mode. Everything runs against the demo catalogue (15 units, 3 developers) with the model's recorded answers, "
            "so a replay run is repeatable and free; `--mode record` refreshes the recording from the live model.", ""]
     if r := results.get("retrieval"):

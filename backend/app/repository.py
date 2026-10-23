@@ -21,7 +21,7 @@ BUYER_STAGE_FOLLOWS = {"TOUR_COMPLETED", "CONTRACT_SIGNED", "COMMISSION_PENDING"
 
 BUYER_FIELDS = {
     "full_name", "phone", "email", "max_budget_etb", "min_bedrooms",
-    "preferred_sub_cities", "lead_score", "deal_stage",
+    "preferred_sub_cities", "lead_score", "deal_stage", "score_breakdown",
 }
 LEDGER_FIELDS = {
     "contract_value_etb", "expected_commission_etb", "next_buyer_milestone_date",
@@ -392,14 +392,27 @@ class Repository:
         unknown = set(fields) - BUYER_FIELDS
         if unknown or not fields:
             raise ValueError(f"cannot update buyer fields: {sorted(unknown) or 'none given'}")
+        from psycopg.types.json import Jsonb
+
         sets = sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(k)) for k in fields)
+        values = [Jsonb(v) if k == "score_breakdown" else v for k, v in fields.items()]
         row = await self._one(
             sql.SQL("update buyers_crm set {} where id = %s returning *").format(sets),
-            [*fields.values(), str(buyer_id)],
+            [*values, str(buyer_id)],
         )
         if row is None:
             raise LookupError(f"buyer {buyer_id} not found")
         return row
+
+    async def record_score(self, buyer_id: UUID | str, score: int, gained: Sequence[dict]) -> None:
+        """Remember that a buyer's score went up, and what raised it."""
+        from psycopg.types.json import Jsonb
+
+        await self._fetch("insert into lead_score_history (buyer_id, score, gained) values (%s, %s, %s) returning id", (str(buyer_id), score, Jsonb(list(gained))))
+
+    async def score_history(self, buyer_id: UUID | str, limit: int = 100) -> list[dict]:
+        return await self._fetch(
+            "select score, gained, created_at from lead_score_history where buyer_id = %s order by id limit %s", (str(buyer_id), limit))
 
     async def get_buyer_by_thread(self, thread_id: str) -> dict | None:
         return await self._one("select * from buyers_crm where thread_id = %s", (thread_id,))

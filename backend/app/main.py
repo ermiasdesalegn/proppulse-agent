@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.db import make_pool
 from app.calllog import ModelCallLog
 from app.events import DurableEventBus
+from app.tracing import trace_repo, trace_services
 from app.gemini import get_gateway
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
@@ -51,14 +52,15 @@ async def lifespan(app: FastAPI):
     await pool.open(wait=True, timeout=20)
     checkpointer = await open_checkpointer(s)
     gateway = get_gateway()
-    services = build_services(s)
+    real_services = build_services(s)
     repo = Repository(pool)
-    events = DurableEventBus(pool)
+    events = DurableEventBus(pool, retention_days=30)
     await events.start()
     calls = ModelCallLog(pool, events)
     await calls.start()
     gateway.recorder = calls.record
-    agent = BrokerAgent(AgentDeps(gateway=gateway, repo=repo, services=services, settings=s, events=events), checkpointer.saver)
+    services = trace_services(real_services, events)  # every calendar, routing, email and Telegram call reports itself to the inspector
+    agent = BrokerAgent(AgentDeps(gateway=gateway, repo=trace_repo(repo, events), services=services, settings=s, events=events), checkpointer.saver)
     chat = ChatService(repo, agent, services, s, events=events)
     proactive = ProactiveService(repo, agent, services, s, events=events)
     ingest = IngestionService(repo, gateway, HttpFetcher(allow_private=s.scrape_allow_private_hosts), s, events=events)
@@ -66,11 +68,11 @@ async def lifespan(app: FastAPI):
     handler = TelegramUpdateHandler(chat)
 
     poller, telegram_status = None, "webhook" if s.telegram_mode == "webhook" else "off"
-    if s.telegram_mode == "webhook" and isinstance(services.telegram, BotApiTelegramService):
-        telegram_status = await register_webhook(s, services.telegram)
-    if isinstance(services.telegram, BotApiTelegramService) and s.telegram_mode in ("auto", "polling"):
+    if s.telegram_mode == "webhook" and isinstance(real_services.telegram, BotApiTelegramService):
+        telegram_status = await register_webhook(s, real_services.telegram)
+    if isinstance(real_services.telegram, BotApiTelegramService) and s.telegram_mode in ("auto", "polling"):
         try:
-            poller = TelegramPoller(services.telegram, handler)
+            poller = TelegramPoller(real_services.telegram, handler)
             await poller.start()
             telegram_status = "polling"
             log.info("Telegram: polling for messages")

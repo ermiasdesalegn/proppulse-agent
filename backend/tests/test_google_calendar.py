@@ -36,6 +36,7 @@ class FakeGoogle:
         self.calls, self.busy, self.inserted = [], [], []
         self.token_count, self.fail_next_api = 0, []
         self.freebusy_errors = None
+        self.deleted, self.gone = [], False
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         url = str(req.url)
@@ -58,6 +59,9 @@ class FakeGoogle:
             body = json.loads(req.content)
             self.inserted.append((req.url.raw_path.decode(), body))
             return httpx.Response(200, json={"id": "evt_123"})
+        if req.method == "DELETE":
+            self.deleted.append(req.url.raw_path.decode())
+            return httpx.Response(404, json={"error": {"message": "Not Found"}}) if self.gone else httpx.Response(204)
         return httpx.Response(404, json={"error": {"message": "unexpected call"}})
 
 
@@ -208,3 +212,22 @@ async def test_a_response_with_no_body_is_accepted():
     service, fake, _ = make()
     fake.fail_next_api = [httpx.Response(204)]  # what Google answers to a DELETE
     assert await service._call("DELETE", "/calendars/x/events/evt_123") == {}
+
+
+async def test_cancelling_deletes_the_event_with_an_encoded_id():
+    service, fake, _ = make()
+    await service.cancel("evt_1/2 odd")
+    assert fake.deleted == [f"/calendar/v3/calendars/{CAL.replace('@', '%40')}/events/evt_1%2F2%20odd"]
+
+
+async def test_cancelling_an_event_that_is_already_gone_is_not_an_error():
+    service, fake, _ = make()
+    fake.gone = True
+    await service.cancel("evt_1")
+
+
+async def test_other_cancel_failures_are_reported():
+    service, fake, _ = make()
+    fake.fail_next_api = [httpx.Response(403, json={"error": {"message": "no access"}})]
+    with pytest.raises(CalendarError, match="403"):
+        await service.cancel("evt_1")

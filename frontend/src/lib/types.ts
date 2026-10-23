@@ -45,6 +45,7 @@ export interface Deal {
   contract_value_etb: number | null;
   next_buyer_milestone_date: string | null;
   lead_reg_email_id: string | null;
+  tour_id: string | null;
   lead_score: number;
   created_at: string;
   updated_at: string;
@@ -101,6 +102,7 @@ export interface RouteJson {
 
 export interface Tour {
   id: string;
+  kind: "SITE_VISIT" | "CONSULTATION";
   scheduled_start: string;
   mapbox_route_json: RouteJson | null;
   reminder_sent: boolean;
@@ -120,6 +122,7 @@ export interface Stats {
   upcoming_tours: number;
   proactive_sent: number;
   high_value_threshold_etb: number;
+  demo_reset_enabled: boolean;
 }
 
 export interface ProactiveEvent {
@@ -254,4 +257,85 @@ export interface MessageEvent2 extends EventBase {
 export interface TakeoverEvent extends EventBase { kind: "takeover"; buyer_id: string; on: boolean; name: string | null }
 export interface ProactiveLiveEvent extends EventBase { kind: "proactive"; what: string; audience: string; buyer_id: string | null; channel: string; text: string }
 
-export type LiveEvent = TurnStarted | TurnFinished | TurnFailed | NodeEvent | MessageEvent2 | TakeoverEvent | ProactiveLiveEvent;
+/** One request to the language model, as the call log reports it. */
+export interface ModelCallEvent extends EventBase {
+  kind: "model_call";
+  operation: string;
+  schema_name: string | null;
+  lane: string;
+  model: string | null;
+  outcome: string;
+  latency_ms: number;
+  attempt: number;
+  fallbacks: string[];
+  input_tokens: number | null;
+  output_tokens: number | null;
+  node: string | null;
+  buyer_id?: string;
+}
+/** One call the agent made to a tool (search, calendar, routing, email, Telegram), with its arguments summarised. */
+export interface ToolEvent extends EventBase {
+  kind: "tool";
+  tool: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  ms: number;
+  ok: boolean;
+  error: string | null;
+  node: string | null;
+  buyer_id: string | null;
+}
+export interface DemoResetEvent extends EventBase { kind: "demo_reset"; deleted: number }
+
+export type LiveEvent = TurnStarted | TurnFinished | TurnFailed | NodeEvent | MessageEvent2 | TakeoverEvent | ProactiveLiveEvent | ModelCallEvent | ToolEvent | DemoResetEvent;
+
+// ---- CRM profile, dossier, analytics ----
+
+export interface ScoreComponent { key: string; label: string; max: number; points: number; earned: boolean }
+export interface BuyerProfile {
+  buyer: Buyer & { objections?: { text: string; at: string }[] };
+  score: { total: number; explained: number; components: ScoreComponent[]; history: { score: number; gained: { label: string; points: number }[]; at: string }[] };
+  objections: { text: string; at: string }[];
+  tours: Tour[];
+}
+
+export interface DossierUnit {
+  property_id: string; title: string; developer: string; area: string; price_etb: number; price_per_sqm_etb: number; bedrooms: number;
+  commission_rate_pct: number | null; expected_commission_etb: number; payment_plan: string; monthly_equivalent_etb: number; reliability_score: number | null;
+}
+export interface Dossier {
+  tour_id: string;
+  kind: "SITE_VISIT" | "CONSULTATION";
+  starts_at: string;
+  buyer: { id: string; name: string | null; phone: string | null; email: string | null; max_budget_etb: number | null; min_bedrooms: number | null; areas: string[]; lead_score: number; deal_stage: DealStage; wants: string | null };
+  objections: string[];
+  recent_buyer_messages: string[];
+  units: DossierUnit[];
+  route: { distance_km: number; minutes: number } | null;
+  total_value_etb: number;
+  expected_commission_etb: number;
+  budget_gap_etb: number | null;
+  text: string;
+}
+
+export interface Analytics {
+  generated_at: string;
+  days: number;
+  totals: { buyers: number; messages: number; tours: number };
+  funnel: { stage: DealStage; buyers: number }[];
+  ledger: { status: LedgerStatus; deals: number; expected_commission_etb: number; contract_value_etb: number }[];
+  commission: { open_etb: number; paid_etb: number };
+  messages_per_day: { day: string; role: "buyer" | "agent" | "broker"; n: number }[];
+  tours_per_day: { day: string; kind: string; n: number }[];
+  turns: { count: number; failed: number; p50_ms: number | null; p95_ms: number | null };
+  models: { model: string; calls: number; avg_ms: number; input_tokens: number; output_tokens: number; errors: number; fell_back: number }[];
+  nodes: { node: string; calls: number; avg_ms: number; tokens: number }[];
+  per_conversation: { buyers: number; model_calls: number; tokens: number };
+  score_distribution: { from: number; to: number; buyers: number }[];
+  objections: { text: string; n: number }[];
+  evaluation: {
+    ran_at: string;
+    retrieval?: { cases: number; hit_at_3: number; mrr: number; precision_at_3: number; correctly_empty: number; relaxation_recovered: number };
+    scenarios?: { passed: number; counted: number; known_gaps: number; grounded_turns: number; turns: number };
+  } | null;
+}

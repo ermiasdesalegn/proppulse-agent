@@ -477,7 +477,32 @@ async def list_tours(limit: int = 100, repo: Repository = Depends(repo_of)):
 async def stats(request: Request, repo: Repository = Depends(repo_of)):
     s = request.app.state.settings
     since = datetime.now(timezone.utc) - timedelta(hours=24)
-    return {**await repo.stats(since), "high_value_threshold_etb": s.high_value_threshold_etb}
+    return {**await repo.stats(since), "high_value_threshold_etb": s.high_value_threshold_etb, "demo_reset_enabled": s.demo_reset_enabled}
+
+
+@router.get("/api/analytics", dependencies=[Depends(require_admin)])
+async def analytics(days: int = 30, repo: Repository = Depends(repo_of)):
+    from app.analytics import build
+
+    return await build(repo, days=min(max(days, 1), 365))
+
+
+class DemoResetIn(BaseModel):
+    confirm: str
+
+
+@router.post("/api/demo/reset", dependencies=[Depends(require_admin)])
+async def demo_reset(body: DemoResetIn, request: Request, repo: Repository = Depends(repo_of)):
+    """Wipe conversations, deals, tours and event history and restore the demo catalogue. Off unless DEMO_RESET_ENABLED is set."""
+    from app.demo import reset_demo
+
+    if not request.app.state.settings.demo_reset_enabled:
+        raise HTTPException(403, "Resetting the demo is switched off (set DEMO_RESET_ENABLED=true to allow it)")
+    if body.confirm != "RESET":
+        raise HTTPException(422, 'Type RESET to confirm')
+    report = await reset_demo(repo, request.app.state.chat.services.calendar)
+    request.app.state.events.publish("demo_reset", deleted=sum(report["deleted"].values()))
+    return report
 
 
 @router.get("/api/messages/{message_id}/audio", dependencies=[Depends(require_admin)])
@@ -506,6 +531,25 @@ async def get_buyer(buyer_id: UUID, repo: Repository = Depends(repo_of)):
     if buyer is None:
         raise HTTPException(404, "Buyer not found")
     return public_buyer(buyer)
+
+
+@router.get("/api/buyers/{buyer_id}/profile", dependencies=[Depends(require_admin)])
+async def buyer_profile(buyer_id: UUID, repo: Repository = Depends(repo_of)):
+    """Everything the CRM shows about one buyer: why the score is what it is, how it grew, what they worry about, what is booked."""
+    from app.agent import scoring
+
+    buyer = await repo.get_buyer(buyer_id)
+    if buyer is None:
+        raise HTTPException(404, "Buyer not found")
+    earned = buyer.get("score_breakdown") or {}
+    history = await repo.score_history(buyer_id)
+    return {
+        "buyer": public_buyer(buyer),
+        "score": {"total": buyer["lead_score"], "components": scoring.components(earned), "explained": scoring.total(earned),
+                  "history": [{"score": h["score"], "gained": h["gained"], "at": h["created_at"]} for h in history]},
+        "objections": buyer.get("objections") or [],
+        "tours": [t for t in await repo.list_tours(200) if str(t["buyer_id"]) == str(buyer_id)],
+    }
 
 
 @router.get("/api/buyers/{buyer_id}/messages", dependencies=[Depends(require_admin)])

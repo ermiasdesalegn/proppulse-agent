@@ -135,3 +135,11 @@ class GoogleCalendarService:
             "end": {"dateTime": end.isoformat(), "timeZone": zone},
         })
         return event["id"]
+
+    async def cancel(self, event_id: str) -> None:
+        try:
+            await self._call("DELETE", f"/calendars/{quote(self._calendar_id, safe='')}/events/{quote(event_id, safe='')}")
+        except CalendarError as exc:
+            if "404" in str(exc) or "410" in str(exc):
+                return  # already gone
+            raise

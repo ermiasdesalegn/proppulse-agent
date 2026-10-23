@@ -166,7 +166,7 @@ describe("pin spreading", () => {
 
 const deal = (over: Partial<Deal> = {}): Deal => ({
   id: "d1", buyer_id: "b1", buyer_name: "Abel", developer_name: "Noah", developer_slug: "noah", property_title: "Unit", property_price_etb: 19_800_000,
-  status: "LEAD_REGISTERED", expected_commission_etb: 495_000, contract_value_etb: null, next_buyer_milestone_date: null, lead_reg_email_id: "em",
+  status: "LEAD_REGISTERED", expected_commission_etb: 495_000, contract_value_etb: null, next_buyer_milestone_date: null, lead_reg_email_id: "em", tour_id: null,
   lead_score: 40, created_at: "", updated_at: "", ...over,
 });
 
