@@ -2,6 +2,7 @@
 Their source address starts with demo: so a reset can tell them from projects found by crawling a real site."""
 from __future__ import annotations
 
+import io
 from datetime import date, timedelta
 from typing import Any
 
@@ -18,9 +19,29 @@ DEMO_PROJECTS = [
 ]
 
 
-async def restore_demo_projects(repo: Any, embed: Any = None) -> dict:
+def placeholder_image(name: str, area: str) -> bytes:
+    """A plain picture card for a demo project, so a channel post always has something to show. Real projects use their own photo or video."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (1280, 720), (16, 16, 16))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((0, 0, 1280, 8), fill=(255, 106, 19))
+    try:
+        big, small = ImageFont.truetype("arial.ttf", 76), ImageFont.truetype("arial.ttf", 36)
+    except OSError:
+        big = small = ImageFont.load_default()
+    draw.text((80, 250), name, fill=(255, 255, 255), font=big)
+    draw.text((80, 360), f"{area}, Addis Ababa  -  demo project", fill=(156, 163, 175), font=small)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=85)
+    return out.getvalue()
+
+
+async def restore_demo_projects(repo: Any, embed: Any = None, *, remove_crawled: bool = True) -> dict:
     """Remove projects that were crawled, put the demo ones back without prices, and give the demo offer a fresh end date."""
-    gone = await repo._fetch("with gone as (delete from projects where source_url not like %s returning 1) select count(*)::int as n from gone", (DEMO_PREFIX + "%",))
+    gone = [{"n": 0}]
+    if remove_crawled:  # a reset removes what was crawled; seeding the demo projects alone must never delete real ones
+        gone = await repo._fetch("with gone as (delete from projects where source_url not like %s returning 1) select count(*)::int as n from gone", (DEMO_PREFIX + "%",))
     developers = {d["slug"]: d["id"] for d in await repo.list_developers()}
     restored = 0
     for p in DEMO_PROJECTS:
@@ -36,6 +57,8 @@ async def restore_demo_projects(repo: Any, embed: Any = None) -> dict:
         }
         saved, _ = await repo.upsert_project(developers[p["dev"]], row)
         await repo.set_project_price(saved["id"], None, None)
+        if not await repo.list_project_media(saved["id"]):
+            await repo.add_project_media(saved["id"], kind="photo", mime="image/jpeg", filename="demo-placeholder.jpg", data=placeholder_image(p["name"], p["sub_city"]))
         if embed is not None:
             await embed(await repo.get_project(saved["id"]))  # a full row: the saved one is a stub when nothing changed
         restored += 1

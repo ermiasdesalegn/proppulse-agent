@@ -10,8 +10,10 @@ Nothing here invents a price. A project's price is empty ("price on request") un
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -31,6 +33,14 @@ PROJECT_LINK = re.compile(r"^(proj|pinfo|pvisit)_([0-9a-f]{8})$")
 ASK_PRICE = re.compile(r"^\s*Ask the price of (.{3,120}?)\s*$", re.I)
 VISIT_ASK = re.compile(r"^\s*Book a visit to (.{3,120}?)\s*$", re.I)
 VISIT_SLOT = re.compile(r"^\s*Book visit to (.{3,120}?) on (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*$", re.I)
+# The developer sites the market sweep reads when nothing else is configured. The sweep needs no selectors: the page text goes to the language model.
+DEFAULT_MARKET_SOURCES = (
+    ("ayat", "https://ayatrealestate.com/residential/"),
+    ("noah", "https://noahrealestateplc.com/project-updates/list/6"),
+    ("metropolitan-real-estate", "https://metropolitanaddis.com/luxury-apartments/"),
+)
+PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
+VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
 PROJECT_BUTTONS = (("proj", "Ask the price"), ("pvisit", "Book a visit"), ("pinfo", "More about this project"))
 
 
@@ -119,6 +129,8 @@ class ProjectService:
         self.fetcher = fetcher or HttpFetcher()
         self.proactive, self.ads, self.events = proactive, ads, events
         self._names: tuple[float, list[dict]] = (0.0, [])
+        self.sweep: dict[str, Any] = {"running": False, "last": None}
+        self._sweep_task: asyncio.Task | None = None
 
     # ---------------- reading developer sites ----------------
 
@@ -158,6 +170,87 @@ class ProjectService:
         elif not (rows or report["unchanged"]):
             report["notes"].append("No page looked like a single residential project. Try the address of the page that lists the projects.")
         return report
+
+    # ---------------- the market sweep: read every known developer site with the language model ----------------
+
+    async def sources(self) -> list[tuple[str, str]]:
+        """(developer slug, address) pairs: MARKET_SOURCES if set, else the built-in list, plus any developer saved with a website."""
+        if self.settings.market_sources.strip():
+            pairs = [tuple(part.split("=", 1)) for part in self.settings.market_sources.split(";") if "=" in part]
+            chosen = [(slug.strip(), url.strip()) for slug, url in pairs]
+        else:
+            chosen = list(DEFAULT_MARKET_SOURCES)
+        known = {d["slug"]: d for d in await self.repo.list_developers()}
+        covered = {slug for slug, _ in chosen}
+        chosen += [(d["slug"], d["website_url"]) for d in known.values() if d.get("website_url") and d["slug"] not in covered]
+        return [(slug, url) for slug, url in chosen if slug in known and url.startswith(("http://", "https://"))]
+
+    async def market_sweep(self, dry_run: bool = True) -> dict:
+        """Crawl every source in turn. One site failing (a timeout, a block) never stops the others."""
+        out: dict[str, Any] = {"job": "market_scraper", "dry_run": dry_run, "sent": 0, "skipped": 0, "failed": 0, "details": []}
+        for slug, url in await self.sources():
+            self.sweep["current"] = url
+            try:
+                report = await asyncio.wait_for(self.crawl_developer(slug, url, dry_run=dry_run), timeout=1500)
+            except Exception as exc:
+                out["failed"] += 1
+                out["details"].append({"developer": slug, "url": url, "error": str(exc.args[0]) if exc.args else type(exc).__name__})
+                continue
+            out["sent"] += len(report["created"]) + len(report["updated"])
+            out["skipped"] += len(report["unchanged"])
+            out["details"].append({"developer": slug, "url": url, "pages_read": report["pages_read"], "new": [p["name"] for p in report["created"]],
+                                   "changed": [p["name"] for p in report["updated"]], "unchanged": len(report["unchanged"]), "notes": report["notes"][:4]})
+        return out
+
+    async def start_market_sweep(self, dry_run: bool = True) -> dict:
+        """Start the sweep in the background (it takes minutes and many model calls) and return at once."""
+        if self.sweep.get("running"):
+            return {"started": False, "reason": "A market sweep is already running.", **self.status()}
+        sources = await self.sources()
+        if not sources:
+            return {"started": False, "reason": "No developer site is configured for the sweep.", **self.status()}
+        self.sweep.update({"running": True, "dry_run": dry_run, "started_at": time.time(), "current": None, "sources": [u for _, u in sources]})
+
+        async def run() -> None:
+            try:
+                result = await self.market_sweep(dry_run)
+            except Exception as exc:  # never leave the status stuck on "running"
+                log.exception("market sweep failed")
+                result = {"job": "market_scraper", "dry_run": dry_run, "sent": 0, "skipped": 0, "failed": 1, "details": [{"error": type(exc).__name__}]}
+            self.sweep.update({"running": False, "current": None, "finished_at": time.time(), "last": result})
+            if self.events and not dry_run:
+                self.events.publish("ingest", what="market_sweep", created=result["sent"], failed=result["failed"])
+
+        self._sweep_task = asyncio.create_task(run())
+        return {"started": True, "sources": len(sources), **self.status()}
+
+    def status(self) -> dict:
+        return {"sweep": {k: v for k, v in self.sweep.items()}}
+
+    # ---------------- pictures and videos ----------------
+
+    async def add_media(self, project_id: UUID | str, *, filename: str | None, mime: str, data: bytes) -> dict:
+        if await self.repo.get_project(project_id) is None:
+            raise LookupError("project not found")
+        mime = mime.lower().strip()
+        if mime in PHOTO_TYPES:
+            kind, limit = "photo", self.settings.project_photo_max_mb
+        elif mime in VIDEO_TYPES:
+            kind, limit = "video", self.settings.project_video_max_mb
+        else:
+            raise ProjectError("Use a JPG, PNG or WebP picture, or an MP4, MOV or WebM video.")
+        if not data or len(data) > limit * 1024 * 1024:
+            raise ProjectError(f"That {kind} is {'empty' if not data else 'too large'}: the limit is {limit} MB.")
+        return await self.repo.add_project_media(project_id, kind=kind, mime=mime, filename=(filename or "")[:120] or None, data=data)
+
+    async def _media_for_post(self, p: dict) -> tuple[str, Any] | None:
+        """What to show with the ad: the broker's own upload first, then the picture the scraper found."""
+        mine = await self.repo.latest_project_media(p["id"])
+        if mine is not None:
+            return mine["kind"], bytes(mine["data"])
+        if p.get("image_url"):
+            return "url", p["image_url"]
+        return None
 
     async def embed(self, project: dict) -> None:
         """Keep the project searchable by meaning. A model hiccup only means it is found by area for now."""
@@ -337,6 +430,10 @@ class ProjectService:
     async def set_price(self, project_id: UUID | str, price_from_etb: float | None, note: str | None = None) -> dict:
         if price_from_etb is not None and not (0 < price_from_etb < 1e12):
             raise ProjectError("The price must be a positive amount in birr.")
+        before = await self.repo.get_project(project_id)
+        if before is None:
+            raise LookupError("project not found")
+        old_price = float(before["price_from_etb"]) if before["price_from_etb"] is not None else None
         updated = await self.repo.set_project_price(project_id, price_from_etb, (note or "").strip() or None)
         if updated is None:
             raise LookupError("project not found")
@@ -368,7 +465,48 @@ class ProjectService:
                 await self.proactive._finish(claim, text, channel)
                 await self.repo.answer_price_request(req["id"])
                 told += 1
-        return {"project": project["name"], "price_from_etb": price_from_etb, "buyers_told": told, "skipped": skipped}
+        changed = await self._price_changed(project, old_price, price_from_etb)
+        return {"project": project["name"], "price_from_etb": price_from_etb, "buyers_told": told + changed["told"], "skipped": skipped + changed["skipped"], "change": changed["kind"]}
+
+    async def _price_changed(self, project: dict, old: float | None, new: float | None) -> dict:
+        """A price that was already given and then changed. A drop goes to the buyers who asked for it; an increase only to the broker,
+        as for units (buyers are not chased with bad news; the broker decides whom to tell)."""
+        result: dict[str, Any] = {"kind": None, "told": 0, "skipped": 0}
+        if old is None or new is None or abs(old - new) < 0.005 or self.proactive is None:
+            return result
+        if new > old:
+            result["kind"] = "increase"
+            asked = len(await self.repo.answered_price_requests(project["id"]))
+            await self.proactive._notify_broker(
+                "PRICE_INCREASE", f"projup:{project['id']}:{new:g}",
+                f"Price increase: {project['name']} ({project['developer_name']}) went from {fmt_etb(old)} to {fmt_etb(new)}, up {(new - old) / old * 100:.1f}%. "
+                f"{asked} buyer{'s' if asked != 1 else ''} had been given the earlier price; you may want to tell them.")
+            return result
+        result["kind"] = "drop"
+        pct = f"{(old - new) / old * 100:.1f}%"
+        for req in await self.repo.answered_price_requests(project["id"]):
+            buyer = await self.repo.get_buyer(req["buyer_id"])
+            if buyer is None:
+                continue
+            if buyer["human_takeover"]:
+                await self.proactive._notify_broker("PROJECT_PRICE", f"projdrop-broker:{project['id']}:{buyer['id']}:{new:g}",
+                                                    f"{project['name']} dropped to {fmt_etb(new)}. {buyer.get('full_name') or 'A buyer'} (a chat you hold) had asked for its price.", buyer_id=buyer["id"])
+                result["skipped"] += 1
+                continue
+            claim = await self.repo.claim_event(kind="PROJECT_PRICE", audience="buyer", dedupe_key=f"projdrop:{project['id']}:{buyer['id']}:{new:g}", buyer_id=buyer["id"])
+            if claim is None:
+                result["skipped"] += 1
+                continue
+            text = msg("proj_price_dropped", await self._language_of(buyer), project=project["name"], developer=project["developer_name"], price=fmt_etb(new),
+                       note=(f" ({project['price_note']})" if project.get("price_note") else ""), old=fmt_etb(old), pct=pct)
+            channel = await self.proactive._deliver_to_buyer(buyer, text)
+            if channel is None:
+                result["skipped"] += 1
+                continue
+            await self.proactive._remember(buyer, text)
+            await self.proactive._finish(claim, text, channel)
+            result["told"] += 1
+        return result
 
     # ---------------- advertising offers ----------------
 
@@ -396,19 +534,34 @@ class ProjectService:
             raise ProjectError("TELEGRAM_CHANNEL_ID is not set, so there is nowhere to post.")
         text, markup = self.ad_text(p), await self._keyboard(p)
         if dry_run:
-            return {"posted": False, "preview": text, "buttons": [b["text"] for row in markup["inline_keyboard"] for b in row], "photo_url": p.get("image_url")}
+            mine = await self.repo.list_project_media(p["id"])
+            media = ({"kind": mine[0]["kind"], "url": f"projects/{p['id']}/media/{mine[0]['id']}"} if mine
+                     else {"kind": "photo", "url": p["image_url"]} if p.get("image_url") else None)
+            return {"posted": False, "preview": text, "buttons": [b["text"] for row in markup["inline_keyboard"] for b in row], "photo_url": None if mine else p.get("image_url"),
+                    "media": media, "warning": None if media else "No picture or video yet: the post will be text only. Add one with Add photo or video."}
         key = f"{p.get('promo_text') or ''}|{p.get('promo_until') or ''}" if kind == "PROMO" else f"manual:{date.today()}"
         claim = await self.repo.claim_project_post(project_id=p["id"], kind=kind, promo_key=key, chat_id=channel, text=text)
         if claim is None:
             return {"posted": False, "reason": "This offer was already announced."}
         try:
             message_id = None
-            if p.get("image_url"):
+            media = await self._media_for_post(p)
+            if media is not None and media[0] == "video":
                 try:
-                    message_id = await self.services.telegram.send_photo(channel, p["image_url"], text, reply_markup=markup)
+                    message_id = await self.services.telegram.send_video_bytes(channel, media[1], text, reply_markup=markup)
+                except Exception:
+                    log.warning("the project video could not be posted; posting without it")
+            elif media is not None and media[0] == "photo":
+                try:
+                    message_id = await self.services.telegram.send_photo_bytes(channel, media[1], text, reply_markup=markup)
+                except Exception:
+                    log.warning("the project picture could not be posted; posting the text only")
+            elif media is not None:  # the scraper's picture address: let Telegram fetch it, else download it here and upload
+                try:
+                    message_id = await self.services.telegram.send_photo(channel, media[1], text, reply_markup=markup)
                 except Exception:
                     try:
-                        data, _ = await self.fetcher.get_bytes(p["image_url"])
+                        data, _ = await self.fetcher.get_bytes(media[1])
                         message_id = await self.services.telegram.send_photo_bytes(channel, data, text, reply_markup=markup)
                     except Exception:
                         log.warning("the project picture could not be posted; posting the text only")

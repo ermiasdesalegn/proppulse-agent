@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     project_crawl_max_pages: int = 40  # pages read when crawling one developer's site for projects
     project_price_request_email: bool = False  # also email the developer's sales office when a buyer asks a price (off: only the broker is told)
+    market_sources: str = ""  # "slug=https://site/page;slug=https://other/" replaces the built-in list of developer sites the market sweep reads
+    project_photo_max_mb: int = 8  # Telegram accepts photos up to 10 MB and videos up to 50 MB; uploads from the dashboard are kept below that
+    project_video_max_mb: int = 20
     scrape_polite: bool = True  # obey robots.txt and wait between requests to the same site
     scrape_min_interval_seconds: float = 2.0
     scrape_failures_before_alert: int = 3

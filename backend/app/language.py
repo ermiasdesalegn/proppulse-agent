@@ -119,6 +119,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "proj_sold_out": {"en": "{project} is sold out. Tell me your area and size and I will find other options.", "am": "{project} ተሽጦ አልቋል። አካባቢና መጠን ይንገሩኝ፣ ሌላ አማራጭ እፈልጋለሁ።"},
     "proj_booked": {"en": "Your visit to {project} is booked for {when}. The price is confirmed with the developer, and {broker} will share the latest price and any offer at the visit. I have informed {developer}.",
                     "am": "የ{project} ጉብኝትዎ ለ{when} ተይዟል። ዋጋው ከአልሚው ጋር ይረጋገጣል፣ {broker} በጉብኝቱ ወቅት ወቅታዊውን ዋጋና ቅናሽ ያሳውቅዎታል። ለ{developer} አሳውቄያለሁ።"},
+    "proj_price_dropped": {"en": "Price update: {project} by {developer} now starts from {price}{note}, down from {old} ({pct} lower). Would you like to book a site visit?",
+                           "am": "የዋጋ ማሻሻያ፦ የ{developer} {project} አሁን ከ{price}{note} ይጀምራል፣ ከ{old} ({pct} ቀንሷል)። የቦታ ጉብኝት ልያዝልዎ?"},
     "btn_afford": {"en": "What can I afford?", "am": "ምን መግዛት እችላለሁ?"},
 }
 

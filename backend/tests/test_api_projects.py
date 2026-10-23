@@ -93,3 +93,29 @@ async def test_a_developer_can_be_added_from_the_dashboard(api):
     assert (await client.post("/api/developers", json={**body, "name": "Other", "sales_email": "not-an-email"}, headers=ADMIN)).status_code == 422
     assert (await client.post("/api/developers", json={**body, "name": "Third", "website_url": "javascript:alert(1)"}, headers=ADMIN)).status_code == 422
     assert (await client.post("/api/developers", json=body)).status_code == 401
+
+
+async def test_media_can_be_uploaded_listed_served_and_removed_and_the_sweep_status_is_readable(api, spy_repo, db_conn):
+    import base64
+
+    client, _ = api
+    project = await add_project(spy_repo, db_conn)
+    pid = str(project["id"])
+    body = {"filename": "front.jpg", "mime": "image/jpeg", "data_base64": base64.b64encode(b"JPEGBYTES").decode()}
+    row = (await client.post(f"/api/projects/{pid}/media", json=body, headers=ADMIN)).json()
+    assert row["kind"] == "photo" and row["size_bytes"] == 9
+    assert [m["id"] for m in (await client.get(f"/api/projects/{pid}/media", headers=ADMIN)).json()] == [row["id"]]
+    served = await client.get(f"/api/projects/{pid}/media/{row['id']}", headers=ADMIN)
+    assert served.content == b"JPEGBYTES" and served.headers["content-type"] == "image/jpeg"
+    assert (await client.get(f"/api/projects/{pid}/media/{row['id']}")).status_code == 401
+    assert (await client.get("/api/projects", headers=ADMIN)).json()[0]["media_count"] == 1
+
+    assert (await client.post(f"/api/projects/{pid}/media", json={**body, "mime": "application/pdf"}, headers=ADMIN)).status_code == 422
+    assert (await client.post(f"/api/projects/{pid}/media", json={**body, "data_base64": "not base64!!"}, headers=ADMIN)).status_code == 422
+    assert (await client.put(f"/api/projects/{pid}/image", json={"url": "https://dev.example/new.jpg"}, headers=ADMIN)).status_code == 200
+    assert (await client.put(f"/api/projects/{pid}/image", json={"url": "javascript:alert(1)"}, headers=ADMIN)).status_code == 422
+    assert (await client.delete(f"/api/projects/{pid}/media/{row['id']}", headers=ADMIN)).status_code == 200
+    assert (await client.delete(f"/api/projects/{pid}/media/{row['id']}", headers=ADMIN)).status_code == 404
+
+    status = (await client.get("/api/market-sweep", headers=ADMIN)).json()
+    assert status["sweep"]["running"] is False and {"developer": "noah", "url": "https://noahrealestateplc.com/project-updates/list/6"} in status["sources"]

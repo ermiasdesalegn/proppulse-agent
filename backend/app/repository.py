@@ -732,7 +732,10 @@ class Repository:
     async def list_projects(self, *, only_selling: bool = False) -> list[dict]:
         where = "where pr.status = 'SELLING' " if only_selling else ""
         return await self._fetch(
-            f"select {self._PROJECT_COLUMNS}, (select count(*) from price_requests q where q.project_id = pr.id and q.status = 'OPEN') as open_requests "
+            f"select {self._PROJECT_COLUMNS}, (select count(*) from price_requests q where q.project_id = pr.id and q.status = 'OPEN') as open_requests, "
+            f"(select count(*) from project_media m where m.project_id = pr.id) as media_count, "
+            f"(select m.id from project_media m where m.project_id = pr.id order by m.id desc limit 1) as cover_media_id, "
+            f"(select m.kind from project_media m where m.project_id = pr.id order by m.id desc limit 1) as cover_media_kind "
             f"from projects pr join developers d on d.id = pr.developer_id {where}order by d.name, pr.name")
 
     async def search_projects(self, *, sub_cities: Sequence[str] | None = None, min_bedrooms: int | None = None, limit: int = 2,
@@ -808,3 +811,33 @@ class Repository:
         return await self._one(
             "insert into developers (name, slug, sales_email, commission_rate_pct, website_url) values (%s, %s, %s, %s, %s) "
             "on conflict (slug) do nothing returning id, name, slug, sales_email, website_url", (name, slug, sales_email, commission_rate_pct, website_url))
+
+    # ---- project pictures and videos ----
+
+    async def add_project_media(self, project_id: UUID | str, *, kind: str, mime: str, filename: str | None, data: bytes) -> dict:
+        row = await self._one(
+            "insert into project_media (project_id, kind, mime, filename, size_bytes, data) values (%s, %s, %s, %s, %s, %s) "
+            "returning id, project_id, kind, mime, filename, size_bytes, created_at", (str(project_id), kind, mime, filename, len(data), data))
+        assert row is not None
+        return row
+
+    async def list_project_media(self, project_id: UUID | str) -> list[dict]:
+        return await self._fetch("select id, kind, mime, filename, size_bytes, created_at from project_media where project_id = %s order by id desc", (str(project_id),))
+
+    async def get_project_media(self, media_id: int) -> dict | None:
+        return await self._one("select id, project_id, kind, mime, filename, data from project_media where id = %s", (media_id,))
+
+    async def latest_project_media(self, project_id: UUID | str) -> dict | None:
+        return await self._one("select id, project_id, kind, mime, filename, data from project_media where project_id = %s order by id desc limit 1", (str(project_id),))
+
+    async def delete_project_media(self, media_id: int) -> bool:
+        rows = await self._fetch("delete from project_media where id = %s returning id", (media_id,))
+        return bool(rows)
+
+    async def set_project_image(self, project_id: UUID | str, url: str | None) -> dict | None:
+        return await self._one("update projects set image_url = %s where id = %s returning *", (url, str(project_id)))
+
+    async def answered_price_requests(self, project_id: UUID | str) -> list[dict]:
+        """Buyers who asked for this project's price and were told: the ones to tell when the price changes."""
+        return await self._fetch(
+            "select q.id, q.buyer_id from price_requests q where q.project_id = %s and q.status = 'ANSWERED' order by q.id", (str(project_id),))

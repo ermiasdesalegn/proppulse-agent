@@ -30,4 +30,4 @@ async function forward(request: NextRequest, { params }: { params: { path: strin
   }
 }
 
-export { forward as GET, forward as POST, forward as PUT, forward as PATCH };
+export { forward as GET, forward as POST, forward as PUT, forward as PATCH, forward as DELETE };

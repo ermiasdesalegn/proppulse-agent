@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import Select from "@/components/Select";
 import { Button, Card, Empty, ErrorNote, PageHeader, Pill, Stat, StatusDot } from "@/components/ui";
-import { errorMessage, post, put } from "@/lib/api";
+import { api, errorMessage, post, put } from "@/lib/api";
 import { fmtDate, fmtEtb, timeAgo } from "@/lib/format";
 import { useLive } from "@/lib/live";
-import type { AdResult, CrawlReport, Developer, PriceRequest, Project } from "@/lib/types";
+import type { AdResult, CrawlReport, Developer, PriceRequest, Project, SweepStatus } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
 const STATUS: Record<Project["status"], { tone: "good" | "warn" | "neutral"; label: string }> = {
@@ -16,7 +16,7 @@ const STATUS: Record<Project["status"], { tone: "good" | "warn" | "neutral"; lab
 const range = (a: number | null, b: number | null, unit: string) => (a == null && b == null ? null : a != null && b != null && a !== b ? `${a}-${b} ${unit}` : `${a ?? b} ${unit}`);
 const liveOffer = (p: Project) => !!p.promo_text && (!p.promo_until || p.promo_until >= new Date().toISOString().slice(0, 10));
 
-type Dialog = { kind: "price" | "offer" | "ad"; project: Project } | null;
+type Dialog = { kind: "price" | "offer" | "ad" | "media"; project: Project } | null;
 
 export default function ProjectsPage() {
   const { dataVersion } = useLive();
@@ -45,6 +45,8 @@ export default function ProjectsPage() {
         <Stat label="Priced" icon="money" value={list.filter((p) => p.price_from_etb != null).length} hint="Price entered by you" />
       </div>
 
+      <SweepCard onDone={reload} />
+
       <CrawlCard onDone={reload} />
 
       <Card title="All projects" subtitle="Read from the developers' own sites, or the demo projects">
@@ -55,7 +57,8 @@ export default function ProjectsPage() {
             {list.map((p) => (
               <li key={p.id} className="border-t border-[#222] px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <Cover project={p} />
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-semibold">{p.name}</h3>
                       <StatusDot tone={STATUS[p.status].tone}>{STATUS[p.status].label}</StatusDot>
@@ -78,6 +81,7 @@ export default function ProjectsPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant={Number(p.open_requests) > 0 ? "primary" : "default"} onClick={() => setDialog({ kind: "price", project: p })}>{p.price_from_etb != null ? "Change price" : "Set price"}</Button>
                   <Button onClick={() => setDialog({ kind: "offer", project: p })}>{p.promo_text ? "Change offer" : "Add offer"}</Button>
+                  <Button onClick={() => setDialog({ kind: "media", project: p })}>{p.cover_media_id || p.image_url ? "Photo or video" : "Add photo or video"}</Button>
                   <Button variant="glow" disabled={p.status === "SOLD_OUT"} onClick={() => setDialog({ kind: "ad", project: p })}>Advertise in channel</Button>
                 </div>
               </li>
@@ -102,6 +106,7 @@ export default function ProjectsPage() {
       {dialog?.kind === "price" && <PriceDialog project={dialog.project} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); reload(); }} />}
       {dialog?.kind === "offer" && <OfferDialog project={dialog.project} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); reload(); }} />}
       {dialog?.kind === "ad" && <AdDialog project={dialog.project} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "media" && <MediaDialog project={dialog.project} onClose={() => setDialog(null)} onChanged={reload} />}
     </div>
   );
 }
@@ -271,11 +276,13 @@ function AdDialog({ project, onClose }: { project: Project; onClose: () => void 
       {ad?.reason && <p role="status" className="mt-3 text-sm text-muted">{ad.reason}</p>}
       {ad?.preview && (
         <div className="mt-3 rounded-lg border border-line bg-raised p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Preview {ad.photo_url ? "(posted with its picture)" : ""}</p>
-          {ad.photo_url && (
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Preview {ad.media ? (ad.media.kind === "video" ? "(posted with its video)" : "(posted with its picture)") : ""}</p>
+          {ad.media?.kind === "video" && <video src={`/api/proxy/${ad.media.url}`} controls muted preload="metadata" className="mb-3 max-h-56 rounded-lg border border-line" />}
+          {ad.media?.kind === "photo" && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={ad.photo_url} alt="The picture that will be posted with the ad" className="mb-3 max-h-56 rounded-lg border border-line object-contain" />
+            <img src={ad.media.url.startsWith("http") ? ad.media.url : `/api/proxy/${ad.media.url}`} alt="The picture that will be posted with the ad" className="mb-3 max-h-56 rounded-lg border border-line object-contain" />
           )}
+          {ad.warning && <p className="mb-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">{ad.warning}</p>}
           <p className="whitespace-pre-wrap break-words text-sm">{ad.preview}</p>
           <div className="mt-3 flex flex-wrap gap-2">{ad.buttons?.map((b) => <span key={b} className="rounded-md border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">{b}</span>)}</div>
         </div>
@@ -315,5 +322,121 @@ function DeveloperDialog({ onClose, onCreated }: { onClose: () => void; onCreate
         <div className="mt-5 flex justify-end gap-2"><Button type="button" onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={busy || name.trim().length < 2 || !email.includes("@")}>{busy ? "Adding..." : "Add developer"}</Button></div>
       </form>
     </Shell>
+  );
+}
+
+function Cover({ project: p }: { project: Project }) {
+  const box = "h-20 w-28 shrink-0 overflow-hidden rounded-lg border border-line bg-raised object-cover";
+  if (p.cover_media_id && p.cover_media_kind === "video") return <video src={`/api/proxy/projects/${p.id}/media/${p.cover_media_id}`} muted preload="metadata" className={box} />;
+  const src = p.cover_media_id ? `/api/proxy/projects/${p.id}/media/${p.cover_media_id}` : p.image_url;
+  // eslint-disable-next-line @next/next/no-img-element
+  if (src) return <img src={src} alt="" className={box} />;
+  return <div className={`${box} grid place-items-center px-2 text-center text-[11px] leading-tight text-muted`}>No photo or video yet</div>;
+}
+
+function MediaDialog({ project, onClose, onChanged }: { project: Project; onClose: () => void; onChanged: () => void }) {
+  const media = useApi<{ id: number; kind: "photo" | "video"; filename: string | null; size_bytes: number }[]>(`projects/${project.id}/media`);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setBusy(true); setError(null);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      await post(`projects/${project.id}/media`, { filename: file.name, mime: file.type, data_base64: btoa(bin) });
+      await media.reload(); onChanged();
+    } catch (e) { setError(errorMessage(e)); }
+    setBusy(false);
+  }
+
+  async function remove(id: number) {
+    setBusy(true); setError(null);
+    try { await api(`projects/${project.id}/media/${id}`, { method: "DELETE" }); await media.reload(); onChanged(); } catch (e) { setError(errorMessage(e)); }
+    setBusy(false);
+  }
+
+  async function saveUrl() {
+    setBusy(true); setError(null);
+    try { await put(`projects/${project.id}/image`, { url: url.trim() || null }); onChanged(); setUrl(""); } catch (e) { setError(errorMessage(e)); }
+    setBusy(false);
+  }
+
+  return (
+    <Shell title={`Photo or video for ${project.name}`} onClose={onClose}>
+      <p className="mt-1 text-sm text-muted">The newest upload is posted with the channel ad. Without an upload, the picture found on the developer&apos;s page is used.{project.image_url ? " A picture was found there." : " None was found there."}</p>
+      <label htmlFor="media-file" className="mt-4 block text-sm font-medium">Upload (JPG, PNG, WebP up to 8 MB; MP4, MOV, WebM up to 20 MB)</label>
+      <input id="media-file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" disabled={busy} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} className="mt-1 block w-full text-sm" />
+      {(media.data ?? []).length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-sm">
+          {(media.data ?? []).map((m) => (
+            <li key={m.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-1.5">
+              <span className="min-w-0 truncate">{m.kind === "video" ? "Video" : "Photo"} - {m.filename ?? "upload"} <span className="text-muted">({Math.round(m.size_bytes / 1024)} KB)</span></span>
+              <button onClick={() => void remove(m.id)} disabled={busy} className="shrink-0 text-xs text-bad hover:underline">Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <label htmlFor="media-url" className="mt-4 block text-sm font-medium">Or a picture address</label>
+      <div className="mt-1 flex gap-2">
+        <input id="media-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://developer.example/photo.jpg" className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-sm" />
+        <Button type="button" disabled={busy || !url.trim()} onClick={() => void saveUrl()}>Use</Button>
+      </div>
+      {error && <div className="mt-3"><ErrorNote>{error}</ErrorNote></div>}
+      <div className="mt-5 flex justify-end"><Button variant="primary" onClick={onClose}>Done</Button></div>
+    </Shell>
+  );
+}
+
+function SweepCard({ onDone }: { onDone: () => void }) {
+  const status = useApi<SweepStatus>("market-sweep", 5_000);
+  const [save, setSave] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const running = !!status.data?.sweep.running;
+  const last = status.data?.sweep.last;
+  useEffect(() => { if (!running && last) onDone(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+
+  async function start() {
+    setBusy(true); setError(null); setNote(null);
+    try {
+      const r = await post<{ jobs: { details: { note?: string }[] }[] }>(`cron/scrape-market?dry_run=${!save}`);
+      setNote(r.jobs[0]?.details.map((d) => d.note).filter(Boolean).join(" ") ?? "Started.");
+      await status.reload();
+    } catch (e) { setError(errorMessage(e)); }
+    setBusy(false);
+  }
+
+  return (
+    <Card title="Market sweep" subtitle="Reads these developer sites with the language model, no selectors to maintain. It runs in the background and can take several minutes.">
+      <div className="space-y-4 px-5 pb-5">
+        <ul className="space-y-1 text-sm">
+          {(status.data?.sources ?? []).map((s) => <li key={s.url} className="flex flex-wrap gap-x-2"><span className="font-medium">{s.developer}</span><span className="break-all text-muted">{s.url}</span></li>)}
+        </ul>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />Save what it finds (otherwise preview only)</label>
+          <Button variant="primary" disabled={busy || running} onClick={() => void start()}>{running ? "Sweep running..." : save ? "Run and save" : "Run a preview"}</Button>
+        </div>
+        {running && <p role="status" className="text-sm text-muted">Reading {status.data?.sweep.current ?? "..."}</p>}
+        {note && <p role="status" className="text-sm text-muted">{note}</p>}
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {last && !running && (
+          <div className="rounded-lg border border-line bg-raised p-4 text-sm" role="status">
+            <p className="font-medium">Last sweep ({last.dry_run ? "preview" : "saved"}): {last.sent} new or changed, {last.skipped} unchanged, {last.failed} site{last.failed === 1 ? "" : "s"} failed.</p>
+            {last.details.map((d, i) => (
+              <p key={i} className="mt-1.5 break-words">
+                <span className="font-medium">{d.developer ?? "sweep"}</span>{" "}
+                {d.error ? <span className="text-bad">{d.error}</span> : <span className="text-muted">{d.pages_read} pages, {(d.new ?? []).length} new{(d.new ?? []).length ? ` (${(d.new ?? []).join(", ")})` : ""}, {(d.changed ?? []).length} changed, {d.unchanged ?? 0} unchanged</span>}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }

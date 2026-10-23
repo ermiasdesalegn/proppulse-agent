@@ -118,7 +118,7 @@ async def test_the_scrape_source_can_be_saved_validated_and_cleared(api):
 async def test_the_scheduled_scrape_says_so_when_nothing_is_configured(api):
     client, _ = api
     job = (await client.post("/api/cron/scrape-market", headers=CRON)).json()["jobs"][0]
-    assert job["job"] == "market_scraper" and "No developer has a scrape address" in job["details"][0]["note"]
+    assert job["job"] == "market_scraper" and "No developer site is configured" in job["details"][0]["note"]
 
 
 async def test_the_scheduled_scrape_reads_every_configured_developer_and_isolates_failures(spy_repo):

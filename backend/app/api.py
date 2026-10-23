@@ -453,8 +453,15 @@ async def scrape_market(request: Request, dry_run: bool = False, publish_ads: bo
         if (publish_ads or request.app.state.settings.ads_auto_publish) and not dry_run:
             line["ads posted"] = len([a for a in await _announce(request, report) if a.get("posted")])
         details.append(line)
-    if not configured:
-        details.append({"note": "No developer has a scrape address saved yet. Save one with PUT /api/developers/{slug}/scrape, or use Studio to read a page."})
+    projects = getattr(request.app.state, "projects", None)
+    started = await projects.start_market_sweep(dry_run) if projects is not None else {"started": False, "reason": ""}
+    if started["started"]:  # the language-model sweep over the developers' own sites: no selectors, it runs in the background
+        details.append({"note": f"Reading {started['sources']} developer sites in the background with the language model ({'preview' if dry_run else 'saving'}). "
+                                "Follow it on the Projects page; it can take several minutes."})
+    elif started.get("reason", "").startswith("A market sweep is already"):
+        details.append({"note": "A market sweep is already running. See the Projects page."})
+    elif not configured:
+        details.append({"note": "No developer site is configured. Add developers with a website on the Projects page, or set MARKET_SOURCES."})
     job = {"job": "market_scraper", "dry_run": dry_run, **totals, "details": details}
     return {"dry_run": dry_run, **totals, "jobs": [job]}
 
@@ -759,3 +766,61 @@ async def create_developer(body: DeveloperIn, repo: Repository = Depends(repo_of
     if row is None:
         raise HTTPException(409, "A developer with that name already exists.")
     return row
+
+
+@router.get("/api/market-sweep", dependencies=[Depends(require_admin)])
+async def market_sweep_status(projects=Depends(projects_of)):
+    return {**projects.status(), "sources": [{"developer": slug, "url": url} for slug, url in await projects.sources()]}
+
+
+class MediaIn(BaseModel):
+    filename: str | None = Field(default=None, max_length=160)
+    mime: str = Field(max_length=60)
+    data_base64: str = Field(max_length=40_000_000)
+
+
+class ImageUrlIn(BaseModel):
+    url: str | None = Field(default=None, max_length=500, pattern=r"^https?://")
+
+
+@router.post("/api/projects/{project_id}/media", dependencies=[Depends(require_admin)])
+async def add_project_media(project_id: UUID, body: MediaIn, projects=Depends(projects_of)):
+    from app.projects import ProjectError
+
+    try:
+        data = base64.b64decode(body.data_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "The file could not be read.") from None
+    try:
+        row = await projects.add_media(project_id, filename=body.filename, mime=body.mime, data=data)
+    except (ProjectError, LookupError) as exc:
+        raise _project_error(exc) from None
+    return row
+
+
+@router.get("/api/projects/{project_id}/media", dependencies=[Depends(require_admin)])
+async def list_project_media(project_id: UUID, repo: Repository = Depends(repo_of)):
+    return await repo.list_project_media(project_id)
+
+
+@router.get("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(require_admin)])
+async def project_media_file(project_id: UUID, media_id: int, repo: Repository = Depends(repo_of)):
+    row = await repo.get_project_media(media_id)
+    if row is None or str(row["project_id"]) != str(project_id):
+        raise HTTPException(404, "Not found")
+    return Response(bytes(row["data"]), media_type=row["mime"], headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.delete("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(require_admin)])
+async def delete_project_media(project_id: UUID, media_id: int, repo: Repository = Depends(repo_of)):
+    row = await repo.get_project_media(media_id)
+    if row is None or str(row["project_id"]) != str(project_id) or not await repo.delete_project_media(media_id):
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+@router.put("/api/projects/{project_id}/image", dependencies=[Depends(require_admin)])
+async def set_project_image(project_id: UUID, body: ImageUrlIn, repo: Repository = Depends(repo_of)):
+    if await repo.set_project_image(project_id, body.url) is None:
+        raise HTTPException(404, "project not found")
+    return {"ok": True}

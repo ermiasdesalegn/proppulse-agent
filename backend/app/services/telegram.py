@@ -25,6 +25,8 @@ class TelegramService(Protocol):
 
     async def send_photo_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int: ...
 
+    async def send_video_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int: ...
+
     async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int: ...
 
     async def answer_callback(self, callback_id: str, text: str = "") -> None: ...
@@ -76,6 +78,21 @@ class BotApiTelegramService:
             raise TelegramError(f"sendPhoto failed: {type(exc).__name__}") from None
         if not body.get("ok"):
             raise TelegramError(f"sendPhoto rejected: {body.get('description', 'unknown error')}")
+        return body["result"]["message_id"]
+
+    async def send_video_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int:
+        url = f"https://api.telegram.org/bot{self._token}/sendVideo"
+        data: dict[str, str] = {"chat_id": str(chat_id), "caption": caption[:1024], "supports_streaming": "true"}
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
+        try:
+            async with httpx.AsyncClient(transport=self._transport, timeout=180) as client:
+                res = await client.post(url, data=data, files={"video": ("video.mp4", content, "video/mp4")})
+            body = res.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise TelegramError(f"sendVideo failed: {type(exc).__name__}") from None
+        if not body.get("ok"):
+            raise TelegramError(f"sendVideo rejected: {body.get('description', 'unknown error')}")
         return body["result"]["message_id"]
 
     async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int:
@@ -170,6 +187,10 @@ class MockTelegramService:
     async def send_photo_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int:
         self.photos.append(dict(chat_id=chat_id, photo_bytes=len(content), caption=caption, reply_markup=reply_markup))
         return 1000 + len(self.photos)
+
+    async def send_video_bytes(self, chat_id: int | str, content: bytes, caption: str, *, reply_markup: dict | None = None) -> int:
+        self.videos = [*getattr(self, "videos", []), dict(chat_id=chat_id, video_bytes=len(content), caption=caption, reply_markup=reply_markup)]
+        return 2000 + len(self.videos)
 
     async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int:
         self.documents.append(dict(chat_id=chat_id, filename=filename, content=content, caption=caption))

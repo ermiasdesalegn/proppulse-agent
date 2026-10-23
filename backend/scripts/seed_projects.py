@@ -20,7 +20,7 @@ async def main() -> None:
         await repo.set_project_embedding(project["id"], vector)
 
     try:
-        print(await restore_demo_projects(repo, embed))
+        print(await restore_demo_projects(repo, embed, remove_crawled=False))
     finally:
         await pool.close()
 

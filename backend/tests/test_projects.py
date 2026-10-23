@@ -321,6 +321,14 @@ def test_card_text_without_a_price_or_offer_is_plain():
     assert text == "X Tower - Dev\nComing soon\nPrice: on request"
 
 
+async def test_seeding_the_demo_projects_alone_keeps_crawled_ones(repo, db_conn):
+    from app.demo_projects import restore_demo_projects
+
+    crawled = await add_project(repo, db_conn, "Real Crawled Place")
+    out = await restore_demo_projects(repo, remove_crawled=False)
+    assert out["removed_crawled_projects"] == 0 and crawled["id"] in {p["id"] for p in await repo.list_projects()}
+
+
 async def test_reset_removes_crawled_projects_and_restores_the_demo_ones_without_prices(repo, db_conn):
     from app.demo_projects import restore_demo_projects
 
@@ -334,6 +342,9 @@ async def test_reset_removes_crawled_projects_and_restores_the_demo_ones_without
     await restore_demo_projects(repo)
     again = next(p for p in await repo.list_projects() if p["name"] == "Noah Park Terraces")
     assert again["price_from_etb"] is None and has_live_offer(again), "back to price on request, with a live demo offer"
+    assert again["media_count"] == 1, "a demo project always has a picture to post"
+    await restore_demo_projects(repo)
+    assert next(p for p in await repo.list_projects() if p["name"] == "Noah Park Terraces")["media_count"] == 1, "restoring twice does not pile up pictures"
     assert crawled["id"] not in {p["id"] for p in await repo.list_projects()}
 
 
@@ -454,3 +465,96 @@ async def test_the_dossier_of_a_project_visit_describes_the_project_instead_of_e
     assert "<h3>Project</h3>" in html and "Expected commission" not in html
     sent_to_broker = [m for m in services.telegram.messages if m["chat_id"] == "999" and m["text"].startswith("PRE-TOUR DOSSIER")]
     assert sent_to_broker, "the broker gets the brief as soon as the visit is booked"
+
+
+# ---------------- the market sweep (language-model extraction over a list of sites) ----------------
+
+async def test_the_sweep_reads_each_configured_site_and_one_failing_site_does_not_stop_the_others(repo, db_conn):
+    site = Site({"https://a.example/": "<a href='/t/'>t</a>", "https://a.example/t/": project_page()})  # b.example is not in the dictionary: every fetch fails
+    service, _ = make_projects(repo, FakeGateway([info()]), site, market_sources="noah=https://a.example/;ayat=https://b.example/")
+    assert await service.sources() == [("noah", "https://a.example/"), ("ayat", "https://b.example/")]
+    out = await service.market_sweep(dry_run=False)
+    assert out["job"] == "market_scraper" and out["sent"] == 1 and out["skipped"] == 0
+    first, second = out["details"]
+    assert first["developer"] == "noah" and first["new"] == ["Central Tower"]
+    assert second["developer"] == "ayat" and second["pages_read"] == 0, "the unreachable site is reported, the sweep went on"
+    assert [p["name"] for p in await repo.list_projects()] == ["Central Tower"]
+
+
+async def test_the_built_in_sources_cover_the_three_developers_and_a_saved_website_is_added(repo, db_conn):
+    service, _ = make_projects(repo)
+    slugs = [slug for slug, _ in await service.sources()]
+    assert "ayat" in slugs and "noah" in slugs, "the built-in list, for developers that exist"
+    await repo.create_developer(name="Zed Homes", slug="zed-homes", sales_email="s@zed.example", website_url="https://zed.example/")
+    assert ("zed-homes", "https://zed.example/") in await service.sources()
+
+
+async def test_the_background_sweep_reports_progress_and_refuses_to_run_twice(repo, db_conn):
+    site = Site({"https://a.example/": "<a href='/t/'>t</a>", "https://a.example/t/": project_page()})
+    service, _ = make_projects(repo, FakeGateway([info()]), site, market_sources="noah=https://a.example/")
+    started = await service.start_market_sweep(dry_run=True)
+    assert started["started"] is True and started["sources"] == 1 and started["sweep"]["running"] is True
+    again = await service.start_market_sweep(dry_run=True)
+    assert again["started"] is False and "already running" in again["reason"]
+    await service._sweep_task
+    done = service.status()["sweep"]
+    assert done["running"] is False and done["last"]["sent"] == 1 and done["last"]["dry_run"] is True
+    assert await repo.list_projects() == [], "a preview sweep saves nothing"
+
+
+# ---------------- pictures and videos ----------------
+
+async def test_a_broker_upload_is_posted_in_preference_to_the_scraped_picture_and_a_video_goes_as_a_video(repo, db_conn):
+    service, services = make_projects(repo)
+    project = await add_project(repo, db_conn)
+    preview = await service.publish_ad(project["id"], dry_run=True)
+    assert preview["media"] == {"kind": "photo", "url": "https://dev.example/img.jpg"} and preview["warning"] is None
+
+    await service.add_media(project["id"], filename="front.jpg", mime="image/jpeg", data=b"JPEG")
+    mine = await service.publish_ad(project["id"], dry_run=True)
+    assert mine["media"]["kind"] == "photo" and mine["media"]["url"].startswith(f"projects/{project['id']}/media/")
+    assert (await service.publish_ad(project["id"], dry_run=False))["posted"]
+    assert services.telegram.photos[-1]["photo_bytes"] == 4, "the uploaded file, not the scraped address"
+
+    await service.add_media(project["id"], filename="tour.mp4", mime="video/mp4", data=b"VIDEO!")
+    await repo.upsert_project(await developer_id(db_conn), {**to_row(info(), Page("https://dev.example/central-tower/", BODY + " x", None)), "promo_text": "10% off", "content_hash": "v2"})
+    await repo._fetch("delete from project_posts returning id")
+    assert (await service.publish_ad(project["id"], dry_run=False))["posted"]
+    assert services.telegram.videos[-1]["video_bytes"] == 6 and "Price: on request" in services.telegram.videos[-1]["caption"]
+
+
+async def test_a_project_without_any_picture_warns_and_uploads_are_checked(repo, db_conn):
+    service, _ = make_projects(repo)
+    row = to_row(info("Bare Heights"), Page("https://dev.example/bare/", BODY, None))
+    bare, _ = await repo.upsert_project(await developer_id(db_conn), row)
+    preview = await service.publish_ad(bare["id"], dry_run=True)
+    assert preview["media"] is None and "text only" in preview["warning"]
+    for mime, data in (("application/pdf", b"x"), ("image/jpeg", b""), ("image/png", b"x" * (9 * 1024 * 1024)), ("video/mp4", b"x" * (21 * 1024 * 1024))):
+        with pytest.raises(Exception, match="Use a JPG|empty|too large"):
+            await service.add_media(bare["id"], filename="f", mime=mime, data=data)
+    media = await repo.list_project_media(bare["id"])
+    assert media == []
+
+
+# ---------------- a price that changes after it was given ----------------
+
+async def test_a_price_drop_is_told_to_the_buyers_who_asked_and_an_increase_only_to_the_broker(repo, db_conn):
+    service, services = make_projects(repo)
+    project = await add_project(repo, db_conn)
+    asker = await repo.get_or_create_buyer("test:asker", 6_100_001)
+    await service.handle_text(asker, "Ask the price of Central Tower")
+    await service.set_price(project["id"], 20_000_000, None)
+    services.telegram.messages.clear()
+
+    drop = await service.set_price(project["id"], 18_000_000, "from the 3 bedroom")
+    assert drop["change"] == "drop" and drop["buyers_told"] == 1
+    told = [m for m in services.telegram.messages if m["chat_id"] == 6_100_001]
+    assert len(told) == 1 and "now starts from 18M ETB (from the 3 bedroom), down from 20M ETB (10.0% lower)" in told[0]["text"]
+    again = await service.set_price(project["id"], 18_000_000, "from the 3 bedroom")
+    assert again["change"] is None and len([m for m in services.telegram.messages if m["chat_id"] == 6_100_001]) == 1, "the same price is not announced twice"
+
+    services.telegram.messages.clear()
+    up = await service.set_price(project["id"], 21_000_000, None)
+    assert up["change"] == "increase" and up["buyers_told"] == 0
+    assert [m["chat_id"] for m in services.telegram.messages] == ["999"] and "Price increase: Central Tower" in services.telegram.messages[0]["text"]
+    assert "1 buyer had been given the earlier price" in services.telegram.messages[0]["text"]

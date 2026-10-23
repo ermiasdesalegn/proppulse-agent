@@ -191,6 +191,8 @@ export interface AdResult {
   buttons?: string[];
   has_photo?: boolean;
   photo_url?: string | null;
+  media?: { kind: "photo" | "video"; url: string } | null;
+  warning?: string | null;
   message_id?: number;
   text?: string;
   reason?: string;
@@ -374,6 +376,19 @@ export interface Project {
   promo_until: string | null;
   last_seen_at: string;
   open_requests: number;
+  media_count: number;
+  cover_media_id: number | null;
+  cover_media_kind: "photo" | "video" | null;
+}
+
+export interface SweepStatus {
+  sweep: {
+    running: boolean;
+    dry_run?: boolean;
+    current?: string | null;
+    last?: { dry_run: boolean; sent: number; skipped: number; failed: number; details: { developer?: string; url?: string; pages_read?: number; new?: string[]; changed?: string[]; unchanged?: number; error?: string; notes?: string[] }[] } | null;
+  };
+  sources: { developer: string; url: string }[];
 }
 
 export interface PriceRequest {
