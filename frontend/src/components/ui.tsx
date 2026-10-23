@@ -49,22 +49,25 @@ export function changePct(current: number, previous: number): number | null {
   return Math.round(((current - previous) / previous) * 1000) / 10;
 }
 
-/** A KPI card: an orange icon tile, the figure, and how it moved against the previous 30 days. */
+/** A KPI card: a one-line label with a small icon, the figure, and a footer with the explanation and how it moved against the previous 30 days. */
 export function Stat({ label, value, hint, icon, trend }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName; trend?: { current: number; previous: number } }) {
   const pct = trend ? changePct(trend.current, trend.previous) : null;
   const isNew = trend && !trend.previous && trend.current > 0;
+  const flat = trend && !trend.previous && !trend.current;
   return (
-    <div className="card flex items-start gap-4 rounded-xl border p-5 transition-colors hover:border-[#333]">
-      {icon && <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-accent/20 bg-accent/10 text-accent"><Icon name={icon} className="h-5 w-5" /></span>}
-      <div className="min-w-0 flex-1">
-        <p className="text-sm leading-snug text-muted">{label}</p>
-        <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-          <p className="tnum text-2xl font-semibold tracking-tight text-white">{value}</p>
-          {pct !== null && <span className={clsx("tnum text-xs font-semibold", pct >= 0 ? "text-accent" : "text-bad")}>{pct >= 0 ? "\u2191" : "\u2193"} {Math.abs(pct)}%</span>}
-          {isNew && <span className="text-xs font-semibold text-accent">New</span>}
-        </div>
-        <p className="mt-0.5 text-xs text-muted">{trend ? "vs previous 30 days" : hint}</p>
-        {trend && hint && <p className="mt-0.5 text-xs text-muted/80">{hint}</p>}
+    <div className="card flex flex-col rounded-xl border p-4 transition-colors hover:border-[#333] sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-sm text-muted" title={label}>{label}</p>
+        {icon && <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-accent/20 bg-accent/10 text-accent"><Icon name={icon} className="h-4 w-4" /></span>}
+      </div>
+      <p className="tnum mt-3 text-3xl font-semibold tracking-tight text-white">{value}</p>
+      <div className="mt-2 flex items-start justify-between gap-2 text-xs">
+        <span className="leading-snug text-muted">{hint ?? (trend ? "vs previous 30 days" : "")}</span>
+        {trend && (
+          <span title="Compared with the previous 30 days" className={clsx("tnum shrink-0 font-semibold", pct !== null && pct < 0 ? "text-bad" : isNew || (pct !== null && pct > 0) ? "text-accent" : "text-muted")}>
+            {isNew ? "New" : flat || pct === 0 ? "+0.0%" : pct !== null ? `${pct > 0 ? "↑ " : "↓ "}${Math.abs(pct)}%` : ""}
+          </span>
+        )}
       </div>
     </div>
   );
