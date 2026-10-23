@@ -14,6 +14,7 @@ interface WebReply {
   reply: string | null;
   takeover: boolean;
   error: boolean;
+  quick_replies?: { label: string; text: string }[][];
   active_matches: { title: string; price_etb: number; sub_city: string; bedrooms: number; similarity: number }[];
 }
 
@@ -38,6 +39,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [takeover, setTakeover] = useState(false);
   const [matches, setMatches] = useState<WebReply["active_matches"]>([]);
+  // Buttons the agent offered with its last reply, as Telegram would show them under the message.
+  const [quickReplies, setQuickReplies] = useState<{ label: string; text: string }[][]>([]);
   const [text, setText] = useState("");
   const [waiting, setWaiting] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +91,7 @@ export default function ChatPage() {
     if (!session || !message.trim() || waiting !== null) return;
     setError(null);
     setText("");
+    setQuickReplies([]);
     setWaiting(0);
     setUnconfirmed((u) => [...u, { key: Date.now(), content: message, at: new Date().toISOString() }]);
     setTimeout(() => void refresh(), 1500);
@@ -95,6 +99,7 @@ export default function ChatPage() {
       const reply = await post<WebReply>("chat/web", { session_id: session, text: message });
       setTakeover(reply.takeover);
       if (reply.active_matches.length) setMatches(reply.active_matches);
+      setQuickReplies(reply.quick_replies ?? []);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -107,7 +112,7 @@ export default function ChatPage() {
     const id = newSession();
     localStorage.setItem(STORAGE_KEY, id);
     lastId.current = 0;
-    setSession(id); setMessages([]); setMatches([]); setTakeover(false); setError(null);
+    setSession(id); setMessages([]); setMatches([]); setQuickReplies([]); setTakeover(false); setError(null);
   }
 
   return (
@@ -157,6 +162,14 @@ export default function ChatPage() {
           </div>
 
           <form onSubmit={(e) => { e.preventDefault(); void send(text); }} className="border-t border-line p-3">
+            {quickReplies.length > 0 && waiting === null && (
+              <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Suggested replies">
+                {quickReplies.flat().map((b) => (
+                  <button key={b.text} type="button" onClick={() => void send(b.text)}
+                    className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-medium hover:bg-accent/20">{b.label}</button>
+                ))}
+              </div>
+            )}
             {error && <div className="mb-2"><ErrorNote>{error}</ErrorNote></div>}
             {takeover && <p className="mb-2 text-xs text-warn">The broker has taken over this chat, so the agent will not reply automatically.</p>}
             <div className="flex gap-2">

@@ -16,6 +16,8 @@ UNREADABLE_KEYS = ("photo", "sticker", "document", "video", "video_note", "audio
 
 def parse_update(update: dict) -> Inbound | None:
     """Return an Inbound for a private-chat message from a person, or None if the update should be ignored."""
+    if callback := update.get("callback_query"):
+        return parse_callback(callback)
     message = update.get("message")
     if not message:
         return None
@@ -36,6 +38,16 @@ def parse_update(update: dict) -> Inbound | None:
     if any(key in message for key in UNREADABLE_KEYS):
         return Inbound(**base, kind="text", text="")
     return None  # service messages such as "user joined"
+
+
+def parse_callback(callback: dict) -> Inbound | None:
+    """A tap on an inline button. The button carries the sentence the buyer chose, which is then handled as if they had typed it."""
+    chat = (callback.get("message") or {}).get("chat") or {}
+    sender = callback.get("from") or {}
+    data = callback.get("data")
+    if chat.get("type") != "private" or sender.get("is_bot") or "id" not in sender or not isinstance(data, str) or not data.strip():
+        return None
+    return Inbound(channel="telegram", external_id=str(sender["id"]), chat_id=chat["id"], kind="text", text=data.strip()[:200], callback_id=callback.get("id"))
 
 
 class TelegramUpdateHandler:

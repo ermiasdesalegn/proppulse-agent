@@ -26,7 +26,7 @@ VOICE_FALLBACK = (
 
 EXTRACTION_SYSTEM = f"""You extract structured data from a buyer's latest message in a property chat.
 Rules:
-- intent: "search" if they describe or refine what they want; "compare" if they ask to compare options; "book_tour" if they want to visit, view or schedule a time; "small_talk" for greetings, thanks, or anything else.
+- intent: "search" if they describe or refine what they want; "compare" if they ask to compare options; "details" if they ask for more information about one listed option; "book_tour" if they want to visit, view or schedule a time on site; "book_consultation" if they ask for a phone call or an advisory conversation instead of a visit; "small_talk" for greetings, thanks, or anything else.
 - Only fill fields the latest message states or changes. Use null for anything not mentioned.
 - Budgets: convert to birr ("14M", "14 million" = 14000000).
 - Bedrooms: "3BR", "three bedroom" = 3. A studio is 0.
@@ -34,6 +34,7 @@ Rules:
 - search_query: a short English description of the home and lifestyle they want, even if they wrote in Amharic.
 - referenced_options: numbers from the most recent list shown to the buyer ("the first two" = [1, 2]). Empty if none.
 - tour_start_iso: the visit time they ask for, resolved against the current time given, with UTC offset. Null if no time was given.
+- objections: only worries or hesitations stated in the latest message (price too high, delivery risk, location, developer trust, payment terms), each a short phrase in English. Empty if none.
 - urgency: high if they want to act within days, medium within weeks, otherwise low."""
 
 

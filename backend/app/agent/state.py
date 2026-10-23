@@ -26,6 +26,7 @@ class BrokerAgentState(TypedDict, total=False):
     preference_summary: str
     deal_stage: str
     active_matches: list[dict]  # options shown most recently, in the order the buyer saw them
+    pending_booking: dict | None  # {"ids": [...]} while a time is being chosen, so a tap on a slot knows which options it is for
 
     # turn
     intent: str
@@ -41,6 +42,7 @@ class BrokerAgentState(TypedDict, total=False):
     transcript_failed: bool
     human_takeover: bool
     reply: str | None
+    quick_replies: list[list[dict]]  # rows of {label, text}: buttons the channel may show under the reply
 
 
 EMPTY_PREFS = {"max_budget_etb": None, "min_bedrooms": None, "preferred_sub_cities": []}

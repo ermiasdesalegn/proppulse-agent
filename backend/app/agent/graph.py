@@ -14,7 +14,7 @@ from app.agent.state import BrokerAgentState
 from app.events import summarize_update
 from app.gemini import CALL_CONTEXT
 
-ROUTES = {"search": "discovery", "compare": "analyst", "book_tour": "scheduler", "small_talk": "smalltalk", "error": END}
+ROUTES = {"search": "discovery", "details": "details", "compare": "analyst", "book_tour": "scheduler", "book_consultation": "scheduler", "small_talk": "smalltalk", "error": END}
 
 
 def route_after_intake(state: BrokerAgentState) -> str:
@@ -45,7 +45,7 @@ def build_graph(deps: AgentDeps, checkpointer: Any):
     for name, fn in {
         "intake": nodes.intake, "router": nodes.router, "discovery": nodes.discovery,
         "relaxer": nodes.constraint_relaxer, "recommend": nodes.recommend, "waitlist": nodes.waitlist,
-        "smalltalk": nodes.smalltalk, "analyst": nodes.analyst, "scheduler": nodes.scheduler,
+        "smalltalk": nodes.smalltalk, "details": nodes.details, "analyst": nodes.analyst, "scheduler": nodes.scheduler,
         "human_gate": nodes.human_gate,
     }.items():
         g.add_node(name, traced(name, fn))
@@ -59,7 +59,7 @@ def build_graph(deps: AgentDeps, checkpointer: Any):
     )
     g.add_edge("relaxer", "discovery")
     g.add_edge("scheduler", "human_gate")
-    for terminal in ("recommend", "waitlist", "smalltalk", "analyst", "human_gate"):
+    for terminal in ("recommend", "waitlist", "smalltalk", "details", "analyst", "human_gate"):
         g.add_edge(terminal, END)
     return g.compile(checkpointer=checkpointer)
 

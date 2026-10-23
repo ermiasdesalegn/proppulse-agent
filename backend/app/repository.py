@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
 
 from psycopg import sql
+
+from app.finance import rank_by_reliability
 from pydantic import BaseModel
 
 LEDGER_STATUSES = (
@@ -72,19 +74,26 @@ class Repository:
         threshold: float,
         count: int = 3,
     ) -> list[PropertyMatch]:
+        # Ask for a few more than needed so that, among near-equal matches, the more reliable developer can come first.
         rows = await self._fetch(
             "select * from match_properties_hybrid(%s::vector, %s, %s, %s::text[], %s, %s)",
-            (vector_literal(embedding), max_budget_etb, min_bedrooms, list(sub_cities or []), count, threshold),
+            (vector_literal(embedding), max_budget_etb, min_bedrooms, list(sub_cities or []), count * 3, threshold),
         )
-        return [PropertyMatch(**r) for r in rows]
+        matches = [PropertyMatch(**r) for r in rows]
+        if len(matches) > 1:
+            scores = await self._fetch("select id, reliability_score from developers where id = any(%s::uuid[])", ([str(m.developer_id) for m in matches],))
+            reliability = {str(r["id"]): float(r["reliability_score"]) for r in scores if r["reliability_score"] is not None}
+            matches = rank_by_reliability(matches, reliability)
+        return matches[:count]
 
     async def get_properties(self, ids: Sequence[UUID | str]) -> list[dict]:
         """Full property rows (no embedding) joined with developer contact details, in the order requested."""
         rows = await self._fetch(
             "select p.id, p.developer_id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, "
             "p.bedrooms, p.sqm, p.down_payment_pct, p.construction_stage_pct, p.est_rental_yield_pct, p.delivery_date, "
-            "p.status, p.description, p.floor_plan_image_url, p.vision_amenities, "
-            "d.name as developer_name, d.slug as developer_slug, d.sales_email, d.commission_rate_pct "
+            "p.status, p.description, p.floor_plan_image_url, p.vision_amenities, p.payment_plan, "
+            "d.name as developer_name, d.slug as developer_slug, d.sales_email, d.commission_rate_pct, "
+            "d.payment_plan as developer_payment_plan, d.reliability_score "
             "from properties p join developers d on d.id = p.developer_id where p.id = any(%s::uuid[])",
             ([str(i) for i in ids],),
         )
@@ -311,6 +320,40 @@ class Repository:
     async def get_developer_by_slug(self, slug: str) -> dict | None:
         return await self._one("select * from developers where slug = %s", (slug,))
 
+    async def find_developer_for_sender(self, email: str) -> dict | None:
+        """The developer a sender belongs to: the exact sales address, else any address at the same company domain."""
+        email = email.strip().lower()
+        exact = await self._one("select * from developers where lower(sales_email) = %s", (email,))
+        if exact or "@" not in email:
+            return exact
+        domain = email.rsplit("@", 1)[1]
+        rows = await self._fetch("select * from developers where lower(split_part(sales_email, '@', 2)) = %s", (domain,))
+        return rows[0] if len(rows) == 1 else None  # a shared domain such as gmail.com matches nobody
+
+    async def claim_announcement(self, message_id: str, sender: str, subject: str | None) -> bool:
+        """True the first time a message id is seen; False for a redelivery, so each email is processed once."""
+        rows = await self._fetch(
+            "insert into inbound_announcements (message_id, sender, subject, status) values (%s, %s, %s, 'FAILED') "
+            "on conflict (message_id) do nothing returning message_id",
+            (message_id, sender, subject),
+        )
+        return bool(rows)
+
+    async def finish_announcement(self, message_id: str, status: str, developer_id: Any = None, detail: dict | None = None) -> None:
+        from psycopg.types.json import Jsonb
+
+        await self._fetch(
+            "update inbound_announcements set status = %s, developer_id = %s, detail = %s where message_id = %s returning message_id",
+            (status, None if developer_id is None else str(developer_id), Jsonb(detail or {}), message_id),
+        )
+
+    async def list_announcements(self, limit: int = 30) -> list[dict]:
+        return await self._fetch(
+            "select a.message_id, a.sender, a.subject, a.status, a.detail, a.received_at, d.name as developer_name "
+            "from inbound_announcements a left join developers d on d.id = a.developer_id order by a.received_at desc limit %s",
+            (limit,),
+        )
+
     # ---- buyers ----
 
     async def get_or_create_buyer(self, thread_id: str, telegram_id: int | None = None) -> dict:
@@ -392,6 +435,7 @@ class Repository:
         stops: Sequence[UUID | str],
         route_json: dict | None,
         calendar_event_id: str | None,
+        kind: str = "SITE_VISIT",
     ) -> dict:
         """Create the tour and its ordered stops atomically. `stops` is already in visiting order."""
         from psycopg.types.json import Jsonb
@@ -399,9 +443,9 @@ class Repository:
         async with self._pool.connection() as conn:
             async with conn.transaction():
                 cur = await conn.execute(
-                    "insert into tours_and_appointments (buyer_id, scheduled_start, calendar_event_id, mapbox_route_json) "
-                    "values (%s, %s, %s, %s) returning *",
-                    (str(buyer_id), scheduled_start, calendar_event_id, Jsonb(route_json) if route_json else None),
+                    "insert into tours_and_appointments (buyer_id, scheduled_start, calendar_event_id, mapbox_route_json, kind) "
+                    "values (%s, %s, %s, %s, %s) returning *",
+                    (str(buyer_id), scheduled_start, calendar_event_id, Jsonb(route_json) if route_json else None, kind),
                 )
                 tour = await cur.fetchone()
                 for order, property_id in enumerate(stops, start=1):
@@ -410,6 +454,31 @@ class Repository:
                         (tour["id"], str(property_id), order),
                     )
         return tour
+
+    async def get_tour(self, tour_id: UUID | str) -> dict | None:
+        return await self._one("select * from tours_and_appointments where id = %s", (str(tour_id),))
+
+    async def mark_dossier_sent(self, tour_id: UUID | str) -> None:
+        await self._fetch("update tours_and_appointments set dossier_sent_at = now() where id = %s returning id", (str(tour_id),))
+
+    async def add_objections(self, buyer_id: UUID | str, texts: Sequence[str], *, keep: int = 20) -> list[dict]:
+        """Remember what the buyer hesitated about (newest last, repeats ignored), for the broker's pre-tour dossier."""
+        from psycopg.types.json import Jsonb
+
+        buyer = await self.get_buyer(buyer_id)
+        if buyer is None:
+            raise LookupError(f"buyer {buyer_id} not found")
+        known = list(buyer.get("objections") or [])
+        seen = {o["text"].strip().lower() for o in known}
+        now = datetime.now(timezone.utc).isoformat()
+        for text in texts:
+            text = " ".join(str(text).split())[:300]
+            if text and text.lower() not in seen:
+                known.append({"text": text, "at": now})
+                seen.add(text.lower())
+        known = known[-keep:]
+        await self._fetch("update buyers_crm set objections = %s where id = %s returning id", (Jsonb(known), str(buyer_id)))
+        return known
 
     async def get_tour_stops(self, tour_id: UUID | str) -> list[dict]:
         return await self._fetch(
@@ -524,7 +593,7 @@ class Repository:
 
     async def list_tours(self, limit: int = 100) -> list[dict]:
         return await self._fetch(
-            "select t.id, t.scheduled_start, t.mapbox_route_json, t.reminder_sent, b.id as buyer_id, b.full_name, b.thread_id, "
+            "select t.id, t.scheduled_start, t.kind, t.mapbox_route_json, t.reminder_sent, b.id as buyer_id, b.full_name, b.thread_id, "
             "(select coalesce(json_agg(json_build_object('stop_order', tp.stop_order, 'property_id', p.id, 'title', p.title, "
             "'lat', p.lat, 'lng', p.lng, 'sub_city', p.sub_city) order by tp.stop_order), '[]'::json) "
             "from tour_properties tp join properties p on p.id = tp.property_id where tp.tour_id = t.id) as stops "

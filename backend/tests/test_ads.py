@@ -212,7 +212,7 @@ async def test_book_starts_a_booking_for_that_unit_and_asks_for_contact_details(
     chat, services, agent = make_chat(repo, gw)
     out = await tap(chat, services, repo, "book", await prop(db_conn))
     assert "full name and phone number" in out.reply, "the buyer is asked for what a lead registration needs"
-    assert "option 1" in gw.prompts("structured")[0] and "You opened Noah Bole Towers 3BR Apartment" in gw.prompts("structured")[0]
+    assert gw.prompts("structured") == [], "the button's sentence is read in code, so no model call is spent on it"
 
 
 async def test_compare_loads_the_unit_with_similar_ones_and_runs_the_comparison(repo, db_conn):

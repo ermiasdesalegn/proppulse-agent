@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Protocol
+import base64
+from dataclasses import dataclass
+from typing import Protocol, Sequence
 
 import httpx
 
@@ -9,8 +11,15 @@ class EmailError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class Attachment:
+    filename: str
+    content: bytes
+    content_type: str = "application/pdf"
+
+
 class EmailService(Protocol):
-    async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None) -> str:
+    async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None, attachments: Sequence[Attachment] = ()) -> str:
         """Send one email and return the provider message id."""
 
 
@@ -28,7 +37,7 @@ class ResendEmailService:
         self._override_to = override_to
         self._transport = transport
 
-    async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None) -> str:
+    async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None, attachments: Sequence[Attachment] = ()) -> str:
         if self._override_to:
             # Resend's sandbox sender only delivers to the account owner's address.
             subject, to = f"[to: {to}] {subject}", self._override_to
@@ -36,9 +45,10 @@ class ResendEmailService:
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
         async with httpx.AsyncClient(transport=self._transport, timeout=20) as client:
-            res = await client.post(
-                self.URL, headers=headers, json={"from": self._from, "to": [to], "subject": subject, "html": html}
-            )
+            payload: dict = {"from": self._from, "to": [to], "subject": subject, "html": html}
+            if attachments:
+                payload["attachments"] = [{"filename": a.filename, "content": base64.b64encode(a.content).decode("ascii")} for a in attachments]
+            res = await client.post(self.URL, headers=headers, json=payload)
         if res.status_code >= 300:
             raise EmailError(f"Resend returned {res.status_code}: {res.text[:300]}")
         return res.json()["id"]
@@ -48,7 +58,7 @@ class MockEmailService:
     def __init__(self) -> None:
         self.sent: list[dict] = []
 
-    async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None) -> str:
+    async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None, attachments: Sequence[Attachment] = ()) -> str:
         message_id = f"mock-email-{len(self.sent) + 1}"
-        self.sent.append(dict(id=message_id, to=to, subject=subject, html=html, idempotency_key=idempotency_key))
+        self.sent.append(dict(id=message_id, to=to, subject=subject, html=html, idempotency_key=idempotency_key, attachments=list(attachments)))
         return message_id

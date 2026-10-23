@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from app.config import get_settings
 from app.embeddings import embed_documents
@@ -11,9 +12,12 @@ from app.ingest.text import content_hash
 
 DEVELOPERS = [
     # Seed contacts use the reserved .example domain; real sales offices go in later.
-    dict(name="Ayat Real Estate", slug="ayat", sales_email="sales@ayat.example", commission_rate_pct=3.0, reliability_score=0.80),
-    dict(name="Noah Real Estate", slug="noah", sales_email="sales@noah.example", commission_rate_pct=2.5, reliability_score=0.85),
-    dict(name="Gift Real Estate", slug="gift", sales_email="sales@gift.example", commission_rate_pct=4.0, reliability_score=0.75),
+    dict(name="Ayat Real Estate", slug="ayat", sales_email="sales@ayat.example", commission_rate_pct=3.0, reliability_score=0.80,
+         payment_plan={"installments": 8, "interval_months": 3, "handover_pct": 10}),
+    dict(name="Noah Real Estate", slug="noah", sales_email="sales@noah.example", commission_rate_pct=2.5, reliability_score=0.85,
+         payment_plan={"installments": 24, "interval_months": 1, "handover_pct": 20}),
+    dict(name="Gift Real Estate", slug="gift", sales_email="sales@gift.example", commission_rate_pct=4.0, reliability_score=0.75,
+         payment_plan={"installments": 6, "interval_months": 4, "handover_pct": 15}),
 ]
 
 # dev, project, unit_type, sub_city, (lat, lng), price_etb, beds, sqm, down%, stage%, yield%, delivery, description, tags
@@ -87,10 +91,10 @@ def main(url: str | None = None, embeddings_file: str | None = None) -> None:
     with psycopg.connect(url or get_settings().database_url) as conn:
         for d in DEVELOPERS:
             conn.execute(
-                "insert into developers (name, slug, sales_email, commission_rate_pct, reliability_score) "
-                "values (%(name)s, %(slug)s, %(sales_email)s, %(commission_rate_pct)s, %(reliability_score)s) "
-                "on conflict (slug) do nothing",
-                d,
+                "insert into developers (name, slug, sales_email, commission_rate_pct, reliability_score, payment_plan) "
+                "values (%(name)s, %(slug)s, %(sales_email)s, %(commission_rate_pct)s, %(reliability_score)s, %(payment_plan)s) "
+                "on conflict (slug) do update set payment_plan = coalesce(developers.payment_plan, excluded.payment_plan)",
+                {**d, "payment_plan": Jsonb(d["payment_plan"])},
             )
         dev_ids = dict(conn.execute("select slug, id from developers").fetchall())
         existing = {r[0] for r in conn.execute("select content_hash from properties")}

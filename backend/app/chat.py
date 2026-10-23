@@ -39,6 +39,7 @@ class Inbound:
     file_id: str | None = None
     mime_type: str = "audio/ogg"
     start_payload: str | None = None  # what followed /start, for example "ask_1a2b3c4d" from a channel ad button
+    callback_id: str | None = None  # set when the message is a tap on an inline button
 
     @property
     def thread_id(self) -> str:
@@ -56,6 +57,17 @@ class Outcome:
     takeover: bool = False
     error: bool = False
     state: dict = field(default_factory=dict)
+    quick_replies: list = field(default_factory=list)  # button rows the channel may show under the reply
+
+
+def inline_keyboard(rows: list[list[dict]] | None) -> dict | None:
+    """Telegram inline buttons from quick-reply rows. The button's data is the sentence it stands for, so a tap needs no stored state."""
+    keyboard = []
+    for row in rows or []:
+        buttons = [{"text": b["label"][:40], "callback_data": b["text"]} for b in row if b.get("text") and len(b["text"].encode("utf-8")) <= 64]
+        if buttons:
+            keyboard.append(buttons)
+    return {"inline_keyboard": keyboard} if keyboard else None
 
 
 def chunks(text: str, size: int = TELEGRAM_LIMIT) -> list[str]:
@@ -77,6 +89,8 @@ class ChatService:
     # ---------------- inbound ----------------
 
     async def handle_inbound(self, inbound: Inbound) -> Outcome:
+        if inbound.callback_id:
+            await self._best_effort(self.services.telegram.answer_callback(inbound.callback_id))  # stop the button's spinner at once
         buyer = await self.repo.get_or_create_buyer(inbound.thread_id, inbound.telegram_id)
         # One turn at a time per buyer: a second message waits, so replies never overlap or reorder.
         async with self._lock(inbound.thread_id):
@@ -97,13 +111,13 @@ class ChatService:
                     return opened
             return await self._agent_turn(buyer, inbound, stored)
 
-    async def _say(self, buyer: dict, inbound: Inbound, text: str) -> Outcome:
+    async def _say(self, buyer: dict, inbound: Inbound, text: str, quick_replies: list | None = None) -> Outcome:
         buyer_id = str(buyer["id"])
         sent = await self.repo.add_message(buyer_id, "agent", text)
         self._emit("message", role="agent", buyer_id=buyer_id, message_id=sent["id"], source="text", channel=inbound.channel, text=excerpt(text))
         if inbound.channel == "telegram" and inbound.chat_id is not None:
-            await self._send_telegram(inbound.chat_id, text)
-        return Outcome(buyer_id=buyer_id, reply=text)
+            await self._send_telegram(inbound.chat_id, text, quick_replies)
+        return Outcome(buyer_id=buyer_id, reply=text, quick_replies=quick_replies or [])
 
     async def _from_channel_ad(self, buyer: dict, inbound: Inbound, stored: dict) -> Outcome | None:
         """A buyer tapped a button on a channel ad. Load that unit into the conversation so 'option 1' means it."""
@@ -127,7 +141,8 @@ class ChatService:
             text = (f"Here are the details.\n\n{option_block(1, unit, ', '.join(tags[:3]))}\n\n"
                     "Would you like to compare it with similar options, or book a site visit?")
             await self.agent.add_message(thread, AIMessage(content=text), active_matches=[slim(unit, 1.0)])
-            return await self._say(buyer, inbound, text)
+            return await self._say(buyer, inbound, text, [[{"label": "Book a visit", "text": "Book a site visit for option 1"}],
+                                                          [{"label": "Phone consultation", "text": "I'd like a phone consultation"}]])
 
         if action == "cmp":
             similar = await self.repo.similar_properties(unit["id"], threshold=self.settings.similarity_threshold, limit=2)
@@ -176,21 +191,24 @@ class ChatService:
             if spoken is not None and spoken.content:
                 await self.repo.update_message_content(stored["id"], str(spoken.content))
 
+        quick_replies = [] if error else list(state.get("quick_replies") or [])
         if reply:
             sent = await self.repo.add_message(buyer_id, "agent", reply)
             self._emit("message", role="agent", buyer_id=buyer_id, message_id=sent["id"], source="text", channel=inbound.channel, text=excerpt(reply))
             if inbound.channel == "telegram" and inbound.chat_id is not None:
-                await self._send_telegram(inbound.chat_id, reply)
-        return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state)
+                await self._send_telegram(inbound.chat_id, reply, quick_replies)
+        return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state, quick_replies=quick_replies)
 
     async def _typing(self, inbound: Inbound) -> None:
         while True:
             await self._best_effort(self.services.telegram.send_chat_action(inbound.chat_id))
             await asyncio.sleep(4)  # Telegram shows the indicator for about 5 seconds
 
-    async def _send_telegram(self, chat_id: int | str, text: str) -> None:
-        for part in chunks(text):
-            await self._best_effort(self.services.telegram.send_message(chat_id, part))
+    async def _send_telegram(self, chat_id: int | str, text: str, quick_replies: list | None = None) -> None:
+        parts = chunks(text)
+        for i, part in enumerate(parts):
+            markup = inline_keyboard(quick_replies) if i == len(parts) - 1 else None  # buttons go under the last part
+            await self._best_effort(self.services.telegram.send_message(chat_id, part, reply_markup=markup))
 
     @staticmethod
     async def _best_effort(coro) -> None:

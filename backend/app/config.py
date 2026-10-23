@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    ingest_webhook_secret: str = ""  # shared secret for the inbound announcement email webhook
     telegram_mode: str = "auto"  # auto/polling: fetch updates (no public URL needed); webhook: Telegram calls us; off
     public_base_url: str = ""  # https URL used only by scripts/telegram_webhook.py
     resend_api_key: str = ""
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     business_hours_end: int = 18
     working_days: str = "Mon,Tue,Wed,Thu,Fri,Sat"
     tour_duration_minutes: int = 60
+    consultation_minutes: int = 30  # a phone call, not a visit
     tour_buffer_minutes: int = 30
 
     google_service_account_json: str = ""  # the key as raw JSON, or the path to the JSON file

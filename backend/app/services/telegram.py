@@ -5,6 +5,9 @@ from typing import Any, Protocol
 import httpx
 
 
+ALLOWED_UPDATES = ["message", "callback_query"]  # callback_query: taps on inline buttons
+
+
 class TelegramError(Exception):
     pass
 
@@ -19,6 +22,10 @@ class TelegramService(Protocol):
     async def send_location(self, chat_id: int | str, latitude: float, longitude: float) -> int: ...
 
     async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int: ...
+
+    async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int: ...
+
+    async def answer_callback(self, callback_id: str, text: str = "") -> None: ...
 
     async def get_me(self) -> dict: ...
 
@@ -53,6 +60,22 @@ class BotApiTelegramService:
             params["parse_mode"] = parse_mode
         return (await self._request("sendMessage", **params))["message_id"]
 
+    async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int:
+        url = f"https://api.telegram.org/bot{self._token}/sendDocument"
+        try:
+            async with httpx.AsyncClient(transport=self._transport, timeout=60) as client:
+                res = await client.post(url, data={"chat_id": str(chat_id), "caption": caption[:1024]}, files={"document": (filename, content)})
+            body = res.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise TelegramError(f"sendDocument failed: {type(exc).__name__}") from None
+        if not body.get("ok"):
+            raise TelegramError(f"sendDocument rejected: {body.get('description', 'unknown error')}")
+        return body["result"]["message_id"]
+
+    async def answer_callback(self, callback_id: str, text: str = "") -> None:
+        """Stops the button's loading spinner; without it Telegram shows one for about a minute."""
+        await self._request("answerCallbackQuery", callback_query_id=callback_id, text=text[:200])
+
     async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> None:
         await self._request("sendChatAction", chat_id=chat_id, action=action)
 
@@ -66,7 +89,7 @@ class BotApiTelegramService:
         return (await self._request("sendPhoto", **params))["message_id"]
 
     async def get_updates(self, offset: int | None, timeout: int = 25) -> list[dict]:
-        params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
+        params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ALLOWED_UPDATES}
         if offset is not None:
             params["offset"] = offset
         return await self._request("getUpdates", _timeout=timeout + 10, **params)
@@ -76,7 +99,7 @@ class BotApiTelegramService:
 
     async def set_webhook(self, url: str, secret_token: str) -> None:
         await self._request(
-            "setWebhook", url=url, secret_token=secret_token, allowed_updates=["message"], drop_pending_updates=False
+            "setWebhook", url=url, secret_token=secret_token, allowed_updates=ALLOWED_UPDATES, drop_pending_updates=False
         )
 
     async def get_webhook_info(self) -> dict:
@@ -104,6 +127,8 @@ class MockTelegramService:
         self.actions: list[tuple] = []
         self.locations: list[tuple] = []
         self.photos: list[dict] = []
+        self.documents: list[dict] = []
+        self.answered: list[tuple] = []
         self.username = "mock_bot"
         self._files = files or {}
 
@@ -123,6 +148,13 @@ class MockTelegramService:
     async def send_photo(self, chat_id: int | str, photo_url: str, caption: str, *, reply_markup: dict | None = None) -> int:
         self.photos.append(dict(chat_id=chat_id, photo_url=photo_url, caption=caption, reply_markup=reply_markup))
         return 1000 + len(self.photos)
+
+    async def send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str = "") -> int:
+        self.documents.append(dict(chat_id=chat_id, filename=filename, content=content, caption=caption))
+        return 2000 + len(self.documents)
+
+    async def answer_callback(self, callback_id: str, text: str = "") -> None:
+        self.answered.append((callback_id, text))
 
     async def get_me(self) -> dict:
         return {"id": 1, "username": self.username}

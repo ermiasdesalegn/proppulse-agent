@@ -113,6 +113,7 @@ async def web_chat(body: WebChatIn, chat: ChatService = Depends(chat_of)):
     return {
         "buyer_id": outcome.buyer_id,
         "reply": outcome.reply,
+        "quick_replies": outcome.quick_replies,
         "takeover": outcome.takeover,
         "error": outcome.error,
         "active_matches": outcome.state.get("active_matches", []),
@@ -175,6 +176,20 @@ async def change_price(property_id: UUID, body: PriceIn, repo: Repository = Depe
 
 # ---------------- market ingestion ----------------
 
+def decode_image(b64: str, mime: str) -> tuple[bytes, str]:
+    """Decode an uploaded image and make sure it is really what it claims to be (type by its first bytes) and not too large."""
+    try:
+        data = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("the image is not valid base64") from None
+    if len(data) > 5_000_000:
+        raise ValueError("the image is larger than 5 MB")
+    signatures = {"image/png": (bytes.fromhex("89504e470d0a1a0a"),), "image/jpeg": (bytes.fromhex("ffd8ff"),), "image/webp": (b"RIFF",)}
+    if mime not in signatures or not data.startswith(signatures[mime]) or (mime == "image/webp" and data[8:12] != b"WEBP"):
+        raise ValueError("the file is not the image type it claims to be")
+    return data, mime
+
+
 class IngestIn(BaseModel):
     developer_slug: str = Field(pattern=r"^[a-z0-9-]{2,40}$")
     source: Literal["html", "text", "url"]
@@ -194,16 +209,7 @@ class IngestIn(BaseModel):
             return None
         if self.source != "text" or not self.floor_plan_mime:
             raise ValueError("a floor plan can only be uploaded with announcement text, with its image type")
-        try:
-            data = base64.b64decode(self.floor_plan_base64, validate=True)
-        except (binascii.Error, ValueError):
-            raise ValueError("the floor plan is not valid base64") from None
-        if len(data) > 5_000_000:
-            raise ValueError("the floor plan is larger than 5 MB")
-        signatures = {"image/png": (bytes.fromhex("89504e470d0a1a0a"),), "image/jpeg": (bytes.fromhex("ffd8ff"),), "image/webp": (b"RIFF",)}
-        if not data.startswith(signatures[self.floor_plan_mime]) or (self.floor_plan_mime == "image/webp" and data[8:12] != b"WEBP"):
-            raise ValueError("the file is not the image type it claims to be")
-        return data, self.floor_plan_mime
+        return decode_image(self.floor_plan_base64, self.floor_plan_mime)
 
 
 class ScrapeConfigIn(BaseModel):
@@ -225,6 +231,75 @@ def ingest_of(request: Request) -> IngestionService:
 async def _announce(request: Request, report: dict) -> list[dict]:
     ads = getattr(request.app.state, "ads", None)
     return await ads.announce_report(report) if ads else []
+
+
+class AttachmentIn(BaseModel):
+    filename: str = Field(max_length=200)
+    content_type: str = Field(max_length=100)
+    base64: str = Field(max_length=7_000_000)
+
+
+class AnnouncementIn(BaseModel):
+    """An email from a developer, as a mail service's inbound webhook delivers it."""
+
+    message_id: str = Field(min_length=1, max_length=300)
+    sender: str = Field(min_length=3, max_length=320)
+    subject: str | None = Field(default=None, max_length=500)
+    text: str = Field(default="", max_length=20_000)
+    html: str | None = Field(default=None, max_length=500_000)
+    attachments: list[AttachmentIn] = Field(default_factory=list, max_length=5)
+    developer_slug: str | None = Field(default=None, pattern=r"^[a-z0-9-]{2,40}$")
+
+
+@router.post("/api/webhooks/announcement")
+async def announcement_webhook(
+    body: AnnouncementIn, request: Request, x_webhook_secret: str | None = Header(default=None),
+    service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of),
+):
+    """A developer's price announcement arrives by email. It is read and applied exactly like pasted text, once per message id."""
+    secret = request.app.state.settings.ingest_webhook_secret
+    if not secret or not _same(x_webhook_secret, secret):
+        raise HTTPException(403, "Forbidden")
+    if not await repo.claim_announcement(body.message_id, body.sender, body.subject):
+        return {"status": "duplicate"}
+
+    developer = await repo.get_developer_by_slug(body.developer_slug) if body.developer_slug else await repo.find_developer_for_sender(body.sender)
+    if developer is None:
+        await repo.finish_announcement(body.message_id, "IGNORED", None, {"reason": "the sender is not a known developer"})
+        return {"status": "ignored", "reason": "unknown sender"}
+
+    text = body.text.strip()
+    if not text and body.html:
+        from app.ingest.parse import page_text
+
+        text = page_text(body.html, 20_000)
+    text = f"{body.subject}\n\n{text}".strip() if body.subject else text
+    plan = None
+    for attachment in body.attachments:
+        if attachment.content_type in ("image/png", "image/jpeg", "image/webp"):
+            try:
+                plan = decode_image(attachment.base64, attachment.content_type)
+                break
+            except ValueError:
+                continue  # an unusable attachment must not stop the announcement itself
+    try:
+        if not text:
+            raise ValueError("the email has no text to read")
+        report = await service.run(developer_slug=developer["slug"], source="text", text=text, floor_plan=plan)
+    except (ValueError, ExtractionError) as exc:
+        await repo.finish_announcement(body.message_id, "FAILED", developer["id"], {"error": str(exc)})
+        return {"status": "failed", "developer": developer["slug"], "error": str(exc)}
+    except Exception:
+        await repo.finish_announcement(body.message_id, "FAILED", developer["id"], {"error": "unexpected error"})
+        raise
+    ads = await _announce(request, report) if request.app.state.settings.ads_auto_publish else []
+    await repo.finish_announcement(body.message_id, "PROCESSED", developer["id"], {"counts": report["counts"], "floor_plan_used": bool(report.get("floor_plan_for"))})
+    return {"status": "processed", "developer": developer["slug"], "counts": report["counts"], "ads": ads}
+
+
+@router.get("/api/announcements", dependencies=[Depends(require_admin)])
+async def list_announcements(repo: Repository = Depends(repo_of)):
+    return await repo.list_announcements()
 
 
 @router.post("/api/ingest", dependencies=[Depends(require_admin)])
@@ -318,6 +393,33 @@ async def publish_ad(body: AdPublishIn, request: Request):
         raise HTTPException(404, "Property not found") from None
     except AdError as exc:
         raise HTTPException(422, str(exc)) from None
+
+
+@router.get("/api/tours/{tour_id}/dossier", dependencies=[Depends(require_admin)])
+async def tour_dossier(tour_id: UUID, request: Request, repo: Repository = Depends(repo_of)):
+    from zoneinfo import ZoneInfo
+
+    from app.dossier import build_dossier, render_text
+
+    s = request.app.state.settings
+    try:
+        data = await build_dossier(repo, tour_id, today=datetime.now(ZoneInfo(s.timezone)).date(), timezone=s.timezone)
+    except LookupError:
+        raise HTTPException(404, "Tour not found") from None
+    return {**data, "text": render_text(data)}
+
+
+@router.post("/api/tours/{tour_id}/dossier/send", dependencies=[Depends(require_admin)])
+async def send_tour_dossier(tour_id: UUID, request: Request, repo: Repository = Depends(repo_of)):
+    from zoneinfo import ZoneInfo
+
+    from app.dossier import deliver_dossier
+
+    s = request.app.state.settings
+    try:
+        return await deliver_dossier(repo, request.app.state.chat.services, s, tour_id, today=datetime.now(ZoneInfo(s.timezone)).date())
+    except LookupError:
+        raise HTTPException(404, "Tour not found") from None
 
 
 @router.get("/api/ads", dependencies=[Depends(require_admin)])

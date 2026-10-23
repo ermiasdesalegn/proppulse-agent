@@ -16,7 +16,7 @@ class Recommendation(BaseModel):
 class Extraction(BaseModel):
     """What the router asks Gemini to pull out of the latest buyer message."""
 
-    intent: Literal["search", "compare", "book_tour", "small_talk"]
+    intent: Literal["search", "compare", "details", "book_tour", "book_consultation", "small_talk"]
     full_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -29,3 +29,4 @@ class Extraction(BaseModel):
     referenced_options: list[int] = Field(default_factory=list, description="1-based numbers of listed options the buyer refers to")
     tour_start_iso: Optional[str] = Field(default=None, description="Requested visit time as ISO 8601 with UTC offset")
     urgency: Literal["low", "medium", "high"] = "low"
+    objections: list[str] = Field(default_factory=list, description="New worries or hesitations the buyer voiced in this message, each as a short phrase")
