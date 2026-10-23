@@ -113,7 +113,7 @@ export default function Select({ value, onChange, options, placeholder = "Select
         ref={button} id={id} type="button" role="combobox" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-label={ariaLabel}
         disabled={disabled} onClick={() => (open ? close(false) : show())} onKeyDown={onKey}
         className={clsx(
-          "flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-[#0d0d24] text-left transition-colors hover:border-[#3a3a62] focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50",
+          "flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-[#0d0d0d] text-left transition-colors hover:border-[#333] focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50",
           size === "sm" ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm", open && "border-accent", className,
         )}
       >
@@ -124,7 +124,7 @@ export default function Select({ value, onChange, options, placeholder = "Select
         <ul
           ref={menu} id={listId} role="listbox" aria-label={ariaLabel}
           style={{ position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom, minWidth: pos.width, maxHeight: pos.maxHeight }}
-          className="z-[60] overflow-y-auto rounded-xl border border-[#2e2e52] bg-[#12122a] p-1 shadow-2xl shadow-black/60"
+          className="z-[60] overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#161616] p-1 shadow-2xl shadow-black/60"
         >
           {options.map((o, i) => (
             <li

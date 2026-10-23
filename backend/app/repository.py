@@ -660,3 +660,21 @@ class Repository:
         )
         assert row is not None
         return row
+
+    async def trends(self, days: int = 30) -> dict:
+        """This period against the one before it, counted from when each record was created, so the dashboard can show real change figures."""
+        def pair(table: str, expr: str = "count(*)", extra: str = "") -> str:
+            cur = f"(select {expr} from {table} where created_at >= now() - make_interval(days => %(d)s){extra})"
+            prev = f"(select {expr} from {table} where created_at >= now() - make_interval(days => %(d)s * 2) and created_at < now() - make_interval(days => %(d)s){extra})"
+            return f"{cur} as {{k}}_current, {prev} as {{k}}_previous"
+        parts = {
+            "buyers": pair("buyers_crm"),
+            "open_deals": pair("commission_ledger", extra=" and status in ('LEAD_REGISTERED', 'TOUR_COMPLETED', 'CONTRACT_SIGNED', 'COMMISSION_PENDING')"),
+            "pipeline_commission_etb": pair("commission_ledger", "coalesce(sum(expected_commission_etb), 0)", " and status in ('LEAD_REGISTERED', 'TOUR_COMPLETED', 'CONTRACT_SIGNED', 'COMMISSION_PENDING')"),
+            "upcoming_tours": pair("tours_and_appointments"),
+            "proactive_sent": pair("proactive_events", extra=" and status = 'sent'"),
+        }
+        sql = "select " + ", ".join(sql.format(k=k) for k, sql in parts.items())
+        row = await self._one(sql, {"d": days})
+        assert row is not None
+        return {k: {"current": float(row[f"{k}_current"]), "previous": float(row[f"{k}_previous"])} for k in parts}

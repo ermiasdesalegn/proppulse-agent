@@ -16,6 +16,9 @@ const PATHS: Record<string, React.ReactNode> = {
   bell: <><path d="M6 17V11a6 6 0 1 1 12 0v6l1.5 2h-15L6 17Z" /><path d="M10 21h4" /></>,
   refresh: <><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4" /><path d="M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4" /></>,
   arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
+  plus: <><path d="M12 5v14M5 12h14" /></>,
+  download: <><path d="M12 4v11M7 11l5 5 5-5M5 20h14" /></>,
+  listing: <><path d="M4 20V9l8-5 8 5v11" /><path d="M9 20v-6h6v6" /></>,
   signout: <><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14M10 16l-4-4 4-4M6 12h10" /></>,
 };
 
@@ -33,9 +36,8 @@ export function Icon({ name, className = "h-[18px] w-[18px]" }: { name: IconName
 export function Logo({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
-      <defs><linearGradient id="pp-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="rgb(var(--accent))" /><stop offset="1" stopColor="rgb(var(--accent2))" /></linearGradient></defs>
-      <circle cx="15" cy="20" r="11" fill="url(#pp-logo)" />
-      <circle cx="26" cy="20" r="11" fill="url(#pp-logo)" opacity=".55" />
+      <circle cx="15" cy="20" r="11" fill="rgb(var(--accent))" />
+      <circle cx="26" cy="20" r="11" fill="rgb(var(--accent))" opacity=".5" />
     </svg>
   );
 }

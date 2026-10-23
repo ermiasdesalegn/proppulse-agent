@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "@/components/clsx";
 import ScorePanel from "@/components/ScorePanel";
+import Select from "@/components/Select";
 import { Avatar, PageHeader, Button, Card, Empty, ErrorNote, Pill, ScoreBar } from "@/components/ui";
 import { errorMessage, post } from "@/lib/api";
 import { displayName, fmtDateTime, fmtEtb, stageLabel, timeAgo } from "@/lib/format";
@@ -20,6 +21,9 @@ export default function CrmPage() {
   const buyers = useApi<Buyer[]>("buyers", 15_000);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
   // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -29,6 +33,36 @@ export default function CrmPage() {
     const q = query.trim().toLowerCase();
     return (buyers.data ?? []).filter((b) => !q || [displayName(b), b.phone ?? "", b.email ?? "", b.deal_stage].join(" ").toLowerCase().includes(q));
   }, [buyers.data, query]);
+
+  const toggle = (id: string) => setChecked((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allChecked = list.length > 0 && list.every((b) => checked.has(b.id));
+  const chosen = (buyers.data ?? []).filter((b) => checked.has(b.id));
+
+  async function bulk(action: string) {
+    if (chosen.length === 0) return;
+    setBulkNote(null);
+    if (action === "export") {
+      const rows = [["Name", "Phone", "Email", "Stage", "Budget (ETB)", "Lead score"], ...chosen.map((b) => [displayName(b), b.phone ?? "", b.email ?? "", b.deal_stage, b.max_budget_etb ?? "", String(b.lead_score)])];
+      const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      a.download = "buyers.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const on = action === "take_over";
+      const targets = chosen.filter((b) => b.human_takeover !== on);
+      for (const b of targets) await post(`buyers/${b.id}/takeover`, { on });
+      setBulkNote(`${targets.length} chat${targets.length === 1 ? "" : "s"} ${on ? "taken over" : "handed back to the agent"}.`);
+      await buyers.reload();
+    } catch (e) {
+      setBulkNote(errorMessage(e));
+    }
+    setBulkBusy(false);
+  }
 
   const selected = (buyers.data ?? []).find((b) => b.id === selectedId) ?? list[0] ?? null;
 
@@ -44,12 +78,25 @@ export default function CrmPage() {
             <input id="buyer-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, phone, stage"
               className="w-full rounded-md border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent" />
           </div>
+          <div className="flex flex-wrap items-center gap-3 border-b border-[#222] px-3 py-2.5">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
+              <input type="checkbox" checked={allChecked} onChange={() => setChecked(allChecked ? new Set() : new Set(list.map((b) => b.id)))} aria-label="Select all buyers in the list" />
+              {checked.size > 0 ? <span className="font-semibold text-accent">{checked.size} selected</span> : "Select all"}
+            </label>
+            {checked.size > 0 && <button onClick={() => setChecked(new Set())} className="text-xs text-muted hover:text-white">Clear selection</button>}
+            <div className="ml-auto w-36">
+              <Select size="sm" ariaLabel="Bulk actions" placeholder="Bulk actions" value="" disabled={checked.size === 0 || bulkBusy} menuWidth="content" onChange={(v) => void bulk(v)}
+                options={[{ value: "take_over", label: "Take over selected" }, { value: "hand_back", label: "Hand back to agent" }, { value: "export", label: "Export selected (CSV)" }]} />
+            </div>
+          </div>
+          {bulkNote && <p role="status" className="border-b border-[#222] px-4 py-2 text-xs text-muted">{bulkNote}</p>}
           {buyers.loading ? <Empty>Loading...</Empty> : list.length === 0 ? <Empty>No buyers match.</Empty> : (
             <ul className="max-h-[70vh] overflow-y-auto">
               {list.map((b) => (
-                <li key={b.id}>
+                <li key={b.id} className={clsx("flex items-stretch border-b border-[#222]", selected?.id === b.id && "bg-accent/10 shadow-[inset_3px_0_0_rgb(var(--accent))]")}>
+                  <label className="grid w-11 shrink-0 cursor-pointer place-items-center"><span className="sr-only">Select {displayName(b)}</span><input type="checkbox" checked={checked.has(b.id)} onChange={() => toggle(b.id)} /></label>
                   <button onClick={() => setSelectedId(b.id)} aria-pressed={selected?.id === b.id}
-                    className={clsx("w-full border-b border-line/60 px-4 py-3 text-left hover:bg-raised", selected?.id === b.id && "bg-accent/10 shadow-[inset_3px_0_0_rgb(var(--accent))]")}>
+                    className="min-w-0 flex-1 py-3 pr-4 text-left transition-colors hover:bg-white/[0.03]">
                     <div className="flex items-start gap-3">
                       <Avatar name={displayName(b)} />
                       <div className="min-w-0 flex-1">

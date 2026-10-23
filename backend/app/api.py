@@ -554,7 +554,7 @@ async def list_tours(limit: int = 100, repo: Repository = Depends(repo_of)):
 async def stats(request: Request, repo: Repository = Depends(repo_of)):
     s = request.app.state.settings
     since = datetime.now(UTC) - timedelta(hours=24)
-    return {**await repo.stats(since), "high_value_threshold_etb": s.high_value_threshold_etb, "demo_reset_enabled": s.demo_reset_enabled}
+    return {**await repo.stats(since), "trends": await repo.trends(30), "high_value_threshold_etb": s.high_value_threshold_etb, "demo_reset_enabled": s.demo_reset_enabled}
 
 
 @router.get("/api/analytics", dependencies=[Depends(require_admin)])

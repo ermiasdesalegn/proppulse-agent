@@ -14,7 +14,7 @@ import { useApi } from "@/lib/useApi";
 
 interface Extra { contract_value_etb?: number; next_buyer_milestone_date?: string }
 
-const STAGE_COLORS = ["#7682f4", "#a078f5", "#fbbf24", "#34d399", "#60a5fa", "#f87171"];
+const STAGE_COLORS = ["#ff6a13", "#fbbf24", "#60a5fa", "#4ade80", "#a78bfa", "#f87171"];
 
 export default function BoardPage() {
   const { dataVersion } = useLive();
@@ -85,7 +85,7 @@ export default function BoardPage() {
                 <div className="min-h-[6rem] flex-1 space-y-2 p-2">
                   {col.id === "QUALIFIED"
                     ? (data?.qualified ?? []).map((b) => (
-                        <article key={b.id} className="rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#3a3a62]">
+                        <article key={b.id} className="rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#333]">
                           <div className="flex items-center justify-between gap-2">
                             <Link href="/crm" className="truncate font-medium hover:text-accent">{displayName(b)}</Link>
                             {b.human_takeover && <Pill tone="warn">You</Pill>}
@@ -102,7 +102,7 @@ export default function BoardPage() {
                           onDragStart={(e) => { e.dataTransfer.setData("text/plain", d.id); e.dataTransfer.effectAllowed = "move"; setDragging(d.id); }}
                           onDragEnd={() => { setDragging(null); setOver(null); }}
                           style={{ borderLeft: `3px solid ${DEVELOPER_VAR[d.developer_slug] ? `rgb(${DEVELOPER_VAR[d.developer_slug]})` : "transparent"}` }}
-                          className={clsx("cursor-grab rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#3a3a62] active:cursor-grabbing", dragging === d.id && "opacity-40")}
+                          className={clsx("cursor-grab rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#333] active:cursor-grabbing", dragging === d.id && "opacity-40")}
                         >
                           <p className="font-medium">{d.buyer_name ?? "Buyer"}</p>
                           <p className={clsx("text-xs font-medium", DEVELOPER_COLOR[d.developer_slug])}>{d.developer_name}</p>

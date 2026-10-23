@@ -123,6 +123,7 @@ export interface Stats {
   proactive_sent: number;
   high_value_threshold_etb: number;
   demo_reset_enabled: boolean;
+  trends?: Partial<Record<"buyers" | "open_deals" | "pipeline_commission_etb" | "upcoming_tours" | "proactive_sent", { current: number; previous: number }>>;
 }
 
 export interface ProactiveEvent {

@@ -53,7 +53,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <LiveProvider>
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-[#26264a] bg-[#0c0c20] md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-[#26264a]">
+        <aside className="shrink-0 border-b border-[#222] bg-[#0f0f0f] md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-[#222]">
           <div className="flex items-center justify-between px-4 py-3 md:block md:py-5">
             <div className="flex items-center gap-3">
               <Logo />
@@ -73,10 +73,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   return (
                     <Link
                       key={item.href} href={item.href} aria-current={active ? "page" : undefined}
-                      className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-white/[0.06] text-white" : "text-muted hover:bg-[#12122a] hover:text-white")}
+                      className={clsx("group relative flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors", active ? "bg-accent/10 text-accent" : "text-muted hover:bg-white/[0.04] hover:text-white")}
                     >
                       {active && <motion.span layoutId="nav-bar" transition={{ type: "spring", stiffness: 500, damping: 40 }} className="absolute inset-y-1.5 left-0 hidden w-[3px] rounded-r bg-accent md:block" />}
-                      <span className={active ? "text-accent" : ""}><Icon name={item.icon} /></span>
+                      <Icon name={item.icon} />
                       {item.label}
                     </Link>
                   );
@@ -84,11 +84,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               </div>
             ))}
           </nav>
-          <div className="hidden border-t border-[#26264a] p-3 md:absolute md:bottom-0 md:block md:w-56">
+          <div className="hidden border-t border-[#222] p-3 md:absolute md:bottom-0 md:block md:w-56">
             <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
               <Avatar name="Broker" className="h-8 w-8" />
               <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">Broker</p><p className="truncate text-xs text-muted">Addis Ababa</p></div>
-              <button onClick={signOut} aria-label="Sign out" title="Sign out" className="rounded-md p-1.5 text-muted transition hover:bg-[#12122a] hover:text-white"><Icon name="signout" /></button>
+              <button onClick={signOut} aria-label="Sign out" title="Sign out" className="rounded-md p-1.5 text-muted transition hover:bg-[#161616] hover:text-white"><Icon name="signout" /></button>
             </div>
           </div>
         </aside>

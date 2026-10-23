@@ -21,7 +21,7 @@ export default function AnalyticsPage() {
       <PageHeader eyebrow="Insight" title="Analytics" description={<>How the pipeline, the conversations and the AI are doing. Everything here is counted from the database.</>} actions={<><div role="group" aria-label="Time window" className="inline-flex rounded-lg border border-line bg-raised p-0.5">
           {WINDOWS.map((w) => (
             <button key={w} onClick={() => setDays(w)} aria-pressed={days === w}
-              className={clsx("rounded-md px-3 py-1 text-xs font-medium transition-colors", days === w ? "bg-accent text-[#0a0a1f]" : "text-muted hover:text-white")}>Last {w} days</button>
+              className={clsx("rounded-md px-3 py-1 text-xs font-medium transition-colors", days === w ? "bg-accent text-[#111]" : "text-muted hover:text-white")}>Last {w} days</button>
           ))}
         </div></>} />
       {data.error && <ErrorNote>{data.error}</ErrorNote>}
@@ -38,11 +38,11 @@ function Body({ a }: { a: Analytics }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
-        <Stat label="Buyers" value={a.totals.buyers} hint={`${a.totals.messages.toLocaleString("en-US")} messages in ${a.days} days`} />
-        <Stat label="Tours and calls booked" value={a.totals.tours} hint={`last ${a.days} days`} />
-        <Stat label="Commission in the pipeline" value={fmtEtb(a.commission.open_etb)} hint={`${openDeals} open deal${openDeals === 1 ? "" : "s"}`} />
-        <Stat label="Commission paid" value={fmtEtb(a.commission.paid_etb)} />
-        <Stat label="Typical reply time" value={a.turns.p50_ms !== null ? fmtDuration(a.turns.p50_ms) : "-"} hint={a.turns.p95_ms !== null ? `slowest 1 in 20: ${fmtDuration(a.turns.p95_ms)}` : "no replies yet"} />
+        <Stat icon="buyers" label="Buyers" value={a.totals.buyers} hint={`${a.totals.messages.toLocaleString("en-US")} messages in ${a.days} days`} />
+        <Stat icon="calendar" label="Tours and calls booked" value={a.totals.tours} hint={`last ${a.days} days`} />
+        <Stat icon="money" label="Commission in the pipeline" value={fmtEtb(a.commission.open_etb)} hint={`${openDeals} open deal${openDeals === 1 ? "" : "s"}`} />
+        <Stat icon="deals" label="Commission paid" value={fmtEtb(a.commission.paid_etb)} />
+        <Stat icon="clock" label="Typical reply time" value={a.turns.p50_ms !== null ? fmtDuration(a.turns.p50_ms) : "-"} hint={a.turns.p95_ms !== null ? `slowest 1 in 20: ${fmtDuration(a.turns.p95_ms)}` : "no replies yet"} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -99,12 +99,12 @@ function Body({ a }: { a: Analytics }) {
         {!a.evaluation ? <Empty>No evaluation results yet. Run `python -m evals` in the backend folder.</Empty> : (
           <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
             {a.evaluation.retrieval && <>
-              <Stat label="Finds a right home in its top 3" value={fmtPct(a.evaluation.retrieval.hit_at_3 * 100)} hint={`${a.evaluation.retrieval.cases} test messages, English, Amharic and mixed`} />
-              <Stat label="Right home ranked first (MRR)" value={a.evaluation.retrieval.mrr.toFixed(2)} hint="1.00 is always first" />
+              <Stat icon="analytics" label="Finds a right home in its top 3" value={fmtPct(a.evaluation.retrieval.hit_at_3 * 100)} hint={`${a.evaluation.retrieval.cases} test messages, English, Amharic and mixed`} />
+              <Stat icon="analytics" label="Right home ranked first (MRR)" value={a.evaluation.retrieval.mrr.toFixed(2)} hint="1.00 is always first" />
             </>}
             {a.evaluation.scenarios && <>
-              <Stat label="Conversations that go to plan" value={`${a.evaluation.scenarios.passed}/${a.evaluation.scenarios.counted}`} hint={`${a.evaluation.scenarios.known_gaps} known gap${a.evaluation.scenarios.known_gaps === 1 ? "" : "s"} listed`} />
-              <Stat label="Replies with only known numbers" value={`${a.evaluation.scenarios.grounded_turns}/${a.evaluation.scenarios.turns}`} hint="no invented prices" />
+              <Stat icon="brain" label="Conversations that go to plan" value={`${a.evaluation.scenarios.passed}/${a.evaluation.scenarios.counted}`} hint={`${a.evaluation.scenarios.known_gaps} known gap${a.evaluation.scenarios.known_gaps === 1 ? "" : "s"} listed`} />
+              <Stat icon="brain" label="Replies with only known numbers" value={`${a.evaluation.scenarios.grounded_turns}/${a.evaluation.scenarios.turns}`} hint="no invented prices" />
             </>}
           </div>
         )}

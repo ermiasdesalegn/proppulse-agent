@@ -151,6 +151,17 @@ async def test_stats_summarise_the_pipeline(spy_repo, db_conn):
     assert float(after["pipeline_commission_etb"]) - float(before["pipeline_commission_etb"]) == 1_187_000
     assert float(after["commission_pending_etb"]) - float(before["commission_pending_etb"]) == 692_000
     assert after["high_value_threshold_etb"] == 20_000_000
+    buyers_trend, pipeline_trend = after["trends"]["buyers"], after["trends"]["pipeline_commission_etb"]
+    assert buyers_trend["current"] == before["trends"]["buyers"]["current"] + 1
+    assert pipeline_trend["current"] - before["trends"]["pipeline_commission_etb"]["current"] == 1_187_000
+    assert set(after["trends"]) == {"buyers", "open_deals", "pipeline_commission_etb", "upcoming_tours", "proactive_sent"}
+
+
+async def test_trends_count_the_previous_period_separately(spy_repo, db_conn):
+    abel = await make_buyer(spy_repo, db_conn, "trend")
+    await db_conn.execute("update buyers_crm set created_at = now() - interval '45 days' where id = %s", (abel["id"],))
+    t = await spy_repo.trends(30)
+    assert t["buyers"]["previous"] >= 1, "a buyer created 45 days ago belongs to the previous 30-day period"
 
 
 # ---------------- voice notes ----------------

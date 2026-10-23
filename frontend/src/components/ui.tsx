@@ -1,12 +1,15 @@
 import clsx from "./clsx";
 import { Icon, type IconName } from "./icons";
 
-export function Card({ title, action, children, className }: { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Card({ title, subtitle, action, children, className }: { title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={clsx("card rounded-2xl border", className)}>
+    <section className={clsx("card rounded-xl border", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-[#26264a] px-4 py-3">
-          <h2 className="text-sm font-semibold">{title}</h2>
+        <header className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
+          </div>
           {action}
         </header>
       )}
@@ -15,27 +18,54 @@ export function Card({ title, action, children, className }: { title?: React.Rea
   );
 }
 
+/** The orange "View all" link in a panel's corner. */
+export function CardLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return <a href={href} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent hover:underline">{children}<Icon name="arrow" className="h-3.5 w-3.5" /></a>;
+}
+
 const TONES = {
-  neutral: "bg-raised text-muted border-line",
+  neutral: "bg-white/[0.04] text-muted border-[#2a2a2a]",
   accent: "bg-accent/10 text-accent border-accent/30",
   good: "bg-good/10 text-good border-good/30",
   warn: "bg-warn/10 text-warn border-warn/30",
   bad: "bg-bad/10 text-bad border-bad/30",
 } as const;
 
+/** A small outlined tag, like "New Subscription" or "System" in a list row. */
 export function Pill({ tone = "neutral", children, title }: { tone?: keyof typeof TONES; children: React.ReactNode; title?: string }) {
-  return <span title={title} className={clsx("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap", TONES[tone])}>{children}</span>;
+  return <span title={title} className={clsx("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap", TONES[tone])}>{children}</span>;
 }
 
-export function Stat({ label, value, hint, icon }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName }) {
+/** A coloured dot and a word: Active, Past due. */
+export function StatusDot({ tone, children }: { tone: "good" | "warn" | "bad" | "neutral"; children: React.ReactNode }) {
+  const dot = { good: "bg-good", warn: "bg-accent", bad: "bg-bad", neutral: "bg-muted" }[tone];
+  const text = { good: "text-good", warn: "text-accent", bad: "text-bad", neutral: "text-muted" }[tone];
+  return <span className={clsx("inline-flex items-center gap-1.5 text-xs font-medium", text)}><span className={clsx("h-1.5 w-1.5 rounded-full", dot)} />{children}</span>;
+}
+
+/** Percentage change from the previous period; null when there is nothing to compare with. */
+export function changePct(current: number, previous: number): number | null {
+  if (!previous) return null;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+/** A KPI card: an orange icon tile, the figure, and how it moved against the previous 30 days. */
+export function Stat({ label, value, hint, icon, trend }: { label: string; value: React.ReactNode; hint?: string; icon?: IconName; trend?: { current: number; previous: number } }) {
+  const pct = trend ? changePct(trend.current, trend.previous) : null;
+  const isNew = trend && !trend.previous && trend.current > 0;
   return (
-    <div className="card rounded-2xl border p-4 transition-colors hover:border-[#3a3a62] sm:p-5">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-muted">{label}</p>
-        {icon && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#2e2e52] text-muted"><Icon name={icon} className="h-4 w-4" /></span>}
+    <div className="card flex items-start gap-4 rounded-xl border p-5 transition-colors hover:border-[#333]">
+      {icon && <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-accent/20 bg-accent/10 text-accent"><Icon name={icon} className="h-5 w-5" /></span>}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm text-muted">{label}</p>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+          <p className="tnum text-2xl font-semibold tracking-tight text-white">{value}</p>
+          {pct !== null && <span className={clsx("tnum text-xs font-semibold", pct >= 0 ? "text-accent" : "text-bad")}>{pct >= 0 ? "\u2191" : "\u2193"} {Math.abs(pct)}%</span>}
+          {isNew && <span className="text-xs font-semibold text-accent">New</span>}
+        </div>
+        <p className="mt-0.5 text-xs text-muted">{trend ? "vs previous 30 days" : hint}</p>
+        {trend && hint && <p className="mt-0.5 text-xs text-muted/80">{hint}</p>}
       </div>
-      <p className="tnum mt-2 text-2xl font-semibold tracking-tight text-white sm:mt-3 sm:text-3xl">{value}</p>
-      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   );
 }
@@ -55,14 +85,13 @@ export function Empty({ children }: { children: React.ReactNode }) {
   return <p className="px-4 py-10 text-center text-sm text-muted">{children}</p>;
 }
 
-/** The same top of every page: the section it belongs to, the title, one sentence of help, and the page's own actions on the right. */
-export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: React.ReactNode; actions?: React.ReactNode }) {
+/** The same top of every page: the title and one sentence of help on the left, the page's own actions on the right. */
+export function PageHeader({ title, description, actions }: { eyebrow?: string; title: string; description?: React.ReactNode; actions?: React.ReactNode }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#26264a] pb-5">
+    <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        {eyebrow && <p className="text-xs font-semibold uppercase tracking-widest text-accent">{eyebrow}</p>}
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted">{description}</p>}
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        {description && <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
@@ -86,11 +115,11 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
 
 export function Button({ variant = "default", className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "primary" | "danger" | "ghost" | "glow" }) {
   const styles = {
-    default: "border border-[#2e2e52] bg-[#12122a] text-white hover:border-[#4a4a74] hover:bg-[#1b1b38]",
-    glow: "border border-[#2e2e52] bg-[#12122a] text-white hover:border-accent hover:text-accent",
-    primary: "bg-accent font-semibold text-[#0a0a1f] hover:brightness-110",
+    default: "border border-[#2a2a2a] bg-transparent text-white hover:border-[#444] hover:bg-white/[0.04]",
+    glow: "border border-accent/40 bg-transparent text-accent hover:bg-accent/10",
+    primary: "bg-accent font-semibold text-[#111] hover:brightness-110",
     danger: "border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20",
-    ghost: "hover:bg-raised",
+    ghost: "hover:bg-white/[0.05]",
   } as const;
   return (
     <button

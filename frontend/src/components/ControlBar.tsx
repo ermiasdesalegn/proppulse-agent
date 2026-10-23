@@ -43,7 +43,7 @@ export default function ControlBar() {
   }
 
   return (
-    <div className="z-20 border-b border-[#26264a] bg-[#0c0c20] md:sticky md:top-0">
+    <div className="z-20 border-b border-[#222] bg-[#0f0f0f] md:sticky md:top-0">
       <div className="flex items-center gap-2 overflow-x-auto px-4 py-2.5 md:flex-wrap md:overflow-visible md:px-8 [&>*]:shrink-0 [&>button]:whitespace-nowrap">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-muted">Run now</span>
         {JOBS.map((job) => (

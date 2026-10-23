@@ -52,7 +52,7 @@ export default function LoginPage() {
             className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
           />
           {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
-          <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-[#0a0a1f] transition hover:brightness-110 disabled:opacity-50">
+          <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-[#111] transition hover:brightness-110 disabled:opacity-50">
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
