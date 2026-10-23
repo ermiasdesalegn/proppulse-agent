@@ -157,6 +157,7 @@ export interface IngestReport {
   unchanged: number;
   sync: string;
   notes: string[];
+  floor_plan_for?: string;
   parse_errors: string[];
   counts: { created: number; price_changed: number; removed: number; unchanged: number; skipped: number };
   run_id?: number;

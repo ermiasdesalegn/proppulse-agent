@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
@@ -183,6 +185,25 @@ class IngestIn(BaseModel):
     full_sync: bool = False
     dry_run: bool = False
     publish_ads: bool = False
+    floor_plan_base64: str | None = Field(default=None, max_length=7_000_000)
+    floor_plan_mime: Literal["image/png", "image/jpeg", "image/webp"] | None = None
+
+    def floor_plan(self) -> tuple[bytes, str] | None:
+        """The uploaded plan, checked: announcement text only, 5 MB at most, and the bytes must really be that image type."""
+        if not self.floor_plan_base64:
+            return None
+        if self.source != "text" or not self.floor_plan_mime:
+            raise ValueError("a floor plan can only be uploaded with announcement text, with its image type")
+        try:
+            data = base64.b64decode(self.floor_plan_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("the floor plan is not valid base64") from None
+        if len(data) > 5_000_000:
+            raise ValueError("the floor plan is larger than 5 MB")
+        signatures = {"image/png": (bytes.fromhex("89504e470d0a1a0a"),), "image/jpeg": (bytes.fromhex("ffd8ff"),), "image/webp": (b"RIFF",)}
+        if not data.startswith(signatures[self.floor_plan_mime]) or (self.floor_plan_mime == "image/webp" and data[8:12] != b"WEBP"):
+            raise ValueError("the file is not the image type it claims to be")
+        return data, self.floor_plan_mime
 
 
 class ScrapeConfigIn(BaseModel):
@@ -210,7 +231,7 @@ async def _announce(request: Request, report: dict) -> list[dict]:
 async def ingest(body: IngestIn, request: Request, service: IngestionService = Depends(ingest_of)):
     try:
         report = await service.run(developer_slug=body.developer_slug, source=body.source, html=body.html, text=body.text, url=body.url,
-                                   profile=body.profile, full_sync=body.full_sync, dry_run=body.dry_run)
+                                   profile=body.profile, full_sync=body.full_sync, dry_run=body.dry_run, floor_plan=body.floor_plan())
     except LookupError:
         raise HTTPException(404, "Developer not found") from None
     except (ValueError, FetchError) as exc:

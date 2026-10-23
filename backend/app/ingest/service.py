@@ -73,6 +73,7 @@ class IngestionService:
     async def run(
         self, *, developer_slug: str, source: str, html: str | None = None, text: str | None = None, url: str | None = None,
         profile: ScrapeProfile | None = None, full_sync: bool = False, dry_run: bool = False,
+        floor_plan: tuple[bytes, str] | None = None,
     ) -> dict:
         """Read one source for one developer and apply it."""
         developer = await self.repo.get_developer_by_slug(developer_slug)
@@ -106,14 +107,15 @@ class IngestionService:
         else:
             raise ValueError(f"unknown source {source!r}")
 
-        report = await self.apply(developer, units, source=source, full_sync=full_sync, dry_run=dry_run)
+        report = await self.apply(developer, units, source=source, full_sync=full_sync, dry_run=dry_run, floor_plan=floor_plan)
         report["parse_errors"] = parse_errors
         report["notes"] = notes + report["notes"]
         return report
 
     # ---------------- applying units ----------------
 
-    async def apply(self, developer: dict, units: list[ListingUnit], *, source: str, full_sync: bool, dry_run: bool) -> dict:
+    async def apply(self, developer: dict, units: list[ListingUnit], *, source: str, full_sync: bool, dry_run: bool,
+                    floor_plan: tuple[bytes, str] | None = None) -> dict:
         report: dict[str, Any] = {
             "developer": developer["slug"], "source": source, "dry_run": dry_run, "full_sync": full_sync, "found": len(units),
             "created": [], "price_changed": [], "image_updated": [], "reactivated": [], "removed": [], "skipped": [],
@@ -157,8 +159,14 @@ class IngestionService:
             if not changed:
                 report["unchanged"] += 1
 
+        if floor_plan is not None:
+            if len(new_units) == 1:
+                report["floor_plan_for"] = new_units[0][0].display_title
+            else:
+                floor_plan = None
+                report["notes"].append("The floor plan was not used: it can only be attached when the text announces exactly one new unit.")
         if new_units and not dry_run:
-            await self._create(developer, new_units, source, report)
+            await self._create(developer, new_units, source, report, floor_plan)
         if full_sync:
             await self._sync_removed(developer, seen, report, dry_run)
 
@@ -171,10 +179,18 @@ class IngestionService:
                 self.events.publish("ingest", developer=developer["slug"], source=source, **counts)
         return report
 
-    async def _create(self, developer: dict, new_units: list[tuple[ListingUnit, str]], source: str, report: dict) -> None:
+    async def _create(self, developer: dict, new_units: list[tuple[ListingUnit, str]], source: str, report: dict,
+                      floor_plan: tuple[bytes, str] | None = None) -> None:
         tags: dict[str, FloorPlanTags] = {}
         vision_budget = self.settings.ingest_max_vision_per_run
         for unit, digest in new_units:
+            if floor_plan is not None:  # an uploaded plan always belongs to the single new unit
+                try:
+                    tags[digest] = await self.gateway.describe_image(floor_plan[0], mime_type=floor_plan[1], prompt=VISION_PROMPT, schema=FloorPlanTags)
+                except Exception as exc:
+                    log.warning("uploaded floor plan could not be read: %s", type(exc).__name__)
+                    report["notes"].append(f"Could not read the uploaded floor plan ({type(exc).__name__}).")
+                continue
             if not unit.floor_plan_image_url:
                 continue
             if vision_budget <= 0:

@@ -134,3 +134,38 @@ async def test_the_scheduled_scrape_reads_every_configured_developer_and_isolate
     assert details["Ayat Real Estate"] == {"developer": "Ayat Real Estate", "new": 1, "price changes": 1, "removed": 1, "unchanged": 2}
     assert "404" in details["Noah Real Estate"]["error"]
     assert (result["sent"], result["failed"], result["dry_run"]) == (3, 1, True)
+
+
+# ---------------- floor-plan upload over http ----------------
+
+import base64
+
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 20).decode()
+
+
+def announcement(**over):
+    return {"developer_slug": "ayat", "source": "text", "text": "Ayat announces Lake View", "dry_run": True, "floor_plan_base64": PNG, "floor_plan_mime": "image/png", **over}
+
+
+@pytest.mark.parametrize("override", [
+    {"floor_plan_base64": "not base64!!"},
+    {"floor_plan_base64": base64.b64encode(b"GIF89a-not-a-png").decode()},
+    {"floor_plan_base64": base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 5_000_001).decode()},
+    {"floor_plan_mime": None},
+    {"floor_plan_mime": "image/gif"},
+    {"source": "html", "html": "<p>x</p>"},
+])
+async def test_a_bad_floor_plan_upload_is_rejected(api, override):
+    client, _ = api
+    assert (await client.post("/api/ingest", json=announcement(**override), headers=ADMIN)).status_code == 422
+
+
+async def test_a_valid_floor_plan_upload_is_accepted(spy_repo):
+    from app.ingest.models import ExtractedUnit, ListingExtraction
+
+    gw = FakeGateway()
+    gw.listing_extraction = ListingExtraction(units=[ExtractedUnit(project_name="Ayat Lake View", unit_type="3BR Apartment", sub_city="Ayat", bedrooms=3, sqm=130, price_etb=11_900_000)])
+    client, _ = await build(spy_repo, gateway=gw)
+    async with client:
+        res = await client.post("/api/ingest", json=announcement(), headers=ADMIN)
+    assert res.status_code == 200 and res.json()["floor_plan_for"] == "Ayat Lake View 3BR Apartment"

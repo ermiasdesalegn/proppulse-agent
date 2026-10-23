@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import clsx from "./clsx";
 import { Button, Card, ErrorNote, Pill } from "./ui";
 import { api, errorMessage, post } from "@/lib/api";
@@ -9,6 +9,18 @@ import type { Developer, IngestReport } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
 type Source = "html" | "text";
+type Plan = { name: string; mime: string; base64: string };
+const PLAN_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const PLAN_MAX_BYTES = 5_000_000;
+
+function readPlan(file: File): Promise<Plan> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("The file could not be read."));
+    reader.onload = () => resolve({ name: file.name, mime: file.type, base64: String(reader.result).split(",")[1] ?? "" });
+    reader.readAsDataURL(file);
+  });
+}
 
 interface Sample { developer_slug: string; html: string; profile: Record<string, unknown>; variant: number }
 
@@ -36,7 +48,7 @@ export function ReportView({ report }: { report: IngestReport }) {
       <Section title="Back on the page" tone="good" items={report.reactivated.map((u) => u.title)} />
       <Section title="Skipped" tone="neutral" items={report.skipped.map((s) => `${s.title ?? "A unit"}: ${s.reason}`)} />
       <Section title="Could not read" tone="bad" items={report.parse_errors} />
-      <Section title="Notes" tone="neutral" items={[...report.notes, ...(report.sync.startsWith("skipped") ? [`Sync ${report.sync}`] : [])]} />
+      <Section title="Notes" tone="neutral" items={[...(report.floor_plan_for ? [`Floor plan attached to ${report.floor_plan_for}`] : []), ...report.notes, ...(report.sync.startsWith("skipped") ? [`Sync ${report.sync}`] : [])]} />
       {report.ads?.length > 0 && (
         <Section title="Channel ads" tone="good" items={report.ads.map((a) => <span key={a.title + a.kind}>{a.title} <span className="text-muted">- {a.kind.toLowerCase().replace("_", " ")}: {a.posted ? "posted" : a.error ?? a.reason ?? "not posted"}</span></span>)} />
       )}
@@ -56,6 +68,18 @@ export default function IngestPanel({ onChanged }: { onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<IngestReport | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const planInput = useRef<HTMLInputElement>(null);
+
+  async function choosePlan(file: File | undefined) {
+    setError(null);
+    if (!file) return;
+    if (!PLAN_TYPES.includes(file.type)) { setError("The floor plan must be a PNG, JPEG or WebP image."); return; }
+    if (file.size > PLAN_MAX_BYTES) { setError("The floor plan is larger than 5 MB."); return; }
+    try { setPlan(await readPlan(file)); } catch (e) { setError(errorMessage(e)); }
+  }
+
+  function clearPlan() { setPlan(null); if (planInput.current) planInput.current.value = ""; }
 
   async function loadSample(variant: 1 | 2) {
     setError(null);
@@ -81,6 +105,7 @@ export default function IngestPanel({ onChanged }: { onChanged: () => void }) {
       const result = await post<IngestReport>("ingest", {
         developer_slug: developer, source, html: source === "html" ? content : undefined, text: source === "text" ? content : undefined,
         profile, full_sync: source === "html" && fullSync, dry_run: preview, publish_ads: !preview && postAds,
+        floor_plan_base64: source === "text" ? plan?.base64 : undefined, floor_plan_mime: source === "text" && plan ? plan.mime : undefined,
       });
       setReport(result);
       if (!preview) onChanged();
@@ -123,6 +148,17 @@ export default function IngestPanel({ onChanged }: { onChanged: () => void }) {
             placeholder={source === "html" ? "Paste the page's HTML here, or load a sample above" : "Paste the announcement, for example: Ayat announces Lake View, 3BR, 130 sqm, ETB 11.9M, 25% down..."}
             className={clsx("w-full rounded-md border border-line bg-bg px-3 py-2 text-xs outline-none focus:border-accent", source === "html" && "font-mono")} />
         </div>
+
+        {source === "text" && (
+          <div className="rounded-md border border-line px-3 py-2 text-sm">
+            <label htmlFor="ingest-plan" className="font-medium">Floor plan image (optional)</label>
+            <p className="mt-1 text-xs text-muted">Attached to the unit when the announcement describes exactly one new unit. The model lists its features so buyers can search by them.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input id="ingest-plan" ref={planInput} type="file" accept={PLAN_TYPES.join(",")} onChange={(e) => void choosePlan(e.target.files?.[0])} className="text-xs" />
+              {plan && <><span className="text-xs text-muted">{plan.name}</span><Button onClick={clearPlan}>Remove</Button></>}
+            </div>
+          </div>
+        )}
 
         {source === "html" && (
           <details className="rounded-md border border-line px-3 py-2 text-sm">

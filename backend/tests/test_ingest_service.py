@@ -283,3 +283,48 @@ async def test_a_page_without_selectors_is_read_by_the_model(repo):
     service, _, _ = make(repo, gateway=gw)
     report = await service.run(developer_slug="gift", source="html", html="<html><body><main>Lake View 3BR 130 sqm 11.9M</main></body></html>")
     assert any("language model" in n for n in report["notes"]) and gw.calls[0][0] == "extraction"
+
+
+# ---------------- an uploaded floor plan ----------------
+
+PLAN = (b"\x89PNG\r\n\x1a\n" + b"0" * 20, "image/png")
+
+
+async def test_an_uploaded_floor_plan_is_read_and_attached_to_the_single_new_unit(repo, db_conn):
+    gw = FakeGateway()
+    gw.listing_extraction = announcement_units()
+    service, _, _ = make(repo, gateway=gw)
+    report = await service.run(developer_slug="ayat", source="text", text="Ayat announces the Lake View 3BR.", floor_plan=PLAN)
+    assert [c[0] for c in gw.calls] == ["extraction", "image", "embed_documents"]
+    assert report["created"][0]["floor_plan_tags"] == ["open-plan kitchen", "maid room + bath"]
+    unit = (await ayat_units(db_conn))["Ayat Lake View 3BR Apartment"]
+    assert unit["vision_amenities"]["tags"] == ["open-plan kitchen", "maid room + bath"]
+
+
+async def test_a_preview_with_a_floor_plan_spends_no_vision_call(repo):
+    gw = FakeGateway()
+    gw.listing_extraction = announcement_units()
+    service, _, _ = make(repo, gateway=gw)
+    report = await service.run(developer_slug="ayat", source="text", text="Lake View 3BR", floor_plan=PLAN, dry_run=True)
+    assert gw.count("image") == 0 and report["floor_plan_for"] == "Ayat Lake View 3BR Apartment"
+
+
+async def test_a_floor_plan_is_ignored_when_the_text_announces_several_units(repo):
+    gw = FakeGateway()
+    gw.listing_extraction = ListingExtraction(units=[
+        ExtractedUnit(project_name="Ayat Lake View", unit_type="3BR Apartment", sub_city="Ayat", bedrooms=3, sqm=130, price_etb=11_900_000),
+        ExtractedUnit(project_name="Ayat Lake View", unit_type="2BR Apartment", sub_city="Ayat", bedrooms=2, sqm=92, price_etb=8_400_000),
+    ])
+    service, _, _ = make(repo, gateway=gw)
+    report = await service.run(developer_slug="ayat", source="text", text="Two new units", floor_plan=PLAN)
+    assert gw.count("image") == 0 and report["counts"]["created"] == 2
+    assert any("exactly one new unit" in n for n in report["notes"])
+
+
+async def test_an_unreadable_floor_plan_never_blocks_the_unit(repo):
+    gw = FakeGateway()
+    gw.listing_extraction = announcement_units()
+    gw.fail_image = True
+    service, _, _ = make(repo, gateway=gw)
+    report = await service.run(developer_slug="ayat", source="text", text="Lake View 3BR", floor_plan=PLAN)
+    assert report["counts"]["created"] == 1 and any("uploaded floor plan" in n for n in report["notes"])
