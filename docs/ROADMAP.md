@@ -2,7 +2,7 @@
 
 Phases 9–17 are done and committed locally (foundation, SRS completion, evaluation, dashboard, scraping, agent depth, engineering quality, deployment assets, README and Loom script). The dashboard was then restyled three times; the target look is now fixed by the reference below.
 
-## Phase 18 — Dashboard in the "enterprise console" look
+## Phase 18 — Dashboard in the "enterprise console" look (done)
 
 **Reference:** near-black base, flat dark panels with hairline borders, a single vivid orange accent, orange-tinted icon tiles, small delta badges, tag chips, orange checkboxes, a quiet sidebar with an orange active item. Take the *look and layout*, not the subscription features.
 
