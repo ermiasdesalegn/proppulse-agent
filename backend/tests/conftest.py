@@ -35,6 +35,15 @@ async def repo(db_conn):
 
 
 @pytest_asyncio.fixture
+async def quiet_world(db_conn):
+    """Hide real activity from a test. The real Telegram buyer and the real alert history live in the same
+    database as the test data; inside the test's own transaction (always rolled back) they are set aside, so
+    expectations like 'only this buyer is alerted' stay true however much real use the database has seen."""
+    await db_conn.execute("update buyers_crm set deal_stage = 'LOST' where thread_id not like 'test:%'")
+    await db_conn.execute("delete from proactive_events")
+
+
+@pytest_asyncio.fixture
 async def spy_repo(db_conn):
     from tests.agent_helpers import SpyRepo
 

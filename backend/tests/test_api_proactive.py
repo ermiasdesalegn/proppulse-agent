@@ -7,6 +7,8 @@ from app.main import create_app
 from tests.agent_helpers import FakeGateway, make_chat, make_proactive
 from tests.test_proactive import NOAH, make_buyer, pid
 
+pytestmark = pytest.mark.usefixtures("quiet_world")
+
 ADMIN = {"X-Admin-Key": "test-admin-key"}
 CRON = {"X-Cron-Secret": "test-cron-secret"}
 OVERRIDES = dict(admin_api_key="test-admin-key", cron_secret="test-cron-secret")

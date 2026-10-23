@@ -115,7 +115,9 @@ class Repository:
             f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
             f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join properties p on p.id = ph.property_id "
             f"join developers d on d.id = p.developer_id "
-            f"where ph.detected_at >= %s and ph.change_pct < 0 and p.status = 'AVAILABLE' order by ph.detected_at",
+            # Only drops still in effect: if the price moved again since, the drop is no longer true and is not news.
+            f"where ph.detected_at >= %s and ph.change_pct < 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb "
+            f"order by ph.detected_at",
             (since,),
         )
 

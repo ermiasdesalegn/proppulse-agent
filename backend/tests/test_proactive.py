@@ -13,6 +13,8 @@ NOAH = "Noah Bole Towers 3BR%"
 GIFT = "Gift Bole Court%"
 _telegram_ids = itertools.count(880001)
 
+pytestmark = pytest.mark.usefixtures("quiet_world")
+
 
 async def pid(db_conn, like):
     cur = await db_conn.execute("select id from properties where title like %s", (like,))
@@ -193,6 +195,27 @@ async def test_a_price_increase_or_unchanged_price_alerts_nobody(repo, db_conn):
     up = await repo.update_property_price(await pid(db_conn, NOAH), 21_000_000)
     assert same["changed"] is False and up["change_pct"] > 0
     assert (await proactive.reverse_rag_alerts())["sent"] == 0
+
+
+async def test_a_drop_that_has_since_been_reversed_is_not_announced(repo, db_conn):
+    """Regression: after a live demo the drop stayed in the 24 h history although the price was back to normal."""
+    proactive, services, _ = make_proactive(repo)
+    await make_buyer(repo, db_conn, "abel")
+    unit = await pid(db_conn, NOAH)
+    await repo.update_property_price(unit, 17_500_000)
+    await repo.update_property_price(unit, 19_800_000)  # back to the original price
+    assert (await proactive.reverse_rag_alerts())["sent"] == 0 and services.telegram.messages == []
+
+
+async def test_only_the_latest_drop_is_announced_and_with_the_current_price(repo, db_conn):
+    proactive, services, _ = make_proactive(repo)
+    await make_buyer(repo, db_conn, "abel")
+    unit = await pid(db_conn, NOAH)
+    await repo.update_property_price(unit, 18_500_000)
+    await repo.update_property_price(unit, 17_500_000)
+    assert (await proactive.reverse_rag_alerts())["sent"] == 1
+    text = services.telegram.messages[0]["text"]
+    assert "dropped from 18.5M ETB to 17.5M ETB" in text and "19.8M" not in text
 
 
 async def test_reverse_match_function_applies_every_filter(db_conn):
