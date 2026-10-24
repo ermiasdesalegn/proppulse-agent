@@ -26,6 +26,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!res.ok) throw new ApiError(res.status, detailOf(body) ?? (res.statusText || `Request failed (${res.status})`));
+  // Every backend answer is JSON. Anything else (a sign-in page from the host, a proxy error page) must not be handed to the page as data.
+  if (typeof body === "string" && body !== "") throw new ApiError(502, "The server answered with a web page instead of data. If this address asks you to sign in to Vercel, use the public address.");
   return body as T;
 }
 
