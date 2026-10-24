@@ -32,6 +32,7 @@ MIN_SALE_PRICE_ETB = 300_000  # below this a "sale" price is a typo, a monthly r
 MAX_SALE_PRICE_ETB = 20_000_000_000
 MIN_HOME_SQM, MAX_HOME_SQM, MAX_BEDROOMS = 15, 5_000, 12  # plots of land and compounds are larger, a "2 m²" is a typo or a different figure
 MIN_ETB_PER_SQM, MAX_ETB_PER_SQM = 25_000, 1_500_000
+FLOOR_ETB_PER_SQM = 3_000  # below this a 'sale price' is a monthly rent or a typo (a plot of land sells for more than this per m² even far out)
 RESIDENTIAL = re.compile(r"apartment|flat|condo|house|villa|penthouse|studio|duplex|townhouse|residential|g\+\d|bedroom|ቤት|አፓርታማ", re.I)
 NOT_RESIDENTIAL = re.compile(r"\b(land|plot|office|shop|store|warehouse|hotel|commercial|building for rent|school|restaurant|factory)\b|ቦታ\b|ሱቅ", re.I)
 RENT = re.compile(r"for[\s-]rent|/rent\b|for-rent|\brental\b|per\s+month|/month|ኪራይ|የሚከራይ", re.I)
@@ -388,6 +389,13 @@ def skip_reason(listing: PortalListing) -> str | None:
     return None
 
 
+def implausible_price(price_etb: float | None, sqm: float | None) -> str | None:
+    """A reason to refuse a price whatever read it (a page reader or the language model), or None."""
+    if price_etb and sqm and price_etb / sqm < FLOOR_ETB_PER_SQM:
+        return f"the price works out to {price_etb / sqm:,.0f} ETB per m², far too low for a sale: probably a rent or a typo"
+    return None
+
+
 def to_unit(listing: PortalListing, portal_name: str) -> ListingUnit | str:
     """A unit ready for IngestionService.apply, or the reason it cannot be one."""
     if reason := skip_reason(listing):
@@ -396,6 +404,8 @@ def to_unit(listing: PortalListing, portal_name: str) -> ListingUnit | str:
                if value is None]
     if missing:
         return f"missing {', '.join(missing)}"
+    if reason := implausible_price(listing.price_etb, listing.sqm):
+        return reason
     try:
         return ListingUnit(
             project_name=project_name_for(listing, portal_name), unit_type=unit_type_for(listing), sub_city=listing.sub_city or "",

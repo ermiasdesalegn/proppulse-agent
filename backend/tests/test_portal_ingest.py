@@ -273,3 +273,31 @@ def test_the_spider_refuses_unknown_sites_and_skips_the_browser_site_without_pla
         PortalSpider(site="ethiohome")
     monkeypatch.setenv("PORTAL_PLAYWRIGHT", "1")
     assert "ethiohome" in [s.slug for s in PortalSpider(site="all").sites]
+
+
+# ---------------- found on the first real crawl ----------------
+
+def test_a_price_per_square_metre_that_is_far_too_low_is_refused_as_a_rent_or_a_typo():
+    from app.ingest.portal import PortalListing
+
+    villa = PortalListing(url="https://x.test/p/1", ref="1", title="Furnished Villa in Bole", price_etb=640_000, sqm=700, bedrooms=4, sub_city="Bole", deal="sale")
+    assert "per m²" in to_unit(villa, "X") and "rent or a typo" in to_unit(villa, "X")
+    flat = PortalListing(url="https://x.test/p/2", ref="2", title="Flat in Bole", price_etb=5_200_000, sqm=95, bedrooms=2, sub_city="Bole", deal="sale")
+    assert not isinstance(to_unit(flat, "X"), str)
+    plot = PortalListing(url="https://x.test/p/3", ref="3", title="House in Ayat", price_etb=10_000_000, sqm=1500, bedrooms=4, sub_city="Ayat", deal="sale")
+    assert not isinstance(to_unit(plot, "X"), str), "a house on a big plot is cheap per m² and still a sale"
+
+
+async def test_units_read_by_the_model_keep_the_pages_address_and_get_the_same_price_check(repo, db_conn):
+    from tests.agent_helpers import FakeGateway
+
+    gw = FakeGateway()
+    gw.listing_extraction = ListingExtraction(units=[
+        ExtractedUnit(project_name="p", unit_type="2BR Apartment", sub_city="Bole", bedrooms=2, sqm=100, price_etb=9_500_000),
+        ExtractedUnit(project_name="p", unit_type="Villa", sub_city="Bole", bedrooms=4, sqm=700, price_etb=640_000),
+    ])
+    service, _, _ = make(repo, gateway=gw)
+    report = await service.run_portal(portal="model-src", name="Model Src", items=[item("60", price=None, url="https://epc.test/for-sale/60", text="2 bedroom, 100 sqm, 9.5 million birr")])
+    assert report["counts"]["created"] == 1 and "per m²" in report["skipped"][0]["reason"]
+    cur = await db_conn.execute("select source_url from properties p join developers d on d.id = p.developer_id where d.slug = 'model-src'")
+    assert [r["source_url"] for r in await cur.fetchall()] == ["https://epc.test/for-sale/60"]

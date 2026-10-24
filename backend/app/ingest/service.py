@@ -19,7 +19,7 @@ from app.geo import KNOWN_SUB_CITIES, normalize_sub_city
 from app.ingest.fetch import Fetcher, FetchError
 from app.ingest.models import FloorPlanTags, ListingExtraction, ListingUnit, PortalItem, ScrapeProfile
 from app.ingest.parse import ParseResult, page_text, parse_date, parse_listing_html
-from app.ingest.portal import MAX_SALE_PRICE_ETB, MIN_SALE_PRICE_ETB, PortalListing, project_name_for, skip_reason, to_unit
+from app.ingest.portal import MAX_SALE_PRICE_ETB, MIN_SALE_PRICE_ETB, PortalListing, implausible_price, project_name_for, skip_reason, to_unit
 from app.ingest.text import content_hash, embedding_text
 from app.repository import Repository
 
@@ -156,7 +156,10 @@ class IngestionService:
                     skipped.append({"title": item.title or item.url, "url": item.url, "reason": str(exc)})
                     continue
                 for unit in read:  # the model may find several units on one page; the stable name keeps each recognisable next time
-                    units.append(unit.model_copy(update={"project_name": project_name_for(listing, name), "title": unit.title or item.title}))
+                    if reason := implausible_price(unit.price_etb, unit.sqm):
+                        skipped.append({"title": unit.display_title, "url": item.url, "reason": reason})
+                        continue
+                    units.append(unit.model_copy(update={"project_name": project_name_for(listing, name), "title": unit.title or item.title, "source_url": item.url}))
                 if not read:
                     skipped.append({"title": item.title or item.url, "url": item.url, "reason": "; ".join(rejected) or "the model found no priced home on the page"})
                 continue
