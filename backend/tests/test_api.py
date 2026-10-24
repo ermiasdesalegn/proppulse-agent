@@ -132,15 +132,16 @@ async def test_full_takeover_flow_over_http(api):
     assert taken.status_code == 200 and taken.json()["human_takeover"] is True and "preference_embedding" not in taken.json()
 
     held = (await client.post("/api/chat/web", json={"session_id": SESSION, "text": "can you lower it?"}, headers=ADMIN)).json()
-    assert held["takeover"] is True and held["reply"] is None
+    assert held["takeover"] is True and "will reply to you personally" in held["reply"], "the agent stays out; the buyer is told once that the broker has the chat"
 
     sent = await client.post("/api/chat/broker-reply", json={"buyer_id": buyer_id, "text": "Let me check with the developer."}, headers=ADMIN)
     assert sent.status_code == 200 and sent.json()["role"] == "broker"
 
     seen = (await client.get(f"/api/chat/web/{SESSION}/messages", headers=ADMIN)).json()["messages"]
-    assert [m["role"] for m in seen] == ["buyer", "agent", "broker", "buyer", "broker"]
+    assert [m["role"] for m in seen] == ["buyer", "agent", "broker", "buyer", "agent", "broker"]
     assert seen[2]["source"] == "system" and seen[3]["content"] == "can you lower it?"
-    assert (seen[4]["content"], seen[4]["source"]) == ("Let me check with the developer.", "text")
+    assert "will reply to you personally" in seen[4]["content"], "the one-line notice that the broker has the chat"
+    assert (seen[5]["content"], seen[5]["source"]) == ("Let me check with the developer.", "text")
 
     back = await client.post(f"/api/buyers/{buyer_id}/takeover", json={"on": False}, headers=ADMIN)
     assert back.json()["human_takeover"] is False

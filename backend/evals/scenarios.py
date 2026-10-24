@@ -347,7 +347,7 @@ async def takeover_pauses_the_agent(c: Ctx):
     buyer_id = (await c.env.repo.get_buyer_by_thread(f"tg:{c.uid}"))["id"]
     await c.env.chat.set_takeover(str(buyer_id), True)
     t = await c.say("Are you there?")
-    c.check("the agent stays silent", t.reply is None and t.takeover and not t.nodes, (t.reply, t.nodes))
+    c.check("the agent does not run, and the buyer is told once that the broker has the chat", t.takeover and not t.nodes and "will reply to you personally" in (t.reply or ""), (t.reply, t.nodes))
     c.check("the broker is told what the buyer wrote", any("Are you there?" in m["text"] for m in c.telegram if str(m["chat_id"]) == BROKER_CHAT))
     await c.env.chat.broker_reply(str(buyer_id), "Yes, this is Ermias.")
     c.check("the broker's reply reaches the buyer", any(m["text"] == "Yes, this is Ermias." and m["chat_id"] == c.uid for m in c.telegram))

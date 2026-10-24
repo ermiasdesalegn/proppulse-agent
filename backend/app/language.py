@@ -70,6 +70,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     "handoff": {
         "en": "Of course. I'm bringing {broker} into this chat now, and they will reply to you personally.",
         "am": "እሺ። {broker}ን አሁኑኑ ወደዚህ ውይይት እያስገባሁ ነው፤ እሳቸው ራሳቸው ይመልሱልዎታል።"},
+    "broker_has_chat": {
+        "en": "Thanks, I have passed your message to {broker}. They have this chat now and will reply to you personally.",
+        "am": "እሺ፣ መልእክትዎን ለ{broker} አስተላልፌያለሁ። ውይይቱን አሁን ተረክበዋል፤ እሳቸው ራሳቸው ይመልሱልዎታል።"},
     "off_limits": {
         "en": "I can help with finding a home, comparing options and booking a visit. What are you looking for (budget, bedrooms, area)?",
         "am": "ቤት ለማግኘት፣ አማራጮችን ለማወዳደርና ጉብኝት ለመያዝ እረዳለሁ። ምን ይፈልጋሉ (በጀት፣ የመኝታ ክፍል፣ አካባቢ)?"},

@@ -100,11 +100,12 @@ async def test_takeover_stores_the_message_without_running_the_agent(spy_repo):
     await chat.set_takeover(str(buyer["id"]), True)
 
     out = await chat.handle_inbound(tg("can you lower the price?", user="777003"))
-    assert out.takeover and out.reply is None
+    assert out.takeover and "will reply to you personally" in out.reply, "the buyer is told once that the broker has the chat"
     assert gw.calls == [], "no model call while the broker has the chat"
     msgs = await thread_messages(agent, "tg:777003")
     assert isinstance(msgs[-1], HumanMessage) and msgs[-1].content == "can you lower the price?"
-    assert [m["chat_id"] for m in services.telegram.messages] == ["999"], "the buyer gets no automatic reply; the broker is notified"
+    assert [m["chat_id"] for m in services.telegram.messages] == ["999", 777003], "the broker is notified, and the buyer is told once that the broker has the chat"
+    assert "has this chat" in services.telegram.messages[1]["text"] or "will reply to you personally" in services.telegram.messages[1]["text"]
     rows = await transcript(spy_repo, buyer["id"])
     assert rows[0][1] == "Broker took over this chat." and rows[1] == ("buyer", "can you lower the price?", "text")
 
@@ -114,7 +115,7 @@ async def test_voice_note_during_takeover_is_kept_for_the_broker_to_play(spy_rep
     buyer = await spy_repo.get_or_create_buyer("tg:777004", 777004)
     await chat.set_takeover(str(buyer["id"]), True)
     await chat.handle_inbound(Inbound(channel="telegram", external_id="777004", chat_id=777004, kind="voice", file_id="VF9"))
-    row = (await spy_repo.list_messages(buyer["id"]))[-1]
+    row = next(m for m in await spy_repo.list_messages(buyer["id"]) if m["role"] == "buyer")
     assert (row["content"], row["source"], row["telegram_file_id"]) == ("[voice note]", "voice", "VF9")
 
 
@@ -177,3 +178,48 @@ async def test_set_takeover_unknown_buyer(spy_repo):
     chat, _, _ = make_chat(spy_repo, FakeGateway())
     with pytest.raises(LookupError):
         await chat.set_takeover("00000000-0000-0000-0000-000000000000", True)
+
+
+async def test_the_buyer_is_told_once_not_after_every_message_and_again_after_a_new_takeover(spy_repo):
+    gw = FakeGateway(list(HELLO))
+    chat, services, _ = make_chat(spy_repo, gw, demo_fallback_telegram_chat_id="999")
+    buyer = await spy_repo.get_or_create_buyer("tg:777010", 777010)
+    await chat.set_takeover(str(buyer["id"]), True)
+    for text in ("hello?", "anyone there?", "what are you saying"):
+        await chat.handle_inbound(tg(text, user="777010"))
+    to_buyer = [m for m in services.telegram.messages if m["chat_id"] == 777010]
+    assert len(to_buyer) == 1, "one acknowledgement, never a repeat of what the buyer wrote"
+    assert len([m for m in services.telegram.messages if m["chat_id"] == "999"]) == 3, "the broker still gets every message, once each"
+    assert gw.calls == []
+    await chat.set_takeover(str(buyer["id"]), False)
+    await chat.set_takeover(str(buyer["id"]), True)
+    await chat.handle_inbound(tg("hello again", user="777010"))
+    assert len([m for m in services.telegram.messages if m["chat_id"] == 777010]) == 2
+
+
+async def test_the_brokers_own_chat_never_gets_the_buyers_words_echoed_back(spy_repo):
+    """In a one-person demo the broker and the buyer are the same Telegram account: relaying to the broker would repeat everything to the buyer."""
+    chat, services, _ = make_chat(spy_repo, FakeGateway(list(HELLO)), broker_telegram_chat_id="777011")
+    buyer = await spy_repo.get_or_create_buyer("tg:777011", 777011)
+    await chat.set_takeover(str(buyer["id"]), True)
+    await chat.handle_inbound(tg("book a site visit for option 1", user="777011"))
+    texts = [m["text"] for m in services.telegram.messages]
+    assert not any("book a site visit" in t for t in texts), texts
+    assert len(texts) == 1 and "personally" in texts[0]
+
+
+async def test_the_broker_chat_setting_is_used_for_the_relay_as_well(spy_repo):
+    chat, services, _ = make_chat(spy_repo, FakeGateway(list(HELLO)), broker_telegram_chat_id="555", demo_fallback_telegram_chat_id="")
+    buyer = await spy_repo.get_or_create_buyer("tg:777012", 777012)
+    await chat.set_takeover(str(buyer["id"]), True)
+    await chat.handle_inbound(tg("can you lower the price?", user="777012"))
+    relayed = [m for m in services.telegram.messages if m["chat_id"] == "555"]
+    assert len(relayed) == 1 and relayed[0]["text"].endswith(": can you lower the price?")
+
+
+async def test_the_acknowledgement_follows_the_buyers_language_and_reaches_the_web_simulator(spy_repo):
+    chat, _, _ = make_chat(spy_repo, FakeGateway(list(HELLO)))
+    buyer = await spy_repo.get_or_create_buyer("web:session-xyz98765", None)
+    await chat.set_takeover(str(buyer["id"]), True)
+    out = await chat.handle_inbound(web("ዋጋውን ቀንሱልኝ", session="session-xyz98765"))
+    assert out.takeover and out.reply and "አስተላልፌያለሁ" in out.reply

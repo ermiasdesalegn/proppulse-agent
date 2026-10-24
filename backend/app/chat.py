@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
@@ -25,6 +26,7 @@ from app.services import Services
 log = logging.getLogger(__name__)
 
 TELEGRAM_LIMIT = 4000  # Telegram rejects messages over 4096 characters
+TAKEOVER_ACK_SECONDS = 1800  # while the broker has a chat, tell the buyer so at most this often
 
 
 class Conflict(Exception):
@@ -80,6 +82,7 @@ class ChatService:
     def __init__(self, repo: Repository, agent: BrokerAgent, services: Services, settings: Settings, events: Any = None):
         self.repo, self.agent, self.services, self.settings, self.events = repo, agent, services, settings, events
         self._locks: dict[str, asyncio.Lock] = {}
+        self._takeover_acks: dict[str, float] = {}  # thread -> when the buyer was last told the broker has the chat
         self.projects: Any = None  # ProjectService, set by the application
 
     def _emit(self, kind: str, **data: Any) -> None:
@@ -183,13 +186,21 @@ class ChatService:
         return await self._agent_turn(buyer, replace(inbound, text=synthetic, start_payload=None), stored)
 
     async def _while_broker_has_the_chat(self, buyer: dict, inbound: Inbound, shown: str) -> Outcome:
+        """The agent stays silent and the message is kept for the broker. Two courtesies: the broker is told on Telegram (never back into the
+        chat the message came from, which would echo the buyer's own words to them), and the buyer is told once in a while that the broker
+        has the chat, so a silence is not mistaken for a broken bot."""
         await self.agent.add_message(
             inbound.thread_id, HumanMessage(content=shown, additional_kwargs={"source": inbound.kind})
         )
-        chat = self.settings.demo_fallback_telegram_chat_id
-        if chat:
+        chat = self.settings.broker_telegram_chat_id or self.settings.demo_fallback_telegram_chat_id
+        if chat and str(chat) != str(inbound.chat_id):
             who = buyer.get("full_name") or inbound.thread_id
             await self._best_effort(self.services.telegram.send_message(chat, f"{who}: {shown}"))
+        now = time.monotonic()
+        if now - self._takeover_acks.get(inbound.thread_id, float("-inf")) >= TAKEOVER_ACK_SECONDS:
+            self._takeover_acks[inbound.thread_id] = now
+            note = msg("broker_has_chat", detect_language(inbound.text or ""), broker=self.settings.broker_name)
+            return replace(await self._say(buyer, inbound, note), takeover=True)
         return Outcome(buyer_id=str(buyer["id"]), reply=None, takeover=True)
 
     async def _agent_turn(self, buyer: dict, inbound: Inbound, stored: dict) -> Outcome:
@@ -223,6 +234,8 @@ class ChatService:
             self._emit("message", role="agent", buyer_id=buyer_id, message_id=sent["id"], source="text", channel=inbound.channel, text=excerpt(reply))
             if inbound.channel == "telegram" and inbound.chat_id is not None:
                 await self._send_telegram(inbound.chat_id, reply, quick_replies)
+        if state.get("human_takeover"):
+            self._takeover_acks[inbound.thread_id] = time.monotonic()  # this turn already told the buyer the broker is taking over
         return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state, quick_replies=quick_replies)
 
     async def _typing(self, inbound: Inbound) -> None:
@@ -247,6 +260,7 @@ class ChatService:
 
     async def set_takeover(self, buyer_id: str, on: bool) -> dict:
         buyer = await self.repo.set_human_takeover(buyer_id, on)
+        self._takeover_acks.pop(str(buyer.get("thread_id")), None)  # a new takeover starts with a fresh acknowledgement
         note = "Broker took over this chat." if on else "Broker handed the chat back to the assistant."
         await self.repo.add_message(buyer_id, "broker", note, source="system")
         self._emit("takeover", buyer_id=str(buyer_id), on=on, name=buyer.get("full_name"))

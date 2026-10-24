@@ -264,7 +264,8 @@ async def test_a_buyer_whose_chat_the_broker_holds_is_not_answered_by_the_bot(re
     buyer = await repo.get_or_create_buyer("tg:990004", 990004)
     await chat.set_takeover(str(buyer["id"]), True)
     out = await tap(chat, services, repo, "ask", await prop(db_conn), user="990004")
-    assert out.takeover and out.reply is None and services.telegram.messages == []
+    assert out.takeover and "will reply to you personally" in out.reply, "the agent does not answer; the buyer is only told the broker has the chat"
+    assert [m["chat_id"] for m in services.telegram.messages] == [990004]
 
 
 # ---------------- API ----------------
