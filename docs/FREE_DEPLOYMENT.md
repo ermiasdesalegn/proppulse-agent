@@ -1,14 +1,13 @@
-# Free deployment (no card): Supabase + Hugging Face Space + Vercel + GitHub Actions
+# Free deployment (no card): Supabase + Render + Vercel + GitHub Actions
 
 ## 1. Database: Supabase (already done)
 Use the session pooler string as `DATABASE_URL`. Migrations are already applied (001-013). For a fresh database: `cd backend; python -m scripts.migrate; python -m scripts.seed`.
 
-## 2. Backend: Hugging Face Space
-1. Create the account at huggingface.co. Spaces → Create new Space → name `proppulse-backend`, SDK **Docker**, template **Blank**, hardware **CPU basic (free)**, **Private** is fine.
-2. Build the upload folder: `python deploy/huggingface/build_space.py` → `dist/hf-space/` (about 90 files, 0.7 MB, no `.env`, `.venv` or key files).
-3. Upload: Space → Files → Add file → Upload files → drag the **contents** of `dist/hf-space/` (not the folder itself) → Commit. (Or `git clone` the Space and copy them in.)
-4. Space → Settings → **Variables and secrets**. Secrets (hidden): `DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_API_KEYS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_API_KEY`, `CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `MAPBOX_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_JSON` (the file's JSON text). Variables (plain): `SUPABASE_URL`, `TELEGRAM_MODE=webhook`, `TELEGRAM_CHANNEL_ID`, `BROKER_TELEGRAM_CHAT_ID`, `GOOGLE_CALENDAR_ID`, `EMAIL_FROM`, `TIMEZONE=Africa/Addis_Ababa`, `FRONTEND_ORIGIN=https://<your-app>.vercel.app`, `PUBLIC_BASE_URL=https://<your-username>-proppulse-backend.hf.space`.
-5. The Space builds (a few minutes). Check `https://<your-username>-proppulse-backend.hf.space/health` → `"status":"ok"`. In webhook mode it registers the Telegram webhook itself at start-up.
+## 2. Backend: Render free web service
+1. render.com → sign in with GitHub → **New + → Web Service** → pick the repo. Or **New + → Blueprint**, which reads `render.yaml` and pre-fills everything below.
+2. Root directory `backend`, runtime Python 3, build `pip install -r requirements.txt`, start `python -m app`, instance type **Free**. (The start command is `python -m app`, not `uvicorn main:app`: the entry point is `app.main:app` and `python -m app` runs it on `HOST`/`PORT`; Render sets `PORT`.)
+3. Environment: add the secrets and variables listed in `render.yaml` (`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_API_KEYS`, `TELEGRAM_*`, `ADMIN_API_KEY`, `CRON_SECRET`, `SUPABASE_*`, ...). Set `TELEGRAM_MODE=webhook`, `PUBLIC_BASE_URL` = the `https://....onrender.com` URL Render shows, `FRONTEND_ORIGIN` = your Vercel URL.
+4. Deploy, then open `<url>/health`: `"status":"ok"`. In webhook mode it registers the Telegram webhook at start-up.
 
 ## 3. Dashboard: Vercel (free Hobby plan)
 Import the GitHub repo, root directory `frontend`. Environment variables: `BACKEND_URL` = the Space URL, `ADMIN_API_KEY` (same as the Space), `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `NEXT_PUBLIC_MAPBOX_TOKEN`. The browser only talks to Vercel; Vercel's server calls the Space, so CORS is not even needed (it is set anyway).
@@ -17,7 +16,10 @@ Import the GitHub repo, root directory `frontend`. Environment variables: `BACKE
 Repo → Settings → Secrets and variables → Actions → add `BACKEND_URL` (the Space URL) and `CRON_SECRET`. `.github/workflows/cron.yml` then runs hourly (reminders, and it wakes the Space), 06:00 Addis (market sweep) and 08:00 Addis (follow-ups and offer ads). Run it once by hand from the Actions tab to test.
 
 ## Free-tier limits to know
-- A free Space **sleeps after 48 hours without traffic** and takes about a minute to wake. The hourly job keeps it awake; Telegram's webhook also wakes it.
-- The Space disk is **not persistent**: everything lives in Supabase (it does). Do not rely on local files.
-- Free Spaces have 2 vCPU and 16 GB RAM, plenty for this app. JavaScript-page scraping (Chromium) is not in this image.
-- GitHub Actions cron can run a few minutes late. Supabase pauses a free project after 7 days of no use; the hourly job keeps it active.
+- Render's free web service has **512 MB RAM** (this backend uses about 130 MB), shared CPU, and **sleeps after 15 minutes without traffic**. The next request (a Telegram message, the dashboard, a cron call) wakes it in about 30-60 seconds; Telegram retries a webhook that times out.
+- For an always-awake demo, add a free UptimeRobot monitor on `<url>/health` every 5 minutes (no card). The hourly GitHub job does not keep it awake on its own.
+- Render free web services run about 750 hours a month, enough for one service.
+- The disk is not persistent; everything important lives in Supabase.
+- A long market sweep (about 6 minutes) runs in the background; keep the service awake while it runs, or it can be cut off by a restart. Chromium (JavaScript pages) is not available on the free plan's memory.
+- Supabase pauses a free project after 7 days of no use; the hourly job keeps it active.
+- Fallback for the video: run the backend locally and `ngrok http 8000`, then set `BACKEND_URL` (Vercel) and `PUBLIC_BASE_URL` to the ngrok address.

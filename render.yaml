@@ -1,0 +1,35 @@
+# Render Blueprint: free web service for the backend. Secrets are filled in the Render dashboard (sync: false).
+services:
+  - type: web
+    name: proppulse-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app   # starts uvicorn on HOST:PORT (Render sets PORT)
+    healthCheckPath: /health
+    envVars:
+      - { key: PYTHON_VERSION, value: 3.12.8 }
+      - { key: HOST, value: 0.0.0.0 }
+      - { key: LOG_FORMAT, value: json }
+      - { key: TRUST_PROXY_HEADERS, value: "true" }
+      - { key: TELEGRAM_MODE, value: webhook }
+      - { key: TIMEZONE, value: Africa/Addis_Ababa }
+      - { key: PUBLIC_BASE_URL, sync: false }      # https://proppulse-backend.onrender.com (the URL Render gives you)
+      - { key: FRONTEND_ORIGIN, sync: false }      # https://<your-app>.vercel.app
+      - { key: DATABASE_URL, sync: false }
+      - { key: GEMINI_API_KEY, sync: false }
+      - { key: GEMINI_API_KEYS, sync: false }
+      - { key: TELEGRAM_BOT_TOKEN, sync: false }
+      - { key: TELEGRAM_WEBHOOK_SECRET, sync: false }
+      - { key: TELEGRAM_CHANNEL_ID, sync: false }
+      - { key: BROKER_TELEGRAM_CHAT_ID, sync: false }
+      - { key: ADMIN_API_KEY, sync: false }
+      - { key: CRON_SECRET, sync: false }
+      - { key: SUPABASE_URL, sync: false }
+      - { key: SUPABASE_SERVICE_ROLE_KEY, sync: false }
+      - { key: RESEND_API_KEY, sync: false }
+      - { key: EMAIL_FROM, sync: false }
+      - { key: MAPBOX_TOKEN, sync: false }
+      - { key: GOOGLE_CALENDAR_ID, sync: false }
+      - { key: GOOGLE_SERVICE_ACCOUNT_JSON, sync: false }   # the key file's JSON text

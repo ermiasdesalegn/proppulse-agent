@@ -1,9 +1,9 @@
 # Free replacement for Cloud Scheduler: GitHub Actions calls the backend on a schedule.
-# Add two repository secrets: BACKEND_URL (https://<user>-proppulse-backend.hf.space) and CRON_SECRET (the same value as the Space's CRON_SECRET).
+# Add two repository secrets: BACKEND_URL (https://proppulse-backend.onrender.com) and CRON_SECRET (the same value as the Space's CRON_SECRET).
 name: scheduled jobs
 on:
   schedule:
-    - cron: "0 * * * *"   # every hour: wake the Space, send 24 h tour and milestone reminders
+    - cron: "0 * * * *"   # every hour: wake the service, send 24 h tour and milestone reminders
     - cron: "0 3 * * *"   # 06:00 Addis Ababa: market sweep (starts in the background)
     - cron: "0 5 * * *"   # 08:00 Addis Ababa: follow-ups, price alerts, offer ads
   workflow_dispatch:
