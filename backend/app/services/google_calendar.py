@@ -31,8 +31,7 @@ def load_service_account(value: str) -> dict:
     if not value.startswith("{") and '"client_email"' in value:
         value = "{" + value.strip().strip(",") + "}"  # pasted into a hosting dashboard without its outer braces
     try:
-        # strict=False: a private key pasted with real line breaks instead of 
- is still read
+        # strict=False: a private key pasted with real line breaks instead of backslash-n is still read
         info = json.loads(value, strict=False) if value.startswith("{") else json.loads(Path(value).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise CalendarError(f"could not read the service account key: {type(exc).__name__}") from None
