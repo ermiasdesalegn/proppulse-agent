@@ -18,6 +18,7 @@ from app.ingest.fetch import FetchError
 from app.ingest.models import PortalItem, ScrapeProfile
 from app.ingest.sample import sample_listing
 from app.ingest.service import ExtractionError, IngestionService
+from app.portal_runs import PortalRunError, PortalRunService
 from app.repository import Repository
 from app.telegram_updates import TelegramUpdateHandler
 
@@ -353,6 +354,60 @@ async def ingest_portal_sync(body: PortalSyncIn, service: IngestionService = Dep
         return await service.sync_portal(portal=body.portal, seen_refs=body.seen_refs, dry_run=body.dry_run)
     except LookupError:
         raise HTTPException(404, "Portal not found") from None
+
+
+def portal_runs_of(request: Request) -> PortalRunService:
+    state = request.app.state
+    return PortalRunService(state.repo, state.settings, proactive=getattr(state, "proactive", None), dispatcher=getattr(state, "github", None))
+
+
+class PortalRunIn(BaseModel):
+    site: str = Field(default="all", pattern=r"^(all|[a-z0-9-]{2,40})$")
+    limit: int = Field(default=50, ge=0, le=5000)  # 0 is a full crawl
+    dry_run: bool = True
+
+
+class PortalReportIn(BaseModel):
+    """What the crawl runner tells the backend: once when a portal starts, once when it ends."""
+
+    phase: Literal["start", "finish"]
+    portal: str = Field(pattern=r"^[a-z0-9-]{2,40}$")
+    request_id: str | None = Field(default=None, max_length=40)
+    trigger: Literal["dashboard", "schedule", "manual"] = "schedule"
+    run_url: str | None = Field(default=None, max_length=500)
+    dry_run: bool = True
+    mode: Literal["full", "incremental", "limited"] = "incremental"
+    page_limit: int | None = Field(default=None, ge=0)
+    run_id: int | None = None
+    stats: dict[str, int] = Field(default_factory=dict)
+    blocked_reason: str | None = Field(default=None, max_length=300)
+    error: str | None = Field(default=None, max_length=1000)
+
+
+@router.get("/api/portal/runs", dependencies=[Depends(require_admin)])
+async def portal_runs(service: PortalRunService = Depends(portal_runs_of)):
+    return {"config": service.config(), "runs": await service.runs()}
+
+
+@router.post("/api/portal/runs", dependencies=[Depends(require_admin)])
+async def start_portal_crawl(body: PortalRunIn, service: PortalRunService = Depends(portal_runs_of)):
+    try:
+        return await service.start(site=body.site, limit=body.limit, dry_run=body.dry_run)
+    except PortalRunError as exc:
+        raise HTTPException(502 if "GitHub" in str(exc) else 422, str(exc)) from None
+
+
+@router.post("/api/portal/runs/report", dependencies=[Depends(require_admin)])
+async def portal_run_report(body: PortalReportIn, service: PortalRunService = Depends(portal_runs_of)):
+    try:
+        if body.phase == "start":
+            return await service.report_start(portal=body.portal, request_id=body.request_id, trigger=body.trigger, run_url=body.run_url,
+                                              dry_run=body.dry_run, mode=body.mode, page_limit=body.page_limit)
+        if body.run_id is None:
+            raise HTTPException(422, "run_id is required to finish a run")
+        return await service.report_finish(run_id=body.run_id, stats=body.stats, blocked_reason=body.blocked_reason, error=body.error)
+    except PortalRunError as exc:
+        raise HTTPException(422, str(exc)) from None
 
 
 @router.get("/api/ingest/runs", dependencies=[Depends(require_admin)])

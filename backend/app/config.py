@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     scrape_failures_before_alert: int = 3
     scrape_allow_private_hosts: bool = False  # only for pointing the scraper at a page on this machine while developing
     ingest_max_vision_per_run: int = 10  # floor-plan images read per run; each costs a model call
+    github_token: str = ""  # fine-grained token: Actions read and write on ONE repository; lets the dashboard start the portal crawl
+    github_repo: str = ""  # owner/name, for example ermiasdesalegn/proppulse-agent
+    github_workflow: str = "portal-crawl.yml"
+    github_ref: str = "main"
+    portal_min_success_rate: float = 0.7  # below this share of pages priced locally the broker is told the site layout probably changed
+    portal_alert_min_pages: int = 10  # ...but only after at least this many pages, so a small run does not cry wolf
     ads_auto_publish: bool = False  # post new listings and price drops to the channel without being asked
     telegram_channel_id: str = ""
 

@@ -30,6 +30,7 @@ from app.dossier import deliver_dossier
 from app.finance import fmt_etb, payment_schedule
 from app.geo import expand_with_adjacent, normalize_sub_cities
 from app.guardrails import looks_like_injection, reply_is_grounded, wants_a_human
+from app.ingest.portal import is_portal_unit
 from app.language import detect_language, msg
 from app.projects import suggest_projects
 from app.repository import LedgerEntry, PropertyMatch
@@ -691,7 +692,9 @@ class AgentNodes:
             try:
                 event_id = await d.services.calendar.book(
                     start=start, end=end, summary=f"Site visit: {profile['full_name']}",
-                    description=f"{profile['full_name']} {profile['phone']} - {title}", location=ordered[0]["sub_city"],
+                    description=f"{profile['full_name']} {profile['phone']} - {title}" + "".join(
+                        f"\nListed at: {p['source_url']}" for p in ordered if is_portal_unit(p) and p.get("source_url")),
+                    location=ordered[0]["sub_city"],
                 )
             except SlotUnavailable:
                 return await self._offer_slots("That time was just taken.", max(start, now + timedelta(hours=2)), duration, pending_ids=ids)
@@ -710,7 +713,7 @@ class AgentNodes:
         seen: set[str] = set()
         for p in ordered:
             slug = p["developer_slug"]
-            if slug in seen:
+            if slug in seen or is_portal_unit(p):  # a portal listing has no developer to register the lead with: the broker is told below
                 continue
             seen.add(slug)
             dev_props = [q for q in ordered if q["developer_slug"] == slug]
@@ -728,6 +731,9 @@ class AgentNodes:
                 message_id = None
             entries.append(LedgerEntry(p["id"], message_id))
         await d.repo.create_ledger_rows(buyer_id=state["buyer_id"], tour_id=tour["id"], entries=entries)
+        portal_units = [p for p in ordered if is_portal_unit(p)]
+        if portal_units:
+            await self._tell_broker_about_portal_visit(tour["id"], profile, portal_units, start)
 
         sheet = brochure_data(ordered, today=now.date(), broker_name=s.broker_name, buyer_name=profile.get("full_name"), route=plan.to_json() if plan else None)
         try:
@@ -763,8 +769,11 @@ class AgentNodes:
         lines += [f"{i}. {p['title']} ({p['sub_city']})" for i, p in enumerate(ordered, start=1)]
         if plan and plan.distance_meters > 0:  # a lone stop with no starting point has no driving to report
             lines += ["", f"About {plan.distance_meters / 1000:.1f} km of driving in total, roughly {plan.duration_seconds // 60} minutes."]
-        devs = ", ".join(sorted({p["developer_name"] for p in ordered}))
-        lines += ["", f"I've notified {devs} that you're visiting with us."]
+        devs = ", ".join(sorted({p["developer_name"] for p in ordered if not is_portal_unit(p)}))
+        if devs:
+            lines += ["", f"I've notified {devs} that you're visiting with us."]
+        if portal_units:
+            lines += ["", f"{s.broker_name} is arranging the viewing of {', '.join(p['title'] for p in portal_units)} with the listing agent and will confirm."]
         if profile.get("email"):
             lines.append("A confirmation is on its way to your email.")
         high_value = max(float(p["price_etb"]) for p in ordered) >= s.high_value_threshold_etb
@@ -775,6 +784,26 @@ class AgentNodes:
             **say(text), "booked": True, "lead_reg_failed": failed, "deal_stage": "SITE_VISIT_BOOKED",
             "human_takeover": high_value, "active_matches": state.get("active_matches", []), "pending_booking": None,
         }
+
+    async def _tell_broker_about_portal_visit(self, tour_id: Any, profile: dict, units: list[dict], start: datetime) -> None:
+        """Units read from portals have no developer to email. The broker, who contacts the listing agent, gets everything needed in one message."""
+        d, s = self.d, self.d.settings
+        lines = [f"Portal viewing to arrange: {profile.get('full_name')} ({profile.get('phone')}) on {self._local(start)}."]
+        for p in units:
+            lines.append(f"- {p['title']} ({p['sub_city']}), {fmt_etb(float(p['price_etb']))}" + (f"\n  Listed at: {p['source_url']}" if p.get("source_url") else ""))
+        lines.append("Contact the listing agent to confirm the time. The buyer was told you are arranging it.")
+        text = "\n".join(lines)
+        claim = await d.repo.claim_event(kind="PORTAL_LEAD", audience="broker", dedupe_key=f"portallead:{tour_id}", tour_id=tour_id)
+        if claim is None:
+            return
+        chat, channel = s.broker_telegram_chat_id or s.demo_fallback_telegram_chat_id, "feed"
+        if chat:
+            try:
+                await d.services.telegram.send_message(chat, text)
+                channel = "telegram"
+            except Exception:
+                log.exception("portal viewing notice could not be sent to Telegram; kept in the notice feed")
+        await d.repo.finish_event(claim["id"], text, channel)
 
     async def _book_consultation(self, state: BrokerAgentState) -> dict:
         """A phone call instead of a visit: no stops, no route, no developer registration. The broker rings the buyer."""

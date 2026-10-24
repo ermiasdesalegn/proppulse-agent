@@ -23,6 +23,7 @@ class ListingUnit(BaseModel):
     lng: float | None = Field(default=None, ge=-180, le=180)
     description: str | None = None
     floor_plan_image_url: str | None = None
+    source_url: str | None = Field(default=None, max_length=2048, description="Where the unit is listed (a portal listing page); never sent to buyers")
 
     @property
     def display_title(self) -> str:

@@ -410,3 +410,31 @@ export interface CrawlReport {
   unchanged: string[];
   notes: string[];
 }
+
+export type CrawlStatus = "QUEUED" | "RUNNING" | "FINISHED" | "BLOCKED" | "FAILED";
+
+export interface CrawlRun {
+  id: number;
+  portal: string;
+  portal_name: string;
+  request_id: string | null;
+  trigger: "dashboard" | "schedule" | "manual";
+  status: CrawlStatus;
+  dry_run: boolean;
+  mode: "full" | "incremental" | "limited";
+  page_limit: number | null;
+  run_url: string | null;
+  stats: Partial<Record<"pages" | "failed_pages" | "local_price" | "no_local_price" | "not_for_sale" | "model_reads" | "created" | "price_changed" | "unchanged" | "skipped" | "retired" | "batches_failed", number>>;
+  blocked_reason: string | null;
+  error: string | null;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  waiting_too_long: boolean;
+  success_rate: number | null;
+}
+
+export interface PortalRuns {
+  config: { portals: { slug: string; name: string }[]; can_start: boolean; min_success_rate: number };
+  runs: CrawlRun[];
+}

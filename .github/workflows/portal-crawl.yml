@@ -19,10 +19,16 @@ on:
         description: "Preview only: the backend reports what it would change and writes nothing"
         type: boolean
         default: true
+      request_id:
+        description: "Set by the dashboard so the run is shown against the request; leave empty when starting by hand"
+        default: ""
 jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 355
+    concurrency:                      # never two crawls of one portal at once (a second one waits its turn)
+      group: portal-${{ matrix.site }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +39,9 @@ jobs:
       PORTAL_MAX_SECONDS: "20000"
       PORTAL_PLAYWRIGHT: ${{ matrix.site == 'ethiohome' && '1' || '0' }}
       PORTAL_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+      PORTAL_TRIGGER: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
+      PORTAL_REQUEST_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.request_id || '' }}
+      PORTAL_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Choose what to crawl
         id: mode

@@ -138,7 +138,7 @@ class IngestionService:
             if dry_run:
                 developer = {"id": None, "slug": portal, "name": name}
             else:
-                await self.repo.create_developer(name=name, slug=portal, sales_email=f"listings@{portal}.invalid", website_url=None)
+                await self.repo.create_developer(name=name, slug=portal, sales_email=f"listings@{portal}.invalid", website_url=None, commission_rate_pct=0.0)
                 developer = await self.repo.get_developer_by_slug(portal)
                 assert developer is not None
         units: list[ListingUnit] = []
@@ -227,6 +227,8 @@ class IngestionService:
                                                 "kind": "PRICE_INCREASE" if unit.price_etb > old_price else "PRICE_DROP"})
                 if not dry_run:
                     await self.repo.update_property_price(existing["id"], unit.price_etb)
+            if unit.source_url and unit.source_url != existing["source_url"] and not dry_run:
+                await self.repo.update_property_source(existing["id"], unit.source_url)  # a quiet fix-up: not a change the broker needs to hear about
             if unit.floor_plan_image_url and unit.floor_plan_image_url != existing["floor_plan_image_url"]:
                 changed = True
                 report["image_updated"].append({"title": existing["title"]})

@@ -112,7 +112,7 @@ class Repository:
         rows = await self._fetch(
             "select p.id, p.developer_id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, "
             "p.bedrooms, p.sqm, p.down_payment_pct, p.construction_stage_pct, p.est_rental_yield_pct, p.delivery_date, "
-            "p.status, p.description, p.floor_plan_image_url, p.vision_amenities, p.payment_plan, "
+            "p.status, p.description, p.floor_plan_image_url, p.vision_amenities, p.payment_plan, p.source_url, "
             "d.name as developer_name, d.slug as developer_slug, d.sales_email, d.commission_rate_pct, "
             "d.payment_plan as developer_payment_plan, d.reliability_score "
             "from properties p join developers d on d.id = p.developer_id where p.id = any(%s::uuid[])",
@@ -159,7 +159,7 @@ class Repository:
 
     async def get_property_by_hash(self, content_hash: str) -> dict | None:
         return await self._one(
-            "select id, developer_id, title, price_etb, status, floor_plan_image_url from properties where content_hash = %s", (content_hash,))
+            "select id, developer_id, title, price_etb, status, floor_plan_image_url, source_url from properties where content_hash = %s", (content_hash,))
 
     async def insert_property(self, *, developer_id: UUID | str, unit: Any, content_hash: str, embedding: Sequence[float],
                               vision_amenities: dict, lat: float | None, lng: float | None) -> UUID | None:
@@ -169,13 +169,16 @@ class Repository:
         row = await self._one(
             "insert into properties (developer_id, title, project_name, unit_type, sub_city, lat, lng, price_etb, bedrooms, sqm, "
             "down_payment_pct, construction_stage_pct, est_rental_yield_pct, delivery_date, description, floor_plan_image_url, "
-            "vision_amenities, content_hash, embedding) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector) "
+            "vision_amenities, content_hash, embedding, source_url) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector,%s) "
             "on conflict (content_hash) do nothing returning id",
             (str(developer_id), unit.display_title, unit.project_name, unit.unit_type, unit.sub_city, lat, lng, unit.price_etb, unit.bedrooms,
              unit.sqm, unit.down_payment_pct, unit.construction_stage_pct, unit.est_rental_yield_pct, unit.delivery_date, unit.description,
-             unit.floor_plan_image_url, Jsonb(vision_amenities), content_hash, vector_literal(embedding)),
+             unit.floor_plan_image_url, Jsonb(vision_amenities), content_hash, vector_literal(embedding), unit.source_url),
         )
         return None if row is None else row["id"]
+
+    async def update_property_source(self, property_id: UUID | str, url: str) -> None:
+        await self._fetch("update properties set source_url = %s where id = %s returning id", (url, str(property_id)))
 
     async def update_property_image(self, property_id: UUID | str, url: str) -> None:
         await self._fetch("update properties set floor_plan_image_url = %s where id = %s returning id", (url, str(property_id)))
@@ -219,6 +222,45 @@ class Repository:
         return await self._fetch(
             "select r.id, r.source, r.dry_run, r.full_sync, r.created, r.price_changed, r.removed, r.unchanged, r.skipped, r.created_at, "
             "d.name as developer_name from ingest_runs r left join developers d on d.id = r.developer_id order by r.id desc limit %s", (limit,))
+
+    # ---- portal crawl runs ----
+
+    async def queue_crawl_runs(self, *, portals: Sequence[str], request_id: str, dry_run: bool, mode: str, page_limit: int | None) -> list[dict]:
+        rows = []
+        for portal in portals:
+            rows.append(await self._one(
+                "insert into crawl_runs (portal, request_id, trigger, status, dry_run, mode, page_limit) values (%s,%s,'dashboard','QUEUED',%s,%s,%s) returning *",
+                (portal, request_id, dry_run, mode, page_limit)))
+        return [r for r in rows if r]
+
+    async def start_crawl_run(self, *, portal: str, request_id: str | None, trigger: str, run_url: str | None, dry_run: bool, mode: str,
+                              page_limit: int | None) -> dict:
+        """The runner says it has started: claim the row the dashboard queued for it, or open a new one (a scheduled run)."""
+        if request_id:
+            row = await self._one(
+                "update crawl_runs set status = 'RUNNING', started_at = now(), run_url = %s, dry_run = %s, mode = %s, page_limit = %s "
+                "where id = (select id from crawl_runs where request_id = %s and portal = %s and status = 'QUEUED' order by id limit 1) returning *",
+                (run_url, dry_run, mode, page_limit, request_id, portal))
+            if row:
+                return row
+        row = await self._one(
+            "insert into crawl_runs (portal, request_id, trigger, status, dry_run, mode, page_limit, run_url, started_at) "
+            "values (%s,%s,%s,'RUNNING',%s,%s,%s,%s, now()) returning *", (portal, request_id, trigger, dry_run, mode, page_limit, run_url))
+        assert row is not None
+        return row
+
+    async def finish_crawl_run(self, run_id: int, *, status: str, stats: dict, blocked_reason: str | None, error: str | None) -> dict | None:
+        from psycopg.types.json import Jsonb
+
+        return await self._one(
+            "update crawl_runs set status = %s, stats = %s, blocked_reason = %s, error = %s, finished_at = now() where id = %s returning *",
+            (status, Jsonb(stats), blocked_reason, error, run_id))
+
+    async def previous_crawl_run(self, portal: str, before_id: int) -> dict | None:
+        return await self._one("select * from crawl_runs where portal = %s and id < %s and status = 'FINISHED' and not dry_run order by id desc limit 1", (portal, before_id))
+
+    async def list_crawl_runs(self, limit: int = 40) -> list[dict]:
+        return await self._fetch("select * from crawl_runs order by id desc limit %s", (limit,))
 
     # ---- channel ads ----
 

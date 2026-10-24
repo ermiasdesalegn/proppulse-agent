@@ -41,6 +41,7 @@ DEFAULT_MARKET_SOURCES = (
     ("jenboro", "https://jenbororealestate.com/listing"),
     ("phison", "https://phisonrealestate.com/"),
     ("temer", "https://temerproperties.com/"),
+    ("kavod", "https://kavodcommercial.com/"),
 )
 # Built-in small developers, created on first sweep if missing. The sales email is a placeholder (the lead registration needs a real one:
 # Projects -> Add a developer); Phison's is the address its own site publishes.
@@ -48,6 +49,7 @@ SMALL_DEVELOPERS = {
     "jenboro": ("Jenboro Real Estate", "sales@jenboro.example"),
     "phison": ("Phison Real Estate", "info@phisonrealestate.com"),
     "temer": ("Temer Properties", "sales@temer.example"),
+    "kavod": ("Kavod Commercial", "sales@kavod.example"),
 }
 PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm"}

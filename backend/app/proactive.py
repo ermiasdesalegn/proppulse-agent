@@ -80,6 +80,10 @@ class ProactiveService:
         except Exception:
             log.exception("could not add the proactive message to the agent's memory")
 
+    async def notify_broker(self, kind: str, key: str, text: str) -> bool:
+        """A notice for the broker alone (Telegram if configured, always the dashboard feed), once per key."""
+        return await self._notify_broker(kind, key, text)
+
     async def _notify_broker(self, kind: str, key: str, text: str, *, buyer_id: Any = None, tour_id: Any = None,
                              ledger_id: Any = None, property_id: Any = None) -> bool:
         event = await self.repo.claim_event(kind=kind, audience="broker", dedupe_key=key, buyer_id=buyer_id,

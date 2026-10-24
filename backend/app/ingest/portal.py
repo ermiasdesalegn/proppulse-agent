@@ -74,6 +74,11 @@ class PortalListing:
         self.found_by[name] = source
 
 
+def is_portal_unit(unit: dict) -> bool:
+    """A unit read from a portal, not from a developer: nobody to send a lead registration to, so the broker is told instead."""
+    return bool(unit.get("source_url")) or str(unit.get("sales_email") or "").endswith(".invalid")
+
+
 def is_challenge_page(html: str) -> bool:
     """A bot-protection interstitial (Cloudflare and similar). The crawler stops for that site: such pages are not to be worked around."""
     return bool(_CHALLENGE.search(html[:20_000]))
@@ -395,7 +400,7 @@ def to_unit(listing: PortalListing, portal_name: str) -> ListingUnit | str:
         return ListingUnit(
             project_name=project_name_for(listing, portal_name), unit_type=unit_type_for(listing), sub_city=listing.sub_city or "",
             bedrooms=listing.bedrooms or 0, sqm=listing.sqm or 0, price_etb=listing.price_etb or 0, title=(listing.title or None),
-            description=(listing.description or "")[:2000] or None, lat=listing.lat, lng=listing.lng, floor_plan_image_url=None,
+            description=(listing.description or "")[:2000] or None, lat=listing.lat, lng=listing.lng, floor_plan_image_url=None, source_url=listing.url,
         )
     except ValidationError as exc:
         return f"{exc.errors()[0]['loc'][0]} is out of range"

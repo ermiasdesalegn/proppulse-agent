@@ -17,6 +17,7 @@ const GROUPS: { label: string; items: { href: string; label: string; icon: IconN
     { href: "/board", icon: "board", label: "Deal Board" },
     { href: "/map", icon: "map", label: "Map & Tours" },
     { href: "/projects", icon: "listing", label: "Projects" },
+    { href: "/portals", icon: "deals", label: "Portals" },
   ] },
   { label: "Intelligence", items: [
     { href: "/brain", icon: "brain", label: "Agent Brain" },
