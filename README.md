@@ -121,4 +121,4 @@ Supabase + Cloud Run + Vercel, scripted: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md
 Google Calendar (service account shared on the calendar with "Make changes to events") and Mapbox switch on automatically once their keys are set (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID`, `MAPBOX_TOKEN`); force with `CALENDAR_BACKEND` / `ROUTING_BACKEND`. `NEXT_PUBLIC_MAPBOX_TOKEN` (a public `pk.` token) enables the live map. `DEMO_RESET_ENABLED=true` shows the Reset demo button on a demo instance. Never commit `.env` or the service-account file.
 
 ## Demo
-The recorded walkthrough script is in [docs/LOOM_SCRIPT.md](docs/LOOM_SCRIPT.md). To start a demo from a clean state, use **Reset demo** in the control bar (needs `DEMO_RESET_ENABLED=true`, and asks you to type RESET).
+To start a demo from a clean state, use **Reset demo** in the control bar (needs `DEMO_RESET_ENABLED=true`, and asks you to type RESET).

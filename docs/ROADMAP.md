@@ -1,6 +1,6 @@
 # Roadmap: what is left
 
-Phases 9–17 are done and committed locally (foundation, SRS completion, evaluation, dashboard, scraping, agent depth, engineering quality, deployment assets, README and Loom script). The dashboard was then restyled three times; the target look is now fixed by the reference below.
+Phases 9–17 are done and committed locally (foundation, SRS completion, evaluation, dashboard, scraping, agent depth, engineering quality, deployment assets, README). The dashboard was then restyled three times; the target look is now fixed by the reference below.
 
 ## Phase 18 — Dashboard in the "enterprise console" look (done)
 
@@ -25,8 +25,8 @@ Done when: lint, types, unit tests, build and e2e selectors pass, and every page
 
 1. Buyer preference vector built from cumulative chat history (SRS 3.3), then re-record the evals.
 2. Label price increases as `PRICE_INCREASE` and tell the broker (SRS 3.2).
-3. README screenshots of the new look; update `docs/LOOM_SCRIPT.md` to match.
+3. README screenshots of the new look.
 4. Final full run: backend tests, evals, ruff, mypy, frontend lint/types/tests/build.
 
 ## Yours to do
-Free space on C:, rotate the pasted secrets, `git push -u origin main`, deploy per `docs/DEPLOYMENT.md`, run `docs/MANUAL_TESTS_PHASE13–16.md`, native Amharic review of `backend/app/language.py`, record the Loom.
+Free space on C:, rotate the pasted secrets, `git push -u origin main`, deploy per `docs/DEPLOYMENT.md`, run `docs/MANUAL_TESTS_PHASE13–16.md`, native Amharic review of `backend/app/language.py`.

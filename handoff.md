@@ -35,7 +35,7 @@ Search is hybrid: SQL filters (budget, bedrooms, area) then cosine ranking with 
 | Backend | **Render free web service** `https://proppulse-agent.onrender.com`, root `backend`, start `python -m app`, Frankfurt | live; `/health` shows `status ok`, `gemini_keys 6`, `telegram webhook` |
 | Dashboard | **Vercel** project `proppulse-agent`, root `frontend`. Public address: `https://proppulse-agent.vercel.app`. The `git-main` branch address is behind Vercel login protection: do not share it | deployed; being debugged (see below) |
 | Scheduled jobs | GitHub Actions `.github/workflows/cron.yml` (hourly reminders, 06:00 sweep, 08:00 follow-ups, Addis time) | written; secrets not added yet |
-| Fallback for the video | run the backend locally and `ngrok http 8000`; set Vercel `BACKEND_URL` and `PUBLIC_BASE_URL` to the ngrok URL | documented in `docs/FREE_DEPLOYMENT.md` |
+| Fallback if the hosted backend is down | run the backend locally and `ngrok http 8000`; set Vercel `BACKEND_URL` and `PUBLIC_BASE_URL` to the ngrok URL | documented in `docs/FREE_DEPLOYMENT.md` |
 
 Hugging Face Docker Spaces was dropped (needs a paid plan); its files were removed. GCP/Cloud Run scripts remain in `deploy/` but are not used.
 
@@ -62,7 +62,6 @@ The dashboard on Vercel showed dashes and an error. Cause found and fixed in cod
 7. Real photos or videos for the demo projects (Projects → Add photo or video); the demo ones only have a generated placeholder.
 8. Rotate every secret that was pasted in chat (Telegram token via BotFather `/revoke`, Supabase password and service key, Resend, Gemini keys, Google service account key, admin key) and update Render, Vercel and `backend/.env`.
 9. Rebuild `docs/PropPulse_Project_Guide.docx` with sections for the Render/Vercel deployment, the key pool and the sweep wording (builder: `.tmp/docgen/build.js`, `node build.js`).
-10. Record the Loom (`docs/LOOM_SCRIPT.md`, includes a projects segment): Chat Simulator + Agent Brain side by side, relaxation loop, Amharic, booking, CRM takeover, Studio ingestion and price simulator, Projects flow, channel ad, evals (`python -m evals --check`), security and deployment files.
 
 ## 7. Not verified yet
 Live post of a real photo or video to the channel; Playwright browser tests (`npm run e2e`) and Docker build were never run on this machine; GitHub CI has not run until the push; the Amharic message catalogue has not been reviewed by a native speaker; a real key-exhaustion rotation was only tested with doubles.

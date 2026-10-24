@@ -22,4 +22,4 @@ Repo → Settings → Secrets and variables → Actions → add `BACKEND_URL` (t
 - The disk is not persistent; everything important lives in Supabase.
 - A long market sweep (about 6 minutes) runs in the background; keep the service awake while it runs, or it can be cut off by a restart. Chromium (JavaScript pages) is not available on the free plan's memory.
 - Supabase pauses a free project after 7 days of no use; the hourly job keeps it active.
-- Fallback for the video: run the backend locally and `ngrok http 8000`, then set `BACKEND_URL` (Vercel) and `PUBLIC_BASE_URL` to the ngrok address.
+- Fallback if the hosted backend is down: run the backend locally and `ngrok http 8000`, then set `BACKEND_URL` (Vercel) and `PUBLIC_BASE_URL` to the ngrok address.
