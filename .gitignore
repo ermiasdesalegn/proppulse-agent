@@ -23,3 +23,4 @@ backend/evals/results.json
 !.env.*.example
 
 deploy/.env.prod
+dist/

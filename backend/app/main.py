@@ -120,7 +120,8 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     s = settings or get_settings()
     app = FastAPI(title="PropPulse AI", lifespan=lifespan if use_lifespan else None)
     app.add_middleware(
-        CORSMiddleware, allow_origins=[s.frontend_origin], allow_methods=["GET", "POST"], allow_headers=["*"]
+        CORSMiddleware, allow_origins=[o.strip().rstrip("/") for o in s.frontend_origin.split(",") if o.strip()],  # FRONTEND_ORIGIN may list several, comma separated
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["*"]
     )
     app.add_middleware(GuardMiddleware, public_per_minute=s.rate_limit_public_per_minute, failed_auth_per_minute=s.rate_limit_failed_auth_per_minute,
                        trust_proxy=s.trust_proxy_headers)
