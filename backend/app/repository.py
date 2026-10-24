@@ -186,7 +186,7 @@ class Repository:
 
     async def available_for_developer(self, developer_id: UUID | str) -> list[dict]:
         return await self._fetch(
-            "select id, title, content_hash from properties where developer_id = %s and status = 'AVAILABLE'", (str(developer_id),))
+            "select id, title, project_name, content_hash from properties where developer_id = %s and status = 'AVAILABLE'", (str(developer_id),))
 
     async def coordinates_for(self, developer_id: UUID | str, project_name: str, sub_city: str) -> tuple[float, float] | None:
         """Where a new unit probably is: another unit of the same project, else the middle of the area's existing units."""

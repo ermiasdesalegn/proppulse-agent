@@ -1,6 +1,7 @@
 """One spider for every portal in scraper/sites.py.
 
     scrapy crawl portals -a site=guzohomes -a limit=50          # one site, at most 50 listing pages
+    scrapy crawl portals -a site=all -a limit=0                 # a FULL crawl (no cap): afterwards the backend retires listings that vanished
     scrapy crawl portals -a site=all -a since=2026-10-01        # every site, only listings changed since that date (sitemap lastmod)
 
 Listing addresses come from the site's sitemap when it has one (no index pages to walk), otherwise from its paginated index. Each listing
@@ -32,7 +33,7 @@ class PortalSpider(scrapy.Spider):
     name = "portals"
     custom_settings = {"HTTPERROR_ALLOWED_CODES": BACKOFF_STATUSES}
 
-    def __init__(self, site: str = "all", limit: str = "150", since: str | None = None, max_index_pages: str = "20", **kwargs: Any):
+    def __init__(self, site: str = "all", limit: str = "0", since: str | None = None, max_index_pages: str = "20", **kwargs: Any):
         super().__init__(**kwargs)
         chosen = list(SITES) if site == "all" else [s.strip() for s in site.split(",")]
         unknown = [s for s in chosen if s not in SITES]
@@ -48,6 +49,10 @@ class PortalSpider(scrapy.Spider):
         self.taken: dict[str, int] = {s.slug: 0 for s in self.sites}
         self.index_pages: dict[str, int] = {s.slug: 0 for s in self.sites}
         self.stopped: dict[str, str] = {}
+        self.failed: dict[str, int] = {s.slug: 0 for s in self.sites}  # listing pages that errored: their absence proves nothing
+        self.capped: set[str] = set()
+        self.done: dict[str, int] = {s.slug: 0 for s in self.sites}  # listing pages answered (read, gone or failed): must equal `taken`
+        self.refs: dict[str, set[str]] = {s.slug: set() for s in self.sites}
         self.seen_urls: set[str] = set()
 
     @staticmethod
@@ -84,6 +89,8 @@ class PortalSpider(scrapy.Spider):
                 if site.sitemap_follow is None or site.sitemap_follow.search(entry["loc"]):
                     yield scrapy.Request(entry["loc"], callback=self.parse_sitemap, cb_kwargs={"site": site})
             return
+        if site.newest_first:
+            entries.sort(key=lambda e: int(m.group(1)) if (m := re.search(r"/(\d+)-[^/]*$", e["loc"])) else 0, reverse=True)
         for entry in entries:
             if not self._changed_since(entry.get("lastmod")):
                 continue
@@ -104,9 +111,11 @@ class PortalSpider(scrapy.Spider):
     # ---------------- one listing ----------------
 
     def parse_listing(self, response: Response, site: Site) -> Iterator[dict]:
+        self.done[site.slug] += 1
         if self._pushed_back(response, site):
             return
         listing = extract_listing(response.text, response.url, site.hints)
+        self.refs[site.slug].add(listing.ref)  # every listing that exists, whatever happens to it next
         if skip_reason(listing):  # a rental or land: not worth a byte of the backend's time
             self.crawler.stats.inc_value(f"portals/{site.slug}/not_for_sale")
             return
@@ -130,19 +139,38 @@ class PortalSpider(scrapy.Spider):
         url = url.split("#")[0]
         if not site.listing.search(url) or url in self.seen_urls or site.slug in self.stopped:
             return None
-        if self.taken[site.slug] >= self.limit:
+        if self.limit and self.taken[site.slug] >= self.limit:
+            self.capped.add(site.slug)
             return None
         self.seen_urls.add(url)
         self.taken[site.slug] += 1
-        return self._page(url, site, self.parse_listing)
+        return self._page(url, site, self.parse_listing, errback=self.listing_failed)
 
-    def _page(self, url: str, site: Site, callback: Any) -> scrapy.Request:
+    def listing_failed(self, failure: Any) -> None:
+        site: Site = failure.request.cb_kwargs["site"]
+        self.done[site.slug] += 1
+        response = getattr(failure.value, "response", None)
+        if response is not None and response.status in (404, 410):
+            return  # the listing is gone: exactly what a sync should learn
+        self.failed[site.slug] += 1
+        self.logger.warning("could not read %s: %s", failure.request.url, failure.value)
+
+    def sync_ready(self, slug: str) -> bool:
+        """A site's listings may be retired only after a full, clean crawl of it: no cap, no date filter, no push-back, no failed page."""
+        return (self.limit == 0 and self.since is None and slug not in self.stopped and slug not in self.capped and self.failed[slug] == 0
+                and self.done[slug] == self.taken[slug] and bool(self.site_has_listing_source(slug)))
+
+    @staticmethod
+    def site_has_listing_source(slug: str) -> bool:
+        return bool(SITES[slug].sitemaps or SITES[slug].index_pages)
+
+    def _page(self, url: str, site: Site, callback: Any, errback: Any = None) -> scrapy.Request:
         meta: dict[str, Any] = {}
         if site.render:
             from scrapy_playwright.page import PageMethod
 
             meta = {"playwright": True, "playwright_page_methods": [PageMethod("wait_for_load_state", "networkidle")]}
-        return scrapy.Request(url, callback=callback, cb_kwargs={"site": site}, meta=meta)
+        return scrapy.Request(url, callback=callback, errback=errback, cb_kwargs={"site": site}, meta=meta)
 
     def _changed_since(self, lastmod: str | None) -> bool:
         if self.since is None or not lastmod:

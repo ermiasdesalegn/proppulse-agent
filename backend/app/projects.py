@@ -38,7 +38,17 @@ DEFAULT_MARKET_SOURCES = (
     ("ayat", "https://ayatrealestate.com/residential/"),
     ("noah", "https://noahrealestateplc.com/project-updates/list/6"),
     ("metropolitan-real-estate", "https://metropolitanaddis.com/luxury-apartments/"),
+    ("jenboro", "https://jenbororealestate.com/listing"),
+    ("phison", "https://phisonrealestate.com/"),
+    ("temer", "https://temerproperties.com/"),
 )
+# Built-in small developers, created on first sweep if missing. The sales email is a placeholder (the lead registration needs a real one:
+# Projects -> Add a developer); Phison's is the address its own site publishes.
+SMALL_DEVELOPERS = {
+    "jenboro": ("Jenboro Real Estate", "sales@jenboro.example"),
+    "phison": ("Phison Real Estate", "info@phisonrealestate.com"),
+    "temer": ("Temer Properties", "sales@temer.example"),
+}
 PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
 PROJECT_BUTTONS = (("proj", "Ask the price"), ("pvisit", "Book a visit"), ("pinfo", "More about this project"))
@@ -144,7 +154,7 @@ class ProjectService:
         pages, notes = await crawl(self.fetcher, start, max_pages=self.settings.project_crawl_max_pages)
         existing = {p["slug"]: p for p in await self.repo.list_projects() if p["developer_id"] == developer["id"]}
         known = {p["source_url"]: p["content_hash"] for p in existing.values()}
-        rows, more = await read_projects(self.gateway, pages, known=known)
+        rows, more = await read_projects(self.gateway, pages, known=known, max_model_calls=self.settings.project_crawl_max_model_calls)
         report: dict[str, Any] = {"developer": slug, "dry_run": dry_run, "pages_read": len(pages), "created": [], "updated": [], "unchanged": [], "notes": notes + more}
         seen_names: set[str] = set()
         for row in rows:
@@ -185,9 +195,19 @@ class ProjectService:
         chosen += [(d["slug"], d["website_url"]) for d in known.values() if d.get("website_url") and d["slug"] not in covered]
         return [(slug, url) for slug, url in chosen if slug in known and url.startswith(("http://", "https://"))]
 
+    async def ensure_small_developers(self) -> None:
+        """The built-in small sites need a developer row to hang their projects on; create the missing ones once."""
+        if self.settings.market_sources.strip():
+            return  # the broker chose the list: do not add developers behind their back
+        known = {d["slug"] for d in await self.repo.list_developers()}
+        for slug, (name, email) in SMALL_DEVELOPERS.items():
+            if slug not in known:
+                await self.repo.create_developer(name=name, slug=slug, sales_email=email, website_url=None)
+
     async def market_sweep(self, dry_run: bool = True) -> dict:
         """Crawl every source in turn. One site failing (a timeout, a block) never stops the others."""
         out: dict[str, Any] = {"job": "market_scraper", "dry_run": dry_run, "sent": 0, "skipped": 0, "failed": 0, "details": []}
+        await self.ensure_small_developers()
         for slug, url in await self.sources():
             self.sweep["current"] = url
             try:
@@ -206,6 +226,7 @@ class ProjectService:
         """Start the sweep in the background (it takes minutes and many model calls) and return at once."""
         if self.sweep.get("running"):
             return {"started": False, "reason": "A market sweep is already running.", **self.status()}
+        await self.ensure_small_developers()
         sources = await self.sources()
         if not sources:
             return {"started": False, "reason": "No developer site is configured for the sweep.", **self.status()}

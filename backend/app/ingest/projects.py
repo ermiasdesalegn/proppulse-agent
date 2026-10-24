@@ -14,6 +14,7 @@ import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import date
+from html import unescape
 from typing import Any
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from app.geo import normalize_sub_city
 from app.ingest.fetch import FetchError
+from app.ingest.portal import is_challenge_page
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +57,11 @@ class ProjectInfo(BaseModel):
     promotion: str = ""
     promotion_discount_pct: float | None = None
     promotion_until: str = ""
+
+
+# Sitemaps that only list taxonomy or people, never a project or listing page.
+SITEMAP_SKIP = re.compile(r"(post_tag|category|author|agent|tag|user|taxonomy|property_(city|area|category|action)|news|post|blog|event)-?sitemap|sitemap[-_](tag|category|author|post|news)", re.I)
+MAX_SITEMAP_FILES = 12
 
 
 @dataclass
@@ -97,10 +104,50 @@ def links(html: str, base_url: str) -> list[str]:
     return found
 
 
-async def crawl(fetcher: Any, start_url: str, *, max_pages: int = 40, max_depth: int = 2) -> tuple[list[Page], list[str]]:
-    """Breadth-first over one site. Returns the pages read and short notes about pages that could not be."""
+async def sitemap_urls(fetcher: Any, start_url: str, *, limit: int = 400) -> list[str]:
+    """Page addresses the site itself lists: robots.txt's Sitemap lines, else /sitemap.xml, following sitemap indexes (taxonomy sitemaps skipped).
+    Same host only, a few files at most, and an unreachable or missing sitemap just means the breadth-first crawl does the work."""
+    parts = urlparse(start_url)
+    origin, host = f"{parts.scheme}://{parts.netloc}", _host(start_url)
+    todo: list[str] = []
+    try:
+        todo = re.findall(r"(?im)^\s*sitemap:\s*(\S+)", await fetcher.get_text(f"{origin}/robots.txt"))
+    except FetchError:
+        pass
+    todo = todo or [f"{origin}/sitemap.xml", f"{origin}/sitemap_index.xml"]
+    found: list[str] = []
+    opened = 0
+    while todo and opened < MAX_SITEMAP_FILES and len(found) < limit:
+        url = todo.pop(0)
+        if _host(url) != host:
+            continue
+        opened += 1
+        try:
+            xml = await fetcher.get_text(url)
+        except FetchError:
+            continue
+        if "<" not in xml[:300]:  # a plain-text sitemap
+            locs = [line.strip() for line in xml.splitlines() if line.strip().startswith("http")]
+        else:
+            locs = [unescape(m) for m in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", xml)]
+        if "<sitemapindex" in xml[:2000]:
+            todo += [loc for loc in locs if not SITEMAP_SKIP.search(loc)]
+        else:
+            found += [loc for loc in locs if _host(loc) == host and not SKIP_PATH.search(urlparse(loc).path) and urlparse(loc).path.strip("/")]
+    # Listings sit deeper in the path (/apartment-for-sale/aware-one-bedroom/) than site pages (/about-us/): read those first, so the page cap never cuts them.
+    return sorted(dict.fromkeys(found), key=lambda u: -len(urlparse(u).path.strip("/").split("/")))[:limit]
+
+
+async def crawl(fetcher: Any, start_url: str, *, max_pages: int = 40, max_depth: int = 2, use_sitemap: bool = True) -> tuple[list[Page], list[str]]:
+    """Breadth-first over one site, seeded with the site's own sitemap so deep pages are found without clicking through. Returns the pages
+    read and short notes about pages that could not be. A bot challenge ends the crawl of that site: it is reported, never worked around."""
     host, seen, notes = _host(start_url), {start_url}, []
     queue: deque[tuple[str, int]] = deque([(start_url, 0)])
+    if use_sitemap:
+        for url in await sitemap_urls(fetcher, start_url):
+            if url not in seen:
+                seen.add(url)
+                queue.append((url, 1))
     pages: list[Page] = []
     while queue and len(pages) < max_pages:
         url, depth = queue.popleft()
@@ -109,6 +156,9 @@ async def crawl(fetcher: Any, start_url: str, *, max_pages: int = 40, max_depth:
         except FetchError as exc:
             notes.append(f"{url}: {exc}")
             continue
+        if is_challenge_page(html):
+            notes.append(f"{url}: the site answers with a bot-protection check, which is not bypassed. Ask the site to allow this crawler, or add its listings by hand.")
+            break
         pages.append(Page(url=url, text=page_text(html), image=page_image(html, url)))
         if depth >= max_depth:
             continue

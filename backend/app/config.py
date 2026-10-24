@@ -67,7 +67,8 @@ class Settings(BaseSettings):
     email_backend: str = "auto"
     telegram_backend: str = "auto"
 
-    project_crawl_max_pages: int = 40  # pages read when crawling one developer's site for projects
+    project_crawl_max_pages: int = 80  # pages read when crawling one developer's site for projects (its sitemap seeds the list)
+    project_crawl_max_model_calls: int = 30  # model calls per crawl; pages already read and unchanged cost nothing on the next run
     project_price_request_email: bool = False  # also email the developer's sales office when a buyer asks a price (off: only the broker is told)
     market_sources: str = ""  # "slug=https://site/page;slug=https://other/" replaces the built-in list of developer sites the market sweep reads
     project_photo_max_mb: int = 8  # Telegram accepts photos up to 10 MB and videos up to 50 MB; uploads from the dashboard are kept below that

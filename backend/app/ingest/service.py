@@ -8,6 +8,7 @@ Only what changed costs anything. A unit is identified by developer + project + 
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,6 +24,7 @@ from app.ingest.text import content_hash, embedding_text
 from app.repository import Repository
 
 log = logging.getLogger(__name__)
+_REF_IN_NAME = re.compile(r"#([^#()]+)\)$")  # project_name_for() ends with "(<portal> #<listing id>)"
 
 
 class ExtractionError(Exception):
@@ -172,6 +174,23 @@ class IngestionService:
         report = await self.apply(developer, units, source="portal", full_sync=False, dry_run=dry_run, items_found=len(items), skipped=skipped)
         report["model_reads"] = model_reads
         return report
+
+    async def sync_portal(self, *, portal: str, seen_refs: list[str], dry_run: bool = False) -> dict:
+        """After a COMPLETE crawl of a portal: units whose listing id was not seen stop being offered. Guarded like every other sync, so a crawl
+        that silently missed most of a site (a block, an outage) can never wipe the catalogue."""
+        developer = await self.repo.get_developer_by_slug(portal)
+        if developer is None:
+            raise LookupError(f"portal {portal} not found")
+        seen = set(seen_refs)
+        available = await self.repo.available_for_developer(developer["id"])
+        gone = [row for row in available if (m := _REF_IN_NAME.search(row["project_name"])) and m.group(1) not in seen]
+        if not seen:
+            return {"portal": portal, "sync": "skipped: the crawl saw no listings, so nothing was marked unavailable", "removed": []}
+        if len(available) >= 4 and len(seen) * 2 < len(available):
+            return {"portal": portal, "sync": f"skipped: only {len(seen)} of {len(available)} known units were seen, which looks like a failed crawl", "removed": []}
+        if gone and not dry_run:
+            await self.repo.set_property_status([row["id"] for row in gone], "UNAVAILABLE")
+        return {"portal": portal, "sync": "preview" if dry_run else "done", "removed": [{"title": row["title"]} for row in gone]}
 
     # ---------------- applying units ----------------
 

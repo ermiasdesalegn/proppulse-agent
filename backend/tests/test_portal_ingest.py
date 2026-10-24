@@ -155,3 +155,121 @@ def test_a_size_from_loose_text_that_does_not_fit_the_price_is_dropped():
             "<body><p>2 bedrooms, 4,000 m² compound</p></body></html>")
     listing = extract_listing(html, "https://x.test/p/778-flat")
     assert listing.sqm is None and listing.price_etb == 8_480_560 and to_unit(listing, "X").startswith("missing size")
+
+
+# ---------------- small developer sites: sitemap seeding and bot challenges ----------------
+
+class PageFetcher:
+    def __init__(self, pages):
+        self.pages, self.requested = pages, []
+
+    async def get_text(self, url):
+        from app.ingest.fetch import FetchError
+
+        self.requested.append(url)
+        if url not in self.pages:
+            raise FetchError("the server answered 404")
+        return self.pages[url]
+
+
+SITEMAP_INDEX = ('<sitemapindex><sitemap><loc>https://dev.test/estate_property-sitemap.xml</loc></sitemap>'
+                 '<sitemap><loc>https://dev.test/post_tag-sitemap.xml</loc></sitemap></sitemapindex>')
+PROPERTY_SITEMAP = '<urlset><url><loc>https://dev.test/apartment-for-sale/aware-one-bedroom/</loc></url><url><loc>https://dev.test/apartment-for-sale/sarbet-two-bedroom/</loc></url><url><loc>https://dev.test/blog/news/</loc></url></urlset>'
+
+
+async def test_the_sites_own_sitemap_seeds_the_crawl_and_skips_taxonomy_files():
+    from app.ingest.projects import crawl, sitemap_urls
+
+    fetcher = PageFetcher({
+        "https://dev.test/robots.txt": "User-agent: *\nSitemap: https://dev.test/sitemap_index.xml\n",
+        "https://dev.test/sitemap_index.xml": SITEMAP_INDEX, "https://dev.test/estate_property-sitemap.xml": PROPERTY_SITEMAP,
+        "https://dev.test/": "<html><body>home</body></html>",
+        "https://dev.test/apartment-for-sale/aware-one-bedroom/": "<html><body>one</body></html>",
+        "https://dev.test/apartment-for-sale/sarbet-two-bedroom/": "<html><body>two</body></html>",
+    })
+    assert await sitemap_urls(fetcher, "https://dev.test/") == ["https://dev.test/apartment-for-sale/aware-one-bedroom/", "https://dev.test/apartment-for-sale/sarbet-two-bedroom/"]
+    assert "https://dev.test/post_tag-sitemap.xml" not in fetcher.requested
+    pages, notes = await crawl(fetcher, "https://dev.test/")
+    assert {p.url for p in pages} == {"https://dev.test/", "https://dev.test/apartment-for-sale/aware-one-bedroom/", "https://dev.test/apartment-for-sale/sarbet-two-bedroom/"}
+
+
+async def test_a_site_without_a_sitemap_is_still_crawled_by_its_links():
+    from app.ingest.projects import crawl
+
+    fetcher = PageFetcher({"https://small.test/": '<html><body><a href="/gallery">g</a></body></html>', "https://small.test/gallery": "<html><body>gallery</body></html>"})
+    pages, _ = await crawl(fetcher, "https://small.test/")
+    assert [p.url for p in pages] == ["https://small.test/", "https://small.test/gallery"]
+
+
+async def test_a_bot_check_page_ends_the_crawl_with_a_clear_note_and_is_not_bypassed():
+    from app.ingest.projects import crawl
+
+    interstitial = "<!DOCTYPE html><html><head><script>setTimeout(function(){window.location.reload();}, 5000);</script><title>One moment, please...</title></head></html>"
+    fetcher = PageFetcher({"https://blocked.test/listing": interstitial})
+    pages, notes = await crawl(fetcher, "https://blocked.test/listing")
+    assert pages == [] and "bot-protection" in notes[0] and "not bypassed" in notes[0]
+    assert fetcher.requested.count("https://blocked.test/listing") == 1, "no retry loop against the challenge"
+
+
+# ---------------- retiring listings that vanished from a complete portal crawl ----------------
+
+async def test_a_complete_crawl_retires_listings_that_vanished_and_never_wipes_the_catalogue(repo, db_conn):
+    service, _, _ = make(repo)
+    await service.run_portal(portal="sync-test", name="Sync Test", items=[item(str(n), url=f"https://s.test/{n}", sqm=100 + n) for n in range(1, 7)])
+    wiped = await service.sync_portal(portal="sync-test", seen_refs=["1"])
+    assert wiped["removed"] == [] and wiped["sync"].startswith("skipped: only 1 of 6")
+    preview = await service.sync_portal(portal="sync-test", seen_refs=["1", "2", "3", "4"], dry_run=True)
+    assert len(preview["removed"]) == 2 and preview["sync"] == "preview"
+    done = await service.sync_portal(portal="sync-test", seen_refs=["1", "2", "3", "4"])
+    assert done["sync"] == "done" and len(done["removed"]) == 2
+    cur = await db_conn.execute("select count(*) n from properties p join developers d on d.id = p.developer_id where d.slug = 'sync-test' and p.status = 'UNAVAILABLE'")
+    assert (await cur.fetchone())["n"] == 2
+    assert (await service.sync_portal(portal="sync-test", seen_refs=[]))["sync"].startswith("skipped: the crawl saw no listings")
+
+
+async def test_the_sync_endpoint_needs_the_admin_key(spy_repo):
+    client, _ = await build(spy_repo)
+    async with client:
+        assert (await client.post("/api/ingest/portal/sync", json={"portal": "epc-test", "seen_refs": []})).status_code == 401
+        assert (await client.post("/api/ingest/portal/sync", json={"portal": "nobody-here", "seen_refs": ["1"]}, headers=ADMIN)).status_code == 404
+
+
+# ---------------- the spider decides when a sync is safe ----------------
+
+def spider(**args):
+    from unittest.mock import MagicMock
+
+    from scraper.spiders.portals import PortalSpider
+
+    s = PortalSpider(site="guzohomes", **args)
+    s.crawler = MagicMock()
+    return s
+
+
+def test_a_sync_is_only_safe_after_a_full_clean_crawl():
+    s = spider()
+    s.taken["guzohomes"] = s.done["guzohomes"] = 10
+    assert s.sync_ready("guzohomes")
+    s.done["guzohomes"] = 9                      # the run was cut short (time limit, shutdown)
+    assert not s.sync_ready("guzohomes")
+    s.done["guzohomes"] = 10
+    s.failed["guzohomes"] = 1                    # a page errored: its absence proves nothing
+    assert not s.sync_ready("guzohomes")
+    s.failed["guzohomes"] = 0
+    s.stopped["guzohomes"] = "the site answered 429"
+    assert not s.sync_ready("guzohomes")
+    assert not spider(limit="50").sync_ready("guzohomes") and not spider(since="2026-10-01").sync_ready("guzohomes")
+
+
+def test_the_spider_refuses_unknown_sites_and_skips_the_browser_site_without_playwright(monkeypatch):
+    monkeypatch.delenv("PORTAL_PLAYWRIGHT", raising=False)
+    from scraper.spiders.portals import PortalSpider
+
+    with pytest.raises(ValueError, match="unknown site"):
+        PortalSpider(site="nope")
+
+    assert "ethiohome" not in [s.slug for s in PortalSpider(site="all").sites]
+    with pytest.raises(ValueError, match="PORTAL_PLAYWRIGHT"):
+        PortalSpider(site="ethiohome")
+    monkeypatch.setenv("PORTAL_PLAYWRIGHT", "1")
+    assert "ethiohome" in [s.slug for s in PortalSpider(site="all").sites]

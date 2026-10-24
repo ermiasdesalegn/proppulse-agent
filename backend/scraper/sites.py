@@ -22,6 +22,7 @@ class Site:
     sitemap_follow: re.Pattern[str] | None = None             # which child sitemaps of an index to open (None: all of them)
     index_pages: tuple[str, ...] = ()                         # for sites without a usable sitemap: listing index pages to walk
     next_page: re.Pattern[str] | None = None                  # pagination links on an index page
+    newest_first: bool = False                                # sitemap entries carry no date: visit the highest listing ids first, so a capped run still sees what is new
     render: bool = False                                      # the page builds its content with JavaScript: render it in Playwright
     allow_llm: bool = True                                    # may a page without a strict price be sent to the language model
     hints: SiteHints = field(default_factory=SiteHints)
@@ -33,6 +34,7 @@ SITES: dict[str, Site] = {site.slug: site for site in (
         slug="ethiopiapropertycentre", name="Ethiopia Property Centre",
         sitemaps=("https://st.ethiopiapropertycentre.com/sitemaps/index.xml",),  # robots.txt names ethiopiapropertycentre.com/sitemaps/index.xml, which redirects here
         sitemap_follow=re.compile(r"sitemap_listings"),
+        newest_first=True,
         listing=re.compile(r"ethiopiapropertycentre\.com/for-sale/(flats-apartments|houses)/[^?#]+/\d+-[^/?#]+$"),
         note="Plain-text sitemaps; JSON-LD carries the price, the visible details carry size and bedrooms.",
     ),

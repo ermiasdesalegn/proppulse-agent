@@ -50,7 +50,28 @@ class BackendPipeline:
             if self.buffers[portal]:
                 self._flush(portal, spider)
         if self.client is not None:
+            self._sync_vanished(spider)
             self.client.close()
+
+    def _sync_vanished(self, spider: Any) -> None:
+        """Only after a complete, clean crawl of a site: tell the backend which listings exist, so it retires the rest."""
+        assert self.client is not None
+        for site in spider.sites:
+            slug = site.slug
+            if slug not in self.names:
+                continue  # nothing was sent for this site, so there is nothing to compare
+            if not spider.sync_ready(slug):
+                spider.logger.info("%s: not a complete crawl, so no listing is retired", slug)
+                continue
+            try:
+                res = self.client.post(f"{self.backend_url}/api/ingest/portal/sync", json={"portal": slug, "seen_refs": sorted(spider.refs[slug]), "dry_run": self.dry_run})
+                res.raise_for_status()
+            except httpx.HTTPError as exc:
+                spider.logger.error("could not sync %s: %s", slug, exc)
+                continue
+            report = res.json()
+            self.crawler.stats.set_value(f"portals/{slug}/retired", len(report.get("removed", [])))
+            spider.logger.info("%s: %s, %d retired", slug, report.get("sync"), len(report.get("removed", [])))
 
     def _flush(self, portal: str, spider: Any) -> None:
         assert self.client is not None

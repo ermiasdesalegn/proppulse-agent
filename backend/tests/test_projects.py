@@ -558,3 +558,15 @@ async def test_a_price_drop_is_told_to_the_buyers_who_asked_and_an_increase_only
     assert up["change"] == "increase" and up["buyers_told"] == 0
     assert [m["chat_id"] for m in services.telegram.messages] == ["999"] and "Price increase: Central Tower" in services.telegram.messages[0]["text"]
     assert "1 buyer had been given the earlier price" in services.telegram.messages[0]["text"]
+
+
+async def test_the_built_in_small_developers_are_created_once_and_never_when_the_broker_chose_the_list(repo):
+    from app.projects import SMALL_DEVELOPERS
+
+    service, _ = make_projects(repo)
+    await service.ensure_small_developers()
+    await service.ensure_small_developers()
+    slugs = [d["slug"] for d in await repo.list_developers()]
+    assert all(slugs.count(s) == 1 for s in SMALL_DEVELOPERS)
+    chosen, _ = make_projects(repo, market_sources="noah=https://a.example/")
+    assert [d["slug"] for d in await repo.list_developers()] == slugs and chosen.settings.market_sources

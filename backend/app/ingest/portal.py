@@ -39,7 +39,7 @@ SALE = re.compile(r"for[\s-]sale|/for-sale|/sale\b|\bsale\b|የሚሸጥ|ሽያ�
 _AMHARIC_BEDROOMS = re.compile(r"(\d+)\s*(?:መኝታ|ክፍል)")
 _TEXT_BEDROOMS = re.compile(r"(\d{1,2})\s*(?:bed(?:room)?s?|br|bdrm)\b", re.I)
 _TEXT_AREA = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(?:m²|m2|sqm|sq\.?\s?m|square\s+met(?:er|re)s?|ካሬ)", re.I)
-_CHALLENGE = re.compile(r"<title>\s*(just a moment|attention required|access denied|ddos-guard)|challenges\.cloudflare\.com|cf-chl-|_cf_chl_opt", re.I)
+_CHALLENGE = re.compile(r"<title>\s*(just a moment|one moment, please|attention required|access denied|ddos-guard|checking your browser)|challenges\.cloudflare\.com|cf-chl-|_cf_chl_opt", re.I)
 
 
 @dataclass(frozen=True)

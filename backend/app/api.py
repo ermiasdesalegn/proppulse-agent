@@ -340,6 +340,21 @@ async def ingest_portal(body: PortalBatchIn, service: IngestionService = Depends
     return await service.run_portal(portal=body.portal, name=body.name, items=body.items, dry_run=body.dry_run, llm_budget=body.llm_budget)
 
 
+class PortalSyncIn(BaseModel):
+    portal: str = Field(pattern=r"^[a-z0-9-]{2,40}$")
+    seen_refs: list[str] = Field(max_length=200_000)
+    dry_run: bool = False
+
+
+@router.post("/api/ingest/portal/sync", dependencies=[Depends(require_admin)])
+async def ingest_portal_sync(body: PortalSyncIn, service: IngestionService = Depends(ingest_of)):
+    """Sent once at the end of a complete portal crawl: listings that are no longer on the portal stop being offered."""
+    try:
+        return await service.sync_portal(portal=body.portal, seen_refs=body.seen_refs, dry_run=body.dry_run)
+    except LookupError:
+        raise HTTPException(404, "Portal not found") from None
+
+
 @router.get("/api/ingest/runs", dependencies=[Depends(require_admin)])
 async def ingest_runs(limit: int = 20, repo: Repository = Depends(repo_of)):
     return await repo.list_ingest_runs(min(max(limit, 1), 100))
