@@ -23,6 +23,12 @@ async function forward(request: NextRequest, { params }: { params: { path: strin
       signal: request.signal, // when the browser goes away (an event stream closing), the backend connection closes too
       cache: "no-store",
     });
+    if (upstream.status === 401) {
+      // The dashboard session was already checked by the middleware, so a 401 here means the backend refused the admin key. Say so:
+      // a plain 401 would send the browser back to the login page, which looks like being signed out again and again.
+      await upstream.body?.cancel();
+      return NextResponse.json({ detail: "The backend refused the dashboard's ADMIN_API_KEY. It must be exactly the same value on Vercel and on the backend." }, { status: 502 });
+    }
     return new Response(upstream.body, { status: upstream.status, headers: responseHeaders(upstream.headers) });
   } catch (error) {
     if ((error as Error).name === "AbortError") return new Response(null, { status: 499 });
