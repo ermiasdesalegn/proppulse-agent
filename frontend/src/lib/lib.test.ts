@@ -73,6 +73,13 @@ describe("proxy", () => {
     expect(out.get("cookie")).toBeNull();
     expect(out.get("authorization")).toBeNull();
   });
+  it("never forwards the upstream length or encoding, because the body was already decompressed", () => {
+    const out = responseHeaders(new Headers({ "content-type": "application/json", "content-length": "120", "content-encoding": "gzip" }));
+    expect(out.get("content-length")).toBeNull();
+    expect(out.get("content-encoding")).toBeNull();
+    expect(out.get("content-type")).toBe("application/json");
+  });
+
   it("never passes backend cookies back and unbuffers event streams", () => {
     const out = responseHeaders(new Headers({ "content-type": "text/event-stream", "set-cookie": "a=b", "content-length": "5" }));
     expect(out.get("set-cookie")).toBeNull();

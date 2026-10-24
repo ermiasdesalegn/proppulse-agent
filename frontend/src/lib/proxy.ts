@@ -24,7 +24,8 @@ export function forwardedHeaders(incoming: Headers, adminKey: string): Headers {
   return out;
 }
 
-const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control", "content-length", "content-disposition"];
+// No content-length: fetch has already decompressed the body (the hosted backend answers gzip), so the upstream length no longer matches and the browser would cut the answer short.
+const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control", "content-disposition"];
 
 export function responseHeaders(upstream: Headers): Headers {
   const out = new Headers();
