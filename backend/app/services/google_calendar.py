@@ -28,8 +28,12 @@ API = "https://www.googleapis.com/calendar/v3"
 def load_service_account(value: str) -> dict:
     """Accept the key as raw JSON or as a path to the JSON file, and check it has what signing needs."""
     value = value.strip()
+    if not value.startswith("{") and '"client_email"' in value:
+        value = "{" + value.strip().strip(",") + "}"  # pasted into a hosting dashboard without its outer braces
     try:
-        info = json.loads(value) if value.startswith("{") else json.loads(Path(value).read_text(encoding="utf-8"))
+        # strict=False: a private key pasted with real line breaks instead of 
+ is still read
+        info = json.loads(value, strict=False) if value.startswith("{") else json.loads(Path(value).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise CalendarError(f"could not read the service account key: {type(exc).__name__}") from None
     for field in ("client_email", "private_key"):

@@ -231,3 +231,12 @@ async def test_other_cancel_failures_are_reported():
     fake.fail_next_api = [httpx.Response(403, json={"error": {"message": "no access"}})]
     with pytest.raises(CalendarError, match="403"):
         await service.cancel("evt_1")
+
+
+def test_a_key_pasted_without_its_braces_or_with_real_line_breaks_is_still_read():
+    from app.services.google_calendar import load_service_account
+
+    body = '"type": "service_account",\n  "client_email": "bot@proj.iam.gserviceaccount.com",\n  "private_key": "-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----\n"'
+    info = load_service_account(body)
+    assert info["client_email"] == "bot@proj.iam.gserviceaccount.com" and info["private_key"].startswith("-----BEGIN") and "token_uri" in info
+    assert load_service_account("{" + body + "}")["client_email"] == info["client_email"]
