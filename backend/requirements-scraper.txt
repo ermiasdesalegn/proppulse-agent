@@ -1,0 +1,7 @@
+# The Scrapy portal crawler (scraper/). Separate from requirements.txt so the API server stays small.
+# After installing, for EthioHome (JavaScript only): playwright install chromium
+-r requirements.txt
+scrapy==2.13.3
+twisted==25.5.0  # Twisted 26 removed an API Scrapy 2.13 uses
+scrapy-playwright==0.0.43
+playwright==1.49.1

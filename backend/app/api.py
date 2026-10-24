@@ -15,7 +15,7 @@ from app.ads import AdError
 from app.chat import ChatService, Conflict, Inbound
 from app.events import sse_frames
 from app.ingest.fetch import FetchError
-from app.ingest.models import ScrapeProfile
+from app.ingest.models import PortalItem, ScrapeProfile
 from app.ingest.sample import sample_listing
 from app.ingest.service import ExtractionError, IngestionService
 from app.repository import Repository
@@ -323,6 +323,21 @@ async def ingest(body: IngestIn, request: Request, service: IngestionService = D
     wants_ads = body.publish_ads or request.app.state.settings.ads_auto_publish
     report["ads"] = await _announce(request, report) if wants_ads and not body.dry_run else []
     return report
+
+
+class PortalBatchIn(BaseModel):
+    """A batch of listings from the Scrapy portal crawler (see scraper/README.md)."""
+
+    portal: str = Field(pattern=r"^[a-z0-9-]{2,40}$")
+    name: str = Field(min_length=2, max_length=80)
+    items: list[PortalItem] = Field(max_length=50)
+    dry_run: bool = False
+    llm_budget: int = Field(default=3, ge=0, le=10)
+
+
+@router.post("/api/ingest/portal", dependencies=[Depends(require_admin)])
+async def ingest_portal(body: PortalBatchIn, service: IngestionService = Depends(ingest_of)):
+    return await service.run_portal(portal=body.portal, name=body.name, items=body.items, dry_run=body.dry_run, llm_budget=body.llm_budget)
 
 
 @router.get("/api/ingest/runs", dependencies=[Depends(require_admin)])

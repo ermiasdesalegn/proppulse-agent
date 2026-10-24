@@ -16,8 +16,9 @@ from pydantic import ValidationError
 from app.config import Settings
 from app.geo import KNOWN_SUB_CITIES, normalize_sub_city
 from app.ingest.fetch import Fetcher, FetchError
-from app.ingest.models import FloorPlanTags, ListingExtraction, ListingUnit, ScrapeProfile
+from app.ingest.models import FloorPlanTags, ListingExtraction, ListingUnit, PortalItem, ScrapeProfile
 from app.ingest.parse import ParseResult, page_text, parse_date, parse_listing_html
+from app.ingest.portal import MAX_SALE_PRICE_ETB, MIN_SALE_PRICE_ETB, PortalListing, project_name_for, skip_reason, to_unit
 from app.ingest.text import content_hash, embedding_text
 from app.repository import Repository
 
@@ -126,13 +127,59 @@ class IngestionService:
         report["notes"] = notes + report["notes"]
         return report
 
+    async def run_portal(self, *, portal: str, name: str, items: list[PortalItem], dry_run: bool = False, llm_budget: int = 3) -> dict:
+        """A batch of listings a portal crawler read locally. Listings with a strict price cost nothing; only a page without one is read by
+        the model, at most `llm_budget` times per batch. A portal is stored as a developer with no website and an undeliverable address, so
+        the daily LLM sweep never visits it and no lead-registration email is sent to the portal."""
+        developer = await self.repo.get_developer_by_slug(portal)
+        if developer is None:
+            if dry_run:
+                developer = {"id": None, "slug": portal, "name": name}
+            else:
+                await self.repo.create_developer(name=name, slug=portal, sales_email=f"listings@{portal}.invalid", website_url=None)
+                developer = await self.repo.get_developer_by_slug(portal)
+                assert developer is not None
+        units: list[ListingUnit] = []
+        skipped: list[dict] = []
+        model_reads = 0
+        for item in items:
+            listing = PortalListing(**item.model_dump(exclude={"text"}))
+            if listing.price_etb is not None and (listing.price_etb < MIN_SALE_PRICE_ETB or listing.price_etb > MAX_SALE_PRICE_ETB):
+                listing.price_etb = None  # the crawler's reading is checked again here: never trust a client
+            if listing.price_etb is None and not skip_reason(listing) and item.text and model_reads < llm_budget:
+                model_reads += 1
+                try:
+                    read, rejected = await self.extract_with_model(f"{item.title or ''}\n{item.text}", name)
+                except ExtractionError as exc:
+                    skipped.append({"title": item.title or item.url, "url": item.url, "reason": str(exc)})
+                    continue
+                for unit in read:  # the model may find several units on one page; the stable name keeps each recognisable next time
+                    units.append(unit.model_copy(update={"project_name": project_name_for(listing, name), "title": unit.title or item.title}))
+                if not read:
+                    skipped.append({"title": item.title or item.url, "url": item.url, "reason": "; ".join(rejected) or "the model found no priced home on the page"})
+                continue
+            result = to_unit(listing, name)
+            if isinstance(result, str):
+                if listing.price_etb is None and not skip_reason(listing) and item.text:
+                    result = f"{result} (model budget of {llm_budget} for this batch used up)"
+                skipped.append({"title": item.title or item.url, "url": item.url, "reason": result})
+            else:
+                units.append(result)
+        if developer["id"] is None:  # a preview of a portal not seen before: nothing to compare against, everything would be new
+            return {"developer": portal, "source": "portal", "dry_run": True, "found": len(units), "model_reads": model_reads,
+                    "created": [{"title": u.display_title, "price_etb": u.price_etb, "area": u.sub_city} for u in units], "skipped": skipped,
+                    "counts": {"created": len(units), "price_changed": 0, "removed": 0, "unchanged": 0, "skipped": len(skipped)}, "notes": []}
+        report = await self.apply(developer, units, source="portal", full_sync=False, dry_run=dry_run, items_found=len(items), skipped=skipped)
+        report["model_reads"] = model_reads
+        return report
+
     # ---------------- applying units ----------------
 
     async def apply(self, developer: dict, units: list[ListingUnit], *, source: str, full_sync: bool, dry_run: bool,
-                    floor_plan: tuple[bytes, str] | None = None, items_found: int | None = None) -> dict:
+                    floor_plan: tuple[bytes, str] | None = None, items_found: int | None = None, skipped: list[dict] | None = None) -> dict:
         report: dict[str, Any] = {
             "developer": developer["slug"], "source": source, "dry_run": dry_run, "full_sync": full_sync, "found": len(units),
-            "created": [], "price_changed": [], "image_updated": [], "reactivated": [], "removed": [], "skipped": [],
+            "created": [], "price_changed": [], "image_updated": [], "reactivated": [], "removed": [], "skipped": list(skipped or []),
             "unchanged": 0, "sync": "off" if not full_sync else "pending", "notes": [],
         }
         seen: dict[str, ListingUnit] = {}
@@ -228,7 +275,7 @@ class IngestionService:
         for (unit, digest), vector in zip(new_units, vectors):
             plan = tags.get(digest)
             coords = (unit.lat, unit.lng) if unit.lat is not None and unit.lng is not None else await self.repo.coordinates_for(developer["id"], unit.project_name, unit.sub_city)
-            amenities = {"tags": plan.tags if plan else [], "source": "announcement" if source == "text" else "scrape",
+            amenities = {"tags": plan.tags if plan else [], "source": {"text": "announcement", "portal": "portal"}.get(source, "scrape"),
                          "ingested_at": datetime.now(UTC).isoformat()}
             if plan and plan.net_to_gross_ratio is not None:
                 amenities["net_to_gross_ratio"] = plan.net_to_gross_ratio

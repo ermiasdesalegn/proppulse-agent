@@ -62,6 +62,26 @@ class FloorPlanTags(BaseModel):
     summary: str = ""
 
 
+class PortalItem(BaseModel):
+    """One listing page from a property portal, as the Scrapy crawler read it locally. `text` is only sent when no strict price was found,
+    so the backend can ask the language model about that page and no other."""
+
+    url: str = Field(min_length=8, max_length=2048, pattern=r"^https?://")
+    ref: str = Field(min_length=1, max_length=120)
+    title: str | None = Field(default=None, max_length=300)
+    price_etb: float | None = Field(default=None, gt=0, lt=1e12)
+    sqm: float | None = Field(default=None, gt=0, lt=100_000)
+    bedrooms: int | None = Field(default=None, ge=0, le=20)
+    sub_city: str | None = Field(default=None, max_length=80)
+    property_type: str | None = Field(default=None, max_length=80)
+    deal: str | None = Field(default=None, pattern=r"^(sale|rent)$")
+    description: str | None = Field(default=None, max_length=4000)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    text: str | None = Field(default=None, max_length=12_000)
+    found_by: dict[str, str] = Field(default_factory=dict)
+
+
 class ScrapeProfile(BaseModel):
     """Where each field lives on a developer's listing page. A selector may end with @attribute to read an attribute."""
 

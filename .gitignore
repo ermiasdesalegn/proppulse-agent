@@ -24,3 +24,4 @@ backend/evals/results.json
 
 deploy/.env.prod
 dist/
+.scrapy/
