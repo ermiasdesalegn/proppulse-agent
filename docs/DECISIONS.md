@@ -101,3 +101,56 @@ to fall back to another model and how long replies really take.
 Resetting wipes every buyer, conversation, booking, deal and log, restores prices, removes scraped units and cancels the calendar events
 the system created. The endpoint refuses unless `DEMO_RESET_ENABLED=true` is set, the dashboard only shows the button then, and the
 dialog needs the word RESET typed. It is meant for a demo instance, never for real data.
+
+## Two ingestion strategies, because the pages are two different problems
+
+Small developer sites are unpredictable and publish projects, not prices, so a language model reads their page text and nothing needs maintaining.
+Large portals publish thousands of pages in a stable shape, so reading each with the model would use the free quota in a morning. Those go to a
+Scrapy crawler that extracts locally first (JSON-LD, the page's embedded JSON, per-site CSS hints, OpenGraph) and asks the model only when no
+strict price is found, at most three times per batch of 25. Both paths end in the same `IngestionService.apply`, so unchanged units cost nothing,
+price changes are recorded for the alerts, and only new units are embedded.
+
+## A "strict price" is a rule, not a guess
+
+A price counts only if it comes from structured data, is in birr, falls between 300,000 and 20 billion, and works out to at least 3,000 ETB per m².
+Loose page text is never used for price (price filters and adverts live there), and a size read from loose text must fit the price. The last two
+rules were added after the first real crawl saved a 700 m² villa at 640,000 ETB, almost certainly a rent. Refusing a unit costs a skipped row with
+a stated reason; accepting a wrong one costs a buyer's trust.
+
+## The crawler runs on GitHub Actions, and is controlled from the dashboard
+
+The free Render service has 512 MB of memory and 0.1 CPU and sleeps, while a full crawl of one portal takes hours (Property Centre has about 4,800
+sale listings at a polite pace). GitHub Actions is free compute with a six-hour limit per job, so each portal is its own job. The broker should not
+have to open GitHub: the dashboard asks the backend, the backend (which alone holds the token, limited to Actions on this repository) asks GitHub,
+and the runner reports each portal's start and finish back, so the Portals page and the Telegram alerts need no polling of GitHub.
+
+## Politeness is a hard rule, and a bot check is a stop sign
+
+robots.txt, an honest user agent, a randomised delay, one request at a time per site. A 403, 429, 503 or a bot-check page (Cloudflare and similar)
+ends the crawl of that site and tells the broker; it is never worked around. EthioHome's robots.txt forbids AI use, so its pages are read locally
+and never sent to the model. One small developer site currently serves a bot check; it is reported, and its listings are added by hand.
+
+## A vanished listing is only retired after a complete, clean crawl
+
+Retiring units on a partial crawl would wipe inventory whenever a site hiccups. So retirement happens only after a full crawl with no cap, no
+date filter, no push-back, no failed page and every requested page answered, and the backend still refuses if fewer than half the known units
+were seen. A page that is gone (404 or 410) counts as learned; a page that errored does not.
+
+## A buyer booking a portal unit is never sent to the portal
+
+The point of the product is the broker's commission, and a link to another agent's listing hands the lead away. A portal unit has no developer
+to register a lead with, so no email is sent, no commission is assumed (portal developers carry a 0% rate, which also keeps the commission
+pipeline honest), and the broker gets one Telegram message with the buyer's details and the original link; the calendar entry carries the link too.
+
+## Alerts are a state change, not a stream
+
+The broker is told when a run ends in a state a person must look at: blocked, failed, a full crawl that read nothing, or fewer than 70% of at least
+ten pages priced locally (the usual sign that a site changed its layout). A run started by hand sends a one-line summary; a scheduled run only
+when something changed. Each notice is reserved before it is sent, like every proactive message, so it cannot be sent twice.
+
+## Retrieval is hybrid on purpose
+
+Hard SQL filters (available, budget, bedrooms, area) run before similarity, because a buyer's budget is not a preference. Cosine similarity then
+ranks with a floor of 0.64, tuned on the seed data so known non-matches score at most 0.606 and real matches at least 0.666. "The cheapest" and
+"the largest" are deterministic rankings with no embedding, since they are rules and not descriptions. When nothing fits, a bounded loop widens
+the search by rule and says so; the buyer's stored preferences are never changed by a search.

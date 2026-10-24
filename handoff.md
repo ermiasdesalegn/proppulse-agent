@@ -65,3 +65,15 @@ The dashboard on Vercel showed dashes and an error. Cause found and fixed in cod
 
 ## 7. Not verified yet
 Live post of a real photo or video to the channel; Playwright browser tests (`npm run e2e`) and Docker build were never run on this machine; GitHub CI has not run until the push; the Amharic message catalogue has not been reviewed by a native speaker; a real key-exhaustion rotation was only tested with doubles.
+
+## 8. Addendum (2026-10-24, later): portal crawler, Portals page, docs
+Built after sections 1-7 were written; where they disagree, this wins.
+- **Portal crawler** (`backend/scraper`, `backend/app/ingest/portal.py`): six portals read by Scrapy on GitHub Actions (`.github/workflows/portal-crawl.yml`), local extraction first, Gemini only as a fallback. Details: `backend/scraper/README.md`, `docs/ARCHITECTURE.md` section 5-6.
+- **Portals page** in the dashboard starts a crawl (the backend dispatches the workflow with `GITHUB_TOKEN` + `GITHUB_REPO`), shows run history, and the broker gets Telegram alerts (`backend/app/portal_runs.py`, migration 015). The first real run (GuzoHomes) worked.
+- **Small sites** jenboro, phison, temer, kavod are in the LLM sweep; jenboro serves a bot check and is reported, not bypassed.
+- **Portal units:** keep `source_url`; booking one tells the broker instead of emailing a developer; no assumed commission.
+- **Fixes after the first real crawl:** price-per-m² floor (a 640,000 ETB villa was hidden by hand in Supabase), source link kept on units the model reads.
+- Needed on the hosted side: migrations 014 and 015 applied; Render `GITHUB_TOKEN`, `GITHUB_REPO`; GitHub secrets `BACKEND_URL`, `ADMIN_API_KEY`.
+- Counts now: backend 861 tests (3 skipped), frontend 48.
+- Known gap: the daily job can message matching buyers about newly crawled portal units (it treats any unit created in the last 24 hours as a new listing).
+- Docs: `README.md` rewritten, `docs/ARCHITECTURE.md` (LangGraph, RAG, ingestion), `docs/DECISIONS.md` extended.

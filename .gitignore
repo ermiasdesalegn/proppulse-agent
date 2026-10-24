@@ -25,3 +25,6 @@ backend/evals/results.json
 deploy/.env.prod
 dist/
 .scrapy/
+
+# Personal study notes, kept on this machine only
+docs/LOOM_SCRIPT.md

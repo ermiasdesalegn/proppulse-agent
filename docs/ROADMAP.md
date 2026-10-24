@@ -28,5 +28,15 @@ Done when: lint, types, unit tests, build and e2e selectors pass, and every page
 3. README screenshots of the new look.
 4. Final full run: backend tests, evals, ruff, mypy, frontend lint/types/tests/build.
 
+## Phase 20 — Portal crawler and the Portals page (done)
+
+1. Scrapy crawler for six large portals: sitemap or index discovery, local extraction first, Gemini only as a fallback, polite settings, full crawls with guarded retirement of vanished listings (`backend/scraper`).
+2. Small developer sites in the LLM sweep, seeded from their own sitemaps; bot checks reported, not bypassed.
+3. Portals page: start a crawl from the dashboard (GitHub Actions dispatch from the backend), run history, status, alerts to the broker on Telegram.
+4. Portal units: original listing link kept, no lead email or assumed commission, the broker arranges the viewing.
+5. Architecture document with LangGraph and RAG diagrams, README and decision log brought up to date.
+
+Not built: a per-portal on/off switch, a review queue for skipped listings, de-duplicating the same flat across portals, and an opt-in channel post for portal listings (decided against for now).
+
 ## Yours to do
 Free space on C:, rotate the pasted secrets, `git push -u origin main`, deploy per `docs/DEPLOYMENT.md`, run `docs/MANUAL_TESTS_PHASE13–16.md`, native Amharic review of `backend/app/language.py`.
