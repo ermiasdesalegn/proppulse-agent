@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { driveRoute, estimateRoute, haversineM, type DriveRoute } from "@/lib/directions";
 import clsx from "@/components/clsx";
 import { PageHeader, Card, DEVELOPER_COLOR, DEVELOPER_VAR, Empty, ErrorNote, Pill } from "@/components/ui";
 import { makeProjection, spreadPins } from "@/lib/geo";
@@ -17,6 +18,8 @@ const HAS_LIVE_MAP = TOKEN.startsWith("pk.");
 const MapboxMap = dynamic(() => import("@/components/MapboxMap"), { ssr: false, loading: () => <Empty>Loading the map...</Empty> });
 
 const W = 900, H = 560;
+const REROUTE_METERS = 200;                       // re-plan once the broker has moved this far
+const FALLBACK_ORIGIN: LatLng = [9.0107, 38.7613]; // Meskel Square, used when the browser's location is not shared
 const DEVELOPERS = [{ slug: "ayat", name: "Ayat" }, { slug: "noah", name: "Noah" }, { slug: "gift", name: "Gift" }];
 
 function shortPrice(value: number): string {
@@ -41,7 +44,58 @@ export default function MapPage() {
 
   const located = useMemo(() => (properties.data ?? []).filter((p) => p.lat !== null && p.lng !== null), [properties.data]);
   const tour = tours.data?.find((t) => t.id === tourId) ?? null;
-  const route = useMemo(() => routePoints(tour), [tour]);
+
+  // ---- the broker's own position, followed while a visit is chosen ----
+  const [me, setMe] = useState<LatLng | null>(null);
+  const [geo, setGeo] = useState<"idle" | "asking" | "ok" | "denied" | "unavailable">("idle");
+  const [drive, setDrive] = useState<DriveRoute | null>(null);
+  const [routing, setRouting] = useState(false);
+  const wantsRoute = !!tour && tour.kind !== "CONSULTATION";
+
+  useEffect(() => {
+    if (!wantsRoute) return;
+    if (!navigator.geolocation) { setGeo("unavailable"); return; }
+    setGeo("asking");
+    const watch = navigator.geolocation.watchPosition(
+      (pos) => {
+        const next: LatLng = [pos.coords.latitude, pos.coords.longitude];
+        setGeo("ok");
+        setMe((prev) => (prev && haversineM(prev, next) < REROUTE_METERS ? prev : next)); // only a real move re-plans the route
+      },
+      (err) => setGeo(err.code === err.PERMISSION_DENIED ? "denied" : "unavailable"),
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [wantsRoute]);
+
+  // Where the visit is: the tour's stops in order, or for a project visit the project's own units.
+  const destinations = useMemo<{ at: LatLng; label: string }[]>(() => {
+    if (!tour || tour.kind === "CONSULTATION") return [];
+    const stops = [...tour.stops].sort((a, b) => a.stop_order - b.stop_order).filter((s) => s.lat !== null && s.lng !== null);
+    if (stops.length) return stops.map((s) => ({ at: [s.lat as number, s.lng as number] as LatLng, label: s.title }));
+    const unit = tour.project_name ? located.find((p) => p.project_name?.toLowerCase() === tour.project_name!.toLowerCase()) : null;
+    return unit ? [{ at: [unit.lat!, unit.lng!] as LatLng, label: tour.project_name! }] : [];
+  }, [tour, located]);
+
+  const origin: LatLng | null = !wantsRoute ? null : me ?? (geo === "asking" || geo === "idle" ? null : FALLBACK_ORIGIN);
+  const destKey = destinations.map((d) => d.at.join(",")).join(";");
+
+  useEffect(() => {
+    setDrive(null);
+    if (!origin || !destinations.length) return;
+    const stops = destinations.map((d) => d.at);
+    const ctl = new AbortController();
+    setRouting(true);
+    (HAS_LIVE_MAP ? driveRoute(TOKEN, origin, stops, ctl.signal) : Promise.reject(new Error("no token")))
+      .catch((e) => { if (ctl.signal.aborted) throw e; return estimateRoute([origin, ...stops]); })
+      .then((r) => setDrive(r))
+      .catch(() => undefined)
+      .finally(() => { if (!ctl.signal.aborted) setRouting(false); });
+    return () => ctl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin?.[0], origin?.[1], destKey]);
+
+  const route = useMemo(() => drive?.points ?? routePoints(tour), [drive, tour]);
   const selected = located.find((p) => p.id === selectedId) ?? null;
 
   const projection = useMemo(() => makeProjection([...located.map((p) => [p.lat!, p.lng!] as LatLng), ...route], W, H, 70), [located, route]);
@@ -69,7 +123,7 @@ export default function MapPage() {
 
   const stopIds = new Set(tour?.stops.map((s) => s.property_id));
   // What the live map shows: the developer filter, and only the visit's own units while a tour is chosen.
-  const shown = useMemo(() => located.filter((p) => (!developer || p.developer_slug === developer) && (!tour || stopIds.has(p.id))), [located, developer, tour]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = useMemo(() => located.filter((p) => (!developer || p.developer_slug === developer) && (!tour || (stopIds.size && tour.stops.length ? stopIds.has(p.id) : !!tour.project_name && p.project_name?.toLowerCase() === tour.project_name.toLowerCase()))), [located, developer, tour]); // eslint-disable-line react-hooks/exhaustive-deps
   const routeXY = route.map(([lat, lng]) => projection.project(lat, lng));
 
   return (
@@ -92,7 +146,7 @@ export default function MapPage() {
           {mapProblem && <p role="status" className="border-b border-line bg-warn/10 px-4 py-2 text-xs text-warn">{mapProblem}. Showing the simple map instead.</p>}
 
           {properties.loading ? <Empty>Loading the map...</Empty> : liveMap ? (
-            <MapboxMap token={TOKEN} properties={shown} selectedId={selectedId} onSelect={setSelectedId} route={route} stops={tour?.stops ?? []} onFailure={setMapProblem} />
+            <MapboxMap token={TOKEN} properties={shown} selectedId={selectedId} onSelect={setSelectedId} route={route} origin={origin} stops={tour?.stops ?? []} onFailure={setMapProblem} />
           ) : (
             <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Map of available units in Addis Ababa" onClick={() => setSelectedId(null)}>
               <rect width={W} height={H} fill="rgb(var(--raised))" />
@@ -102,6 +156,11 @@ export default function MapPage() {
               {routeXY.length > 1 && (
                 <polyline points={routeXY.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="rgb(var(--accent))" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="10 7" opacity="0.9" />
               )}
+
+              {origin && (() => {
+                const o = projection.project(origin[0], origin[1]);
+                return <g transform={`translate(${o.x},${o.y})`}><circle r="14" fill="rgb(var(--accent))" opacity="0.2" /><circle r="6" fill="rgb(var(--accent))" stroke="#fff" strokeWidth="2.5" /><title>Your location</title></g>;
+              })()}
 
               {pins.map(({ p, x, y, cy, w: width, moved }) => {
                 const label = shortPrice(Number(p.price_etb));
@@ -149,7 +208,8 @@ export default function MapPage() {
                       className={clsx("w-full border-b border-line/60 px-4 py-3 text-left text-sm hover:bg-raised", t.id === tourId && "bg-accent/10")}>
                       <p className="font-medium">{t.full_name ?? t.thread_id}</p>
                       <p className="text-xs text-muted">{fmtDateTime(t.scheduled_start)} - {t.kind === "CONSULTATION" ? "phone call" : t.project_name ? `visit to ${t.project_name}` : `${t.stops.length} stop${t.stops.length === 1 ? "" : "s"}`}</p>
-                      {t.mapbox_route_json && <p className="tnum text-xs text-muted">{kmFromMeters(t.mapbox_route_json.distance_meters)}, about {Math.round(t.mapbox_route_json.duration_seconds / 60)} min driving</p>}
+                      {t.id === tourId && drive ? <p className="tnum text-xs text-muted">{kmFromMeters(drive.distanceMeters)}, about {Math.max(1, Math.round(drive.durationSeconds / 60))} min driving from {me ? "you" : "Meskel Square"}</p>
+                        : t.mapbox_route_json && <p className="tnum text-xs text-muted">{kmFromMeters(t.mapbox_route_json.distance_meters)}, about {Math.round(t.mapbox_route_json.duration_seconds / 60)} min driving</p>}
                     </button>
                     <Link href={`/tours/${t.id}`} className="block border-b border-line/60 px-4 pb-2 text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>
                   </li>
@@ -157,6 +217,30 @@ export default function MapPage() {
               </ul>
             )}
           </Card>
+
+          {tour && wantsRoute && (
+            <Card title="Route to the visit">
+              <div className="space-y-1 px-4 py-3 text-sm" aria-live="polite">
+                {routing && !drive ? <p className="text-muted">Planning the route...</p> : drive ? (() => {
+                  const mins = Math.max(1, Math.round(drive.durationSeconds / 60));
+                  const start = new Date(tour.scheduled_start).getTime();
+                  const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+                  return (
+                    <>
+                      <p className="tnum text-lg font-semibold">{mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`} <span className="text-sm font-normal text-muted">- {kmFromMeters(drive.distanceMeters)}</span></p>
+                      <p className="text-xs text-muted">From {me ? "your location" : "Meskel Square"} to {destinations.map((d) => d.label).join(", then ")}</p>
+                      {start > Date.now() && <p className="tnum text-xs">Leave by <strong>{clock(start - drive.durationSeconds * 1000)}</strong> to arrive at {clock(start)}. Leaving now you arrive at {clock(Date.now() + drive.durationSeconds * 1000)}.</p>}
+                      {drive.legs.length > 1 && <ol className="list-decimal pl-4 text-xs text-muted">{drive.legs.map((l, i) => <li key={i} className="tnum">{destinations[i]?.label}: {kmFromMeters(l.distanceMeters)}, {Math.max(1, Math.round(l.durationSeconds / 60))} min</li>)}</ol>}
+                      {drive.estimated && <p className="text-xs text-warn">Estimated from straight-line distance; live road routing is unavailable.</p>}
+                    </>
+                  );
+                })() : <p className="text-muted">{destinations.length ? "Route unavailable." : "This visit has no mapped location yet."}</p>}
+                {geo === "asking" && <p className="text-xs text-muted">Waiting for your location...</p>}
+                {(geo === "denied" || geo === "unavailable") && <p className="text-xs text-warn">{geo === "denied" ? "Location access is blocked" : "Your location is unavailable"}, so the route starts from Meskel Square. Allow location in the browser to route from where you are.</p>}
+                {geo === "ok" && <p className="text-xs text-muted">Following your location; the route updates as you move.</p>}
+              </div>
+            </Card>
+          )}
 
           <Card title={selected ? "Selected unit" : "Units"}>
             {selected ? (

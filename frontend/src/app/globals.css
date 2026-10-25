@@ -58,6 +58,13 @@ body { background-color: #0a0a0a; }
   font: 700 13px/20px system-ui, sans-serif; text-align: center; 
 }
 
+.pp-me {
+  width: 16px; height: 16px; border-radius: 999px; background: rgb(var(--accent)); border: 3px solid #fff;
+  box-shadow: 0 0 0 0 rgb(var(--accent) / .55); animation: pp-me-pulse 2s ease-out infinite;
+}
+@keyframes pp-me-pulse { to { box-shadow: 0 0 0 16px rgb(var(--accent) / 0); } }
+@media (prefers-reduced-motion: reduce) { .pp-me { animation: none; } }
+
 ::selection { background: rgb(var(--accent) / .35); }
 :focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea { transition: border-color .15s, box-shadow .15s; }

@@ -16,6 +16,7 @@ export interface MapboxMapProps {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   route: LatLng[];                        // [lat, lng] along the chosen tour's driving route; empty when none
+  origin: LatLng | null;                  // where the broker is driving from; shown as "you"
   stops: TourStop[];                      // the chosen tour's stops, numbered on the map
   onFailure: (reason: string) => void;    // the page falls back to the simple drawn map
 }
@@ -54,9 +55,11 @@ function pill(props: { id: string; title: string; price: number; dev: string }, 
   return el;
 }
 
-export default function MapboxMap({ token, properties, selectedId, onSelect, route, stops, onFailure }: MapboxMapProps) {
+export default function MapboxMap({ token, properties, selectedId, onSelect, route, origin, stops, onFailure }: MapboxMapProps) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const meMarker = useRef<mapboxgl.Marker | null>(null);
+  const drawing = useRef(0); // animation frame of the route being drawn
   const markers = useRef(new Map<string, mapboxgl.Marker>());
   const stopMarkers = useRef<mapboxgl.Marker[]>([]);
   const latest = useRef({ properties, selectedId, route, stops, onSelect });
@@ -120,8 +123,20 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
     const syncData = () => {
       (map.getSource("units") as mapboxgl.GeoJSONSource | undefined)?.setData(toFeatures(latest.current.properties));
       const coords = latest.current.route.map(([lat, lng]) => [lng, lat]);
-      (map.getSource("route") as mapboxgl.GeoJSONSource | undefined)?.setData(
-        coords.length > 1 ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } } : { type: "FeatureCollection", features: [] });
+      const source = map.getSource("route") as mapboxgl.GeoJSONSource | undefined;
+      const line = (c: number[][]) => (c.length > 1 ? { type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: c } } : { type: "FeatureCollection" as const, features: [] });
+      cancelAnimationFrame(drawing.current);
+      if (!source) return;
+      if (coords.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { source.setData(line(coords)); return; }
+      // draw the route from the start to the visit, so the direction of travel is visible
+      const began = performance.now(), DURATION = 1400;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - began) / DURATION);
+        const eased = 1 - (1 - t) ** 3;
+        source.setData(line(coords.slice(0, Math.max(2, Math.ceil(coords.length * eased)))));
+        if (t < 1) drawing.current = requestAnimationFrame(step);
+      };
+      drawing.current = requestAnimationFrame(step);
     };
     (map as unknown as { __sync: () => void }).__sync = syncData;
 
@@ -149,6 +164,9 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
 
     return () => {
       clearTimeout(failed);
+      cancelAnimationFrame(drawing.current);
+      meMarker.current?.remove();
+      meMarker.current = null;
       media.removeEventListener("change", onScheme);
       resize.disconnect();
       pills.forEach((m) => m.remove());
@@ -167,6 +185,21 @@ export default function MapboxMap({ token, properties, selectedId, onSelect, rou
     const apply = () => map.__sync?.();
     if (map.isStyleLoaded()) apply(); else map.once("style.load", apply);
   }, [properties, route]);
+
+  // ---- the broker's position ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!origin) { meMarker.current?.remove(); meMarker.current = null; return; }
+    if (!meMarker.current) {
+      const el = document.createElement("div");
+      el.className = "pp-me";
+      el.title = "You are here";
+      meMarker.current = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([origin[1], origin[0]]).addTo(map);
+    } else {
+      meMarker.current.setLngLat([origin[1], origin[0]]);
+    }
+  }, [origin]);
 
   // ---- numbered stops ----
   useEffect(() => {
