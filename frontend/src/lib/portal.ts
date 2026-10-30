@@ -61,7 +61,10 @@ export async function loadFeatured(): Promise<Featured | null> {
     const hero = (process.env.HERO_PROPERTY_ID ?? "").trim();
     const query = /^[0-9a-f-]{36}$/i.test(hero) ? `?hero=${hero}` : "";
     const res = await fetch(`${base}/api/public/featured${query}`, { next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
-    return res.ok ? ((await res.json()) as Featured) : null;
+    if (!res.ok) return null;
+    const featured = (await res.json()) as Featured;
+    // A backend that does not know `hero` yet still lists the chosen home when it is among the featured ones.
+    return { ...featured, hero: featured.hero ?? (query ? featured.units.find((u) => u.id === hero) ?? null : null) };
   } catch {
     return null;
   }
