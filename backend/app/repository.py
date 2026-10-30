@@ -759,11 +759,12 @@ class Repository:
 
     async def portal_featured(self, limit: int = 6) -> list[dict]:
         """A spread across developers: each one's newest unit first, then their next, so one developer cannot fill the page.
-        Units with a picture (their own photo, else their project's) fill the page first: a drawing only when too few have one."""
+        Units with a photo of their own (or one the broker uploaded for the project) fill the page first: a drawing only when too
+        few have one. A project's scraped picture does not count: it is often the developer's logo."""
         return await self._fetch(
             "select * from (" + self._PORTAL_UNIT.format(
                 extra=", row_number() over (partition by p.developer_id order by (p.photo_url is null), p.created_at desc, p.id) as rn ")
-            + "where p.status = 'AVAILABLE') t order by (coalesce(photo_url, cover_image_url, cover_media_id::text) is null), rn, created_at desc limit %s",
+            + "where p.status = 'AVAILABLE') t order by (coalesce(photo_url, cover_media_id::text) is null), rn, created_at desc limit %s",
             (limit,),
         )
 

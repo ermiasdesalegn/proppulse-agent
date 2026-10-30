@@ -22,7 +22,7 @@ export default async function LandingPage() {
     <>
       <SiteHeader />
       <main>
-        <Hero unit={featured?.units[0]} />
+        <Hero unit={featured?.hero ?? featured?.units[0]} />
         <TrustStrip stats={featured?.stats ?? null} />
         <FeaturedHomes units={featured?.units ?? []} />
         <HowItWorks />

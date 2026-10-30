@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.api import _clean_text, chat_of, repo_of
 from app.buyer_auth import BuyerIdentity, current_buyer
 from app.chat import ChatService, Inbound
+from app.ingest.portal import is_listing_photo
 from app.model3d import Layout, render_png
 from app.repository import Repository
 
@@ -30,18 +31,26 @@ def _unit(row: dict[str, Any]) -> dict[str, Any]:
         out["cover"] = row["photo_url"]
     elif row.get("cover_media_id"):
         out["cover"] = f"/api/public/covers/{row['cover_project_id']}"
-    else:
-        out["cover"] = row.get("cover_image_url") or None
+    else:  # a developer's site often gives its logo as the project picture: a drawing is better than a logo
+        image = row.get("cover_image_url")
+        out["cover"] = image if image and is_listing_photo(image) else None
     return out
+
+
+# Only what a listing card shows: the detail fields (and the source address, never sent to buyers) stay out of the public showcase.
+_DETAIL_ONLY = {"description", "payment_plan", "vision_amenities", "source_url", "floor_plan_image_url"}
 
 
 # ---------------- public ----------------
 
 @router.get("/api/public/featured")
-async def featured(response: Response, repo: Repository = Depends(repo_of)):
+async def featured(response: Response, hero: UUID | None = Query(None), repo: Repository = Depends(repo_of)):
+    """`hero` names the listing whose photo leads the landing page (the site sets it); without it the page uses the first featured home."""
     facets = await repo.portal_facets()
     response.headers["Cache-Control"] = "public, max-age=60"
+    chosen = await repo.portal_unit(hero) if hero else None
     return {
+        "hero": {k: v for k, v in _unit(chosen).items() if k not in _DETAIL_ONLY} if chosen and chosen["status"] == "AVAILABLE" else None,
         "units": [_unit(r) for r in await repo.portal_featured(6)],
         "stats": {"units": facets["units"], "developers": len(facets["developers"]), "areas": len(facets["sub_cities"])},
         "sub_cities": facets["sub_cities"][:8],

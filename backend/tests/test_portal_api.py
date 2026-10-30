@@ -138,6 +138,23 @@ async def test_featured_units_are_public_and_limited(site):
     assert len({u["id"] for u in body["units"]}) == len(body["units"])
 
 
+async def test_the_chosen_hero_leads_the_page_without_its_detail_fields(site):
+    client, _ = site
+    first = (await client.get("/api/public/featured")).json()["units"][0]
+    body = (await client.get(f"/api/public/featured?hero={first['id']}")).json()
+    assert body["hero"]["id"] == first["id"] and not (SECRET_FIELDS | {"description", "source_url"}) & body["hero"].keys()
+    assert (await client.get(f"/api/public/featured?hero={GHOST}")).json()["hero"] is None, "an unknown or sold listing falls back"
+    assert (await client.get("/api/public/featured")).json()["hero"] is None
+
+
+def test_a_developers_logo_is_never_used_as_a_homes_picture():
+    from app.portal_api import _unit
+
+    logo = {"id": "x", "cover_image_url": "https://noahrealestateplc.com/templates/yootheme/cache/98/NOAH%20Logo%20Options-04-987e7656.png"}
+    photo = {"id": "y", "cover_image_url": "https://temerproperties.com/wp-content/uploads/2026/02/sumale-tera3.jpg"}
+    assert _unit(logo)["cover"] is None and _unit(photo)["cover"] == photo["cover_image_url"]
+
+
 async def test_a_cover_is_served_only_for_a_project_with_a_photo(site):
     client, _ = site
     assert (await client.get(f"/api/public/covers/{GHOST}")).status_code == 404

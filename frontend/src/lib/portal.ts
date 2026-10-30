@@ -23,6 +23,7 @@ export interface PortalUnit {
 }
 
 export interface Featured {
+  hero?: PortalUnit | null; // the listing chosen to lead the landing page (HERO_PROPERTY_ID), if it is still for sale
   units: PortalUnit[];
   stats: { units: number; developers: number; areas: number };
   sub_cities: { sub_city: string; units: number }[];
@@ -56,7 +57,10 @@ export function deliveryLabel(date: string | null | undefined): string | null {
 export async function loadFeatured(): Promise<Featured | null> {
   try {
     const base = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
-    const res = await fetch(`${base}/api/public/featured`, { next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
+    // HERO_PROPERTY_ID picks the home whose photo leads the page (a listing id from the portal's address bar); unset, the newest leads.
+    const hero = (process.env.HERO_PROPERTY_ID ?? "").trim();
+    const query = /^[0-9a-f-]{36}$/i.test(hero) ? `?hero=${hero}` : "";
+    const res = await fetch(`${base}/api/public/featured${query}`, { next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
     return res.ok ? ((await res.json()) as Featured) : null;
   } catch {
     return null;
