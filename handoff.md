@@ -32,8 +32,8 @@ Search is hybrid: SQL filters (budget, bedrooms, area) then cosine ranking with 
 | Piece | Service | Status |
 |---|---|---|
 | Database | Supabase (eu-west-1 pooler) | live |
-| Backend | **Render free web service** `https://proppulse-agent.onrender.com`, root `backend`, start `python -m app`, Frankfurt | live; `/health` shows `status ok`, `gemini_keys 6`, `telegram webhook` |
-| Dashboard | **Vercel** project `proppulse-agent`, root `frontend`. Public address: `https://proppulse-agent.vercel.app`. The `git-main` branch address is behind Vercel login protection: do not share it | deployed; being debugged (see below) |
+| Backend | **Render free web service** `https://proppulse-agent-44qv.onrender.com`, root `backend`, start `python -m app`, Frankfurt | live; `/health` shows `status ok`, `telegram webhook` |
+| Website and dashboard | **Vercel** project `proppulse-agent`, root `frontend`. Public address: `https://proppulseagent.vercel.app` (public site; dashboard at `/console`). Vercel's per-branch preview addresses are behind Vercel login protection: never share them | live |
 | Scheduled jobs | GitHub Actions `.github/workflows/cron.yml` (hourly reminders, 06:00 sweep, 08:00 follow-ups, Addis time) | written; secrets not added yet |
 | Fallback if the hosted backend is down | run the backend locally and `ngrok http 8000`; set Vercel `BACKEND_URL` and `PUBLIC_BASE_URL` to the ngrok URL | documented in `docs/FREE_DEPLOYMENT.md` |
 
@@ -53,10 +53,10 @@ The dashboard on Vercel showed dashes and an error. Cause found and fixed in cod
 - Commit messages: plain, no AI signature; never push unasked (user's memory rule).
 
 ## 6. Next steps (in order)
-1. `git push origin main` (pushes `f41b035` and earlier). Wait for the Vercel redeploy; open `https://proppulse-agent.vercel.app`, sign in, confirm Overview shows 10 buyers, 1 open deal and live activity.
+1. Done: pushed and deployed. Open `https://proppulseagent.vercel.app/console`, sign in, confirm Overview shows buyers, deals and live activity.
 2. Vercel: Settings → Deployment Protection → disable Vercel Authentication for production so evaluators can open the link. Set Render `FRONTEND_ORIGIN` to the Vercel address. Restrict the Mapbox public token to that address.
-3. GitHub: Settings → Secrets → Actions → add `BACKEND_URL=https://proppulse-agent.onrender.com` and `CRON_SECRET` (same as Render). Run the "scheduled jobs" workflow once by hand.
-4. Add a free UptimeRobot monitor on `https://proppulse-agent.onrender.com/health` every 5 minutes so the service stays awake during the demo.
+3. GitHub: Settings → Secrets → Actions → add `BACKEND_URL=https://proppulse-agent-44qv.onrender.com` and `CRON_SECRET` (same as Render). Run the "scheduled jobs" workflow once by hand.
+4. Add a free UptimeRobot monitor on `https://proppulse-agent-44qv.onrender.com/health` every 5 minutes so the service stays awake during the demo.
 5. Test on the real stack: message the bot on Telegram, run Chat Simulator, Projects → Ask the price → Set price, a project visit booking (check Google Calendar and the developer email), and **Run Market Scraper** with Preview first.
 6. Restore real data: Metropolitan Real Estate exists as a developer (placeholder sales email `sales@metropolitan.example`: set a real one) but its projects were deleted by mistake; re-run a crawl when metropolitanaddis.com is reachable (it timed out from this machine). Noah's site also timed out.
 7. Real photos or videos for the demo projects (Projects → Add photo or video); the demo ones only have a generated placeholder.
@@ -77,3 +77,13 @@ Built after sections 1-7 were written; where they disagree, this wins.
 - Counts now: backend 861 tests (3 skipped), frontend 48.
 - Known gap: the daily job can message matching buyers about newly crawled portal units (it treats any unit created in the last 24 hours as a new listing).
 - Docs: `README.md` rewritten, `docs/ARCHITECTURE.md` (LangGraph, RAG, ingestion), `docs/DECISIONS.md` extended.
+
+## 9. Addendum (2026-10-31): public website, live addresses, photos
+Built after section 8; where they disagree, this wins.
+- **Live addresses.** Backend: `https://proppulse-agent-44qv.onrender.com` (the old `proppulse-agent.onrender.com` no longer exists). Website: `https://proppulseagent.vercel.app`; the broker's Command Center is at `/console`. Anything that still points at the old backend address (GitHub secret `BACKEND_URL`, the scraper's `PROPPULSE_BACKEND_URL`, an uptime monitor) must be updated.
+- **Telegram webhook.** In webhook mode the backend registers its own address with Telegram on every start, from Render's `PUBLIC_BASE_URL`. If the bot goes quiet after an address change, fix `PUBLIC_BASE_URL` and redeploy; `python -m scripts.telegram_webhook info` shows where Telegram is sending.
+- **Public site and Client Portal** (`frontend/src/app/(site)`, `frontend/src/app/portal`): landing page, Supabase sign-up for buyers, browse with filters, home pages, saved homes, map, and the Concierge web chat (the same agent as Telegram). Details: `docs/ARCHITECTURE.md` section 10, `docs/MANUAL_TESTS_PUBLIC.md`.
+- **Web chat parity with Telegram:** voice notes (recorded as WAV, transcribed with the Telegram prompt), the 3D model picture and `.glb` file, the comparison PDF, and a map link to the first stop on visit day. Home pages show an interactive 3D view when the broker saved a layout. A QR code to @prop_plus_bot is on the landing page and the Concierge page.
+- **Listing photos.** The portal crawler keeps each listing's cover photo (`properties.photo_url`, migration 018), checking it loads and falling back to the smaller copy a site keeps when the main one was deleted. `python -m scripts.backfill_listing_photos --recheck` fills or re-checks photos for listings already stored. Developer logos are never used as a home's picture.
+- **Hero picture.** Vercel `HERO_PROPERTY_ID` names the listing whose photo leads the landing page (unset: the newest featured home).
+- **Hosted setup still needed after a fresh database:** migrations 016-019; Vercel `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BROKER_EMAIL`; Supabase Site URL and redirect URLs (`/auth/callback` for the website and for `http://localhost:3000`).

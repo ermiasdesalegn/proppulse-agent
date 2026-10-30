@@ -4,6 +4,8 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 
 **Stack:** FastAPI · **LangGraph** · Gemini · **Supabase Postgres + pgvector (RAG)** · Scrapy + scrapy-playwright · Next.js 14 · Telegram · Google Calendar · Mapbox · Render + Vercel + GitHub Actions (all free).
 
+**Live:** website [proppulseagent.vercel.app](https://proppulseagent.vercel.app) (the broker's Command Center is at `/console`), Telegram bot [@prop_plus_bot](https://t.me/prop_plus_bot), backend health at `https://proppulse-agent-44qv.onrender.com/health`.
+
 ## Where to look first
 
 | If you want to see... | Read |
@@ -108,7 +110,9 @@ Guard rails: robots.txt and pacing everywhere; a bot-check page or a 403/429 sto
 - **Proactive jobs:** price-drop alerts to matching buyers, price-increase notices to the broker, new-listing matches, 24 h tour and milestone reminders (idempotent, scheduler-triggered).
 - **Market ingestion:** the two strategies above, plus pasted announcements and an inbound-email webhook; only new units cost a model call.
 - **Projects (price on request):** most Addis developers publish projects, not unit prices. The bot lists matching projects with an **Ask the price** button; the broker is told, enters the price once, and every waiting buyer is messaged. Live offers are advertised to the channel once each.
-- **3D model of a unit:** the broker gives a unit its rooms (read from a floor-plan picture, or typed in) in the Studio. The agent builds a 3D model file (.glb) and a 3D picture from them in code, with no model call and no invented rooms, and sends both to a buyer on Telegram when they ask for that unit's details (`backend/app/model3d.py`).
+- **3D model of a unit:** the broker gives a unit its rooms (read from a floor-plan picture, or typed in) in the Studio. The agent builds a 3D model file (.glb) and a 3D picture from them in code, with no model call and no invented rooms, and sends both to a buyer on Telegram or in the web chat when they ask for that unit's details. The home's page on the website shows the same model as an interactive 3D view (`backend/app/model3d.py`, `frontend/src/components/portal/Layout3D.tsx`).
+- **Voice notes on both channels:** a Telegram voice note or a recording made in the web chat is transcribed by Gemini with the same prompt (English, Amharic or both); on the website the buyer sees what was heard, so a mishearing can be corrected by typing.
+- **Listing photos:** the portal crawler keeps each listing's cover photo, checks that it loads, and falls back to the smaller copy a site keeps when it deleted the main one; a developer's logo is never shown as a home's picture. `python -m scripts.backfill_listing_photos --recheck` fills or re-checks photos for listings already stored.
 - **Channel ads:** composes and posts listings with Ask / Compare / Book buttons that deep-link back to the bot. Real posts need an explicit second step.
 
 ## The public site and Client Portal
@@ -117,12 +121,12 @@ The same Next.js app has a public front door for buyers, so the agent is availab
 
 | Where | What it does |
 |---|---|
-| `/` | Landing page: search, live counts, featured homes from different developers, how it works, the assistant, areas |
+| `/` | Landing page: search, live counts, a hero photo of a chosen home (`HERO_PROPERTY_ID`), featured homes with real photos from different developers, how it works, the assistant with a QR code to the Telegram bot, areas |
 | `/signup`, `/login` | Buyers create an account with email and password (Supabase Auth, confirmed by email). The broker's account is the confirmed one whose email is `BROKER_EMAIL`, and the old password login stays behind **Broker access** |
 | `/portal` | Browse every listing with filters in the address (search, area, bedrooms, price, developer, sort), paging and hearts |
-| `/portal/homes/<id>` | Full details: price per m², payment terms, delivery, construction progress, 3D layout when there is one, link to the original listing, save, ask the assistant |
+| `/portal/homes/<id>` | Full details: price per m², payment terms, delivery, construction progress, an interactive 3D view and `.glb` download when the broker built one, link to the original listing, save, ask the assistant |
 | `/portal/map`, `/portal/saved` | The homes on a map, and the buyer's saved homes |
-| `/portal/chat` | The **Concierge**: the same LangGraph agent as Telegram, quick-reply buttons, the homes it suggests, and a notice when the broker takes over. "Ask the assistant about this home" opens exactly that home |
+| `/portal/chat` | The **Concierge**: the same LangGraph agent as Telegram, quick-reply buttons, voice notes, the 3D picture and model file and the comparison PDF the agent sends, a map link to the first stop on visit day, the homes it suggests, and a notice when the broker takes over. "Ask the assistant about this home" opens exactly that home. A QR code offers the Telegram bot instead (a separate conversation) |
 | `/console/*` | The broker's Command Center (below) |
 
 Roles are decided by one tested function (`frontend/src/lib/access.ts`) that denies by default: signed-out visitors see the public pages, buyers get `/portal`, and only the broker gets `/console`. Buyers reach the backend with their own token and never with the admin key. Details: [docs/ARCHITECTURE.md section 10](docs/ARCHITECTURE.md#10-the-public-site-and-the-client-portal) and [docs/DECISIONS.md](docs/DECISIONS.md).
@@ -196,7 +200,7 @@ npm run e2e                                  # Playwright, needs a running stack
 GitHub Actions runs all of this plus a Docker build on every push ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ## Deploy
-The live setup is free: Supabase (database), a Render web service (backend), Vercel (dashboard), GitHub Actions (schedules and the portal crawler): [docs/FREE_DEPLOYMENT.md](docs/FREE_DEPLOYMENT.md). A scripted Supabase + Cloud Run + Vercel alternative is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Design choices and the reasons for them: [docs/DECISIONS.md](docs/DECISIONS.md). Checks that need a real browser, real accounts or a native Amharic reader: `docs/MANUAL_TESTS_PHASE*.md`.
+The live setup is free: Supabase (database), a Render web service (backend), Vercel (dashboard), GitHub Actions (schedules and the portal crawler): [docs/FREE_DEPLOYMENT.md](docs/FREE_DEPLOYMENT.md). A scripted Supabase + Cloud Run + Vercel alternative is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Design choices and the reasons for them: [docs/DECISIONS.md](docs/DECISIONS.md). Checks that need a real browser, real accounts or a native Amharic reader: `docs/MANUAL_TESTS_PHASE*.md`. In webhook mode the backend tells Telegram its address on every start, from `PUBLIC_BASE_URL`: keep it equal to the backend's real address, or the bot goes quiet (`python -m scripts.telegram_webhook info` shows where Telegram is sending).
 
 ## Layout
 | Path | Contents |
@@ -205,7 +209,7 @@ The live setup is free: Supabase (database), a Render web service (backend), Ver
 | `backend/app/agent` | LangGraph graph, nodes, state, checkpointer, prompts, lead scoring |
 | `backend/app/ingest` | Fetching, parsing, the portal page reader, the ingestion service, project crawling |
 | `backend/scraper` | The Scrapy portal crawler: spider, per-site configuration, pipeline to the backend |
-| `backend/migrations` | SQL schema 001–017 |
+| `backend/migrations` | SQL schema 001–019 |
 | `backend/evals` | Evaluation suite, recordings and reports |
 | `backend/scripts` | `migrate`, `seed`, live checks, `post_deploy_check` |
 | `backend/tests` | pytest suite |

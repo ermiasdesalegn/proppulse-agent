@@ -26,7 +26,7 @@ What was tested without your accounts: the access rules and role logic (unit tes
 12. **Ask about a home.** On a home, "Ask the assistant about this home", then "Tell me about it", "Compare with similar" and "Book a visit": each opens that exact home. Book a visit through to the end and check the calendar entry and the broker's Telegram message arrive (this is real: use your own details).
 13. **Takeover.** In the console CRM, open that web buyer (named from the account), press Take over, send a reply. The buyer's page shows the broker's message within about three seconds, with "Our broker" on it and the takeover notice; the assistant stays quiet. Release it and the assistant answers again.
 14. **Phone.** Landing, browse, a home, the map and the chat on a real phone: no sideways scrolling, the filter form is long but usable, the chat input stays reachable above the keyboard.
-15. **Look.** The ivory and brass theme, serif headings and prices. The console is still near-black and orange. Print or screenshot the landing page for the Loom.
+15. **Look.** The ivory and brass theme, serif headings and prices. The console is still near-black and orange.
 
 ## After testing
 

@@ -1,5 +1,5 @@
 # Free portal crawler: GitHub Actions runs the Scrapy spider (backend/scraper) and hands what it reads to the backend.
-# Repository secrets: BACKEND_URL (https://proppulse-agent.onrender.com) and ADMIN_API_KEY (the same value as Render's ADMIN_API_KEY).
+# Repository secrets: BACKEND_URL (https://proppulse-agent-44qv.onrender.com) and ADMIN_API_KEY (the same value as Render's ADMIN_API_KEY).
 # Daily: new and changed listings only. Weekly: a full crawl, after which listings that vanished from a portal stop being offered.
 # One job per portal, in parallel, so a slow or blocking site never holds up the others (each still crawls one request at a time).
 name: portal crawl

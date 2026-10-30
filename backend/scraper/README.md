@@ -44,7 +44,7 @@ A unit read from a portal keeps the address of the original listing (`properties
 pip install -r requirements-scraper.txt
 cd backend
 scrapy crawl portals -a site=guzohomes -a limit=20 -O out.jsonl     # try a site: writes a file, touches nothing
-export PROPPULSE_BACKEND_URL=https://proppulse-agent.onrender.com PROPPULSE_ADMIN_KEY=...
+export PROPPULSE_BACKEND_URL=https://proppulse-agent-44qv.onrender.com PROPPULSE_ADMIN_KEY=...
 PORTAL_DRY_RUN=1 scrapy crawl portals -a site=all -a limit=25       # preview what the backend would change
 scrapy crawl portals -a site=all -a since=2026-10-01                # real run, only sitemap entries changed since that date
 ```

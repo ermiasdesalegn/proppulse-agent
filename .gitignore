@@ -1,4 +1,4 @@
-﻿.env
+.env
 .env.*
 !.env.example
 .venv/
@@ -26,5 +26,8 @@ deploy/.env.prod
 dist/
 .scrapy/
 
-# Personal study notes, kept on this machine only
+# Personal study notes and video scripts, kept on this machine only
 docs/LOOM_SCRIPT.md
+*VIDEO_SCRIPT*
+*video_script*
+*LOOM_SCRIPT*
