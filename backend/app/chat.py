@@ -43,6 +43,7 @@ class Inbound:
     file_id: str | None = None
     mime_type: str = "audio/ogg"
     start_payload: str | None = None  # what followed /start, for example "ask_1a2b3c4d" from a channel ad button
+    shown_as: str | None = None  # what the transcript shows for a tap, when the default wording would not suit the channel (the website says it in its own words)
     callback_id: str | None = None  # set when the message is a tap on an inline button
 
     @property
@@ -102,7 +103,9 @@ class ChatService:
         async with self._lock(inbound.thread_id):
             buyer = await self.repo.get_buyer(buyer["id"]) or buyer  # re-read: takeover may have flipped while we waited
             shown = inbound.text if inbound.kind == "text" else "[voice note]"
-            if inbound.start_payload and (link := DEEPLINK.match(inbound.start_payload)):
+            if inbound.shown_as:
+                shown = inbound.shown_as
+            elif inbound.start_payload and (link := DEEPLINK.match(inbound.start_payload)):
                 shown = f"Opened a channel ad: {dict(BUTTONS)[link.group(1)]}"
             elif inbound.start_payload and PROJECT_LINK.match(inbound.start_payload):
                 shown = "Opened a project ad"

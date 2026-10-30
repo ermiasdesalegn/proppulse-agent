@@ -121,10 +121,7 @@ async def _known_buyer(repo: Repository, me: BuyerIdentity) -> dict:
     return await repo.update_buyer(buyer["id"], **fill) if fill else buyer
 
 
-@router.post("/api/me/chat")
-async def chat(body: MeChatIn, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of), service: ChatService = Depends(chat_of)):
-    await _known_buyer(repo, me)
-    outcome = await service.handle_inbound(Inbound(channel="web", external_id=me.user_id, kind="text", text=body.text))
+def _answer(outcome) -> dict:
     return {
         "reply": outcome.reply,
         "quick_replies": outcome.quick_replies,
@@ -132,6 +129,38 @@ async def chat(body: MeChatIn, me: BuyerIdentity = Depends(current_buyer), repo:
         "error": outcome.error,
         "active_matches": [{k: m[k] for k in MATCH_FIELDS if k in m} for m in outcome.state.get("active_matches", [])],
     }
+
+
+@router.post("/api/me/chat")
+async def chat(body: MeChatIn, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of), service: ChatService = Depends(chat_of)):
+    await _known_buyer(repo, me)
+    return _answer(await service.handle_inbound(Inbound(channel="web", external_id=me.user_id, kind="text", text=body.text)))
+
+
+# "Ask the assistant about this home": the same deep links the channel ads use (ask / compare / book), so the agent opens exactly this unit.
+OPEN_ACTIONS = {"ask": "Tell me about this home", "cmp": "Compare this home with similar ones", "book": "I would like to visit this home"}
+
+
+class OpenHomeIn(BaseModel):
+    property_id: UUID
+    action: Literal["ask", "cmp", "book"] = "ask"
+
+
+@router.post("/api/me/chat/open")
+async def open_home(body: OpenHomeIn, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of), service: ChatService = Depends(chat_of)):
+    unit = await repo.portal_unit(body.property_id)
+    if unit is None:
+        raise HTTPException(404, "This home is not listed")
+    await _known_buyer(repo, me)
+    inbound = Inbound(channel="web", external_id=me.user_id, kind="text", text="", start_payload=f"{body.action}_{body.property_id.hex[:8]}",
+                      shown_as=f"{OPEN_ACTIONS[body.action]}: {unit['title']}"[:300])
+    outcome = await service.handle_inbound(inbound)
+    answer = _answer(outcome)
+    if not answer["active_matches"] and not outcome.takeover and unit["status"] == "AVAILABLE":
+        # The quick "ask" answer is written without the agent, so the opened home is named here for the page's side list.
+        answer["active_matches"] = [{"id": str(unit["id"]), "title": unit["title"], "sub_city": unit["sub_city"], "price_etb": float(unit["price_etb"]),
+                                     "bedrooms": unit["bedrooms"], "similarity": 1.0}]
+    return answer
 
 
 @router.get("/api/me/chat/messages")

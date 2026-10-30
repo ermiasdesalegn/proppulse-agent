@@ -8,6 +8,7 @@ const ITEMS = [
   { href: "/portal", label: "Browse", match: (p: string) => p === "/portal" || p.startsWith("/portal/homes") },
   { href: "/portal/map", label: "Map", match: (p: string) => p.startsWith("/portal/map") },
   { href: "/portal/saved", label: "Saved", match: (p: string) => p.startsWith("/portal/saved") },
+  { href: "/portal/chat", label: "Concierge", match: (p: string) => p.startsWith("/portal/chat") },
 ];
 
 export default function PortalNav({ email }: { email: string | null }) {

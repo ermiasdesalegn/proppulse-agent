@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { SaveButton } from "@/components/portal/PortalControls";
 import Problem from "@/components/portal/Problem";
 import Cover from "@/components/site/Cover";
+import { buttonClass } from "@/components/site/ui";
 import { fmtEtb } from "@/lib/format";
 import { deliveryLabel, describePlan, num, pricePerSqm, specsLine, type PortalUnitDetail } from "@/lib/portal";
 import { portalGet } from "@/lib/portal-server";
@@ -114,6 +115,7 @@ export default async function HomePage({ params }: { params: { id: string } }) {
             )}
 
             <div className="mt-6 flex flex-col gap-3">
+              {available && <Link href={`/portal/chat?about=${unit.id}`} className={buttonClass("primary")}>Ask the assistant about this home</Link>}
               <SaveButton id={unit.id} saved={unit.saved} label />
               {unit.source_url && /^https?:\/\//i.test(unit.source_url) && (
                 <a href={unit.source_url} target="_blank" rel="noopener noreferrer" className="text-center text-sm font-medium text-muted underline-offset-4 transition hover:text-ink hover:underline">View the original listing &#8599;</a>

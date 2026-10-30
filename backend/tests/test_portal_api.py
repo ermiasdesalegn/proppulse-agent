@@ -98,6 +98,7 @@ def test_tokens_signed_with_a_private_key_are_checked_against_the_published_publ
 # ---------------- who may call what ----------------
 
 @pytest.mark.parametrize("method,path", [
+    ("POST", "/api/me/chat/open"),
     ("GET", "/api/me/listings"), ("GET", f"/api/me/listings/{GHOST}"), ("GET", f"/api/me/listings/{GHOST}/preview.png"),
     ("GET", "/api/me/saved"), ("PUT", f"/api/me/saved/{GHOST}"), ("DELETE", f"/api/me/saved/{GHOST}"),
     ("POST", "/api/me/chat"), ("GET", "/api/me/chat/messages"),
@@ -275,3 +276,49 @@ async def test_broker_takeover_reaches_the_buyer_on_the_website(site):
 async def test_chat_rejects_bad_input(site, payload):
     client, _ = site
     assert (await client.post("/api/me/chat", json=payload, headers=auth())).status_code == 422
+
+
+# ---------------- asking about one home ----------------
+
+async def _first_home(client):
+    return (await client.get("/api/me/listings", headers=auth())).json()["items"][0]
+
+
+async def test_asking_about_a_home_opens_exactly_that_home(site):
+    client, _ = site
+    home = await _first_home(client)
+    res = await client.post("/api/me/chat/open", json={"property_id": home["id"], "action": "ask"}, headers=auth())
+    body = res.json()
+    assert res.status_code == 200 and home["title"] in body["reply"] and not body["error"]
+    assert [m["id"] for m in body["active_matches"]] == [home["id"]] and all("developer_id" not in m for m in body["active_matches"])
+    assert {b["label"] for row in body["quick_replies"] for b in row} == {"Book a visit", "Phone consultation"}
+
+    seen = (await client.get("/api/me/chat/messages", headers=auth())).json()["messages"]
+    assert [m["role"] for m in seen] == ["buyer", "agent"]
+    assert seen[0]["content"] == f"Tell me about this home: {home['title']}", "the transcript says it in the website's words, not 'Opened a channel ad'"
+
+
+async def test_comparing_and_booking_start_the_matching_conversation(site):
+    client, _ = site
+    home = await _first_home(client)
+    for action in ("cmp", "book"):
+        res = await client.post("/api/me/chat/open", json={"property_id": home["id"], "action": action}, headers=auth(str(uuid.uuid4())))
+        assert res.status_code == 200 and res.json()["reply"], action
+
+
+async def test_opening_a_home_that_does_not_exist_or_with_a_bad_action_is_refused(site):
+    client, _ = site
+    assert (await client.post("/api/me/chat/open", json={"property_id": GHOST}, headers=auth())).status_code == 404
+    home = await _first_home(client)
+    assert (await client.post("/api/me/chat/open", json={"property_id": home["id"], "action": "sell"}, headers=auth())).status_code == 422
+    assert (await client.post("/api/me/chat/open", json={"property_id": "nope"}, headers=auth())).status_code == 422
+
+
+async def test_opening_a_home_while_the_broker_has_the_chat_does_not_wake_the_agent(site):
+    client, repo = site
+    home = await _first_home(client)
+    await client.post("/api/me/chat", json={"text": "hello"}, headers=auth())
+    buyer = await repo.get_buyer_by_thread(f"web:{USER_A}")
+    await client.post(f"/api/buyers/{buyer['id']}/takeover", json={"on": True}, headers={"X-Admin-Key": "test-admin-key"})
+    res = (await client.post("/api/me/chat/open", json={"property_id": home["id"]}, headers=auth())).json()
+    assert res["takeover"] is True and not res["active_matches"]
