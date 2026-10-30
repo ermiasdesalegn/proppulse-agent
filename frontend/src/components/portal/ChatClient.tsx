@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/site/ui";
-import { chatFiles, clock, mergeMessages, newestId, STARTERS, stillWaiting, type ChatFile, type ChatReply, type MatchRef, type Polled, type QuickReply, type Unconfirmed, type WebMessage } from "@/lib/chat";
+import { chatFiles, chatPins, clock, mergeMessages, newestId, STARTERS, stillWaiting, type ChatFile, type ChatReply, type MatchRef, type Polled, type QuickReply, type Unconfirmed, type WebMessage } from "@/lib/chat";
 import { fmtEtb } from "@/lib/format";
+import { MAX_VOICE_SECONDS, startRecording, type Recording } from "@/lib/voice";
 
 type Action = "ask" | "cmp" | "book";
 const ACTIONS: { action: Action; label: string; said: string }[] = [
@@ -15,7 +16,7 @@ const ACTIONS: { action: Action; label: string; said: string }[] = [
 ];
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json" }, cache: "no-store" });
+  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers as Record<string, string> | undefined) }, cache: "no-store" });
   if (res.status === 401) {
     window.location.href = "/login?next=/portal/chat";
     throw new Error("Please sign in");
@@ -37,6 +38,9 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
   const [pending, setPending] = useState<Unconfirmed[]>([]);
   const [context, setContext] = useState(about);
   const [loaded, setLoaded] = useState(false);
+  const [recording, setRecording] = useState<{ since: number } | null>(null);
+  const [seconds, setSeconds] = useState(0);
+  const recorder = useRef<Recording | null>(null);
   const lastId = useRef(0);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -111,6 +115,39 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
     void run(shown, () => call<ChatReply>("/api/me/chat/open", { method: "POST", body: JSON.stringify({ property_id: id, action: action.action }) }));
   }
 
+  async function toggleVoice() {
+    if (recorder.current) {
+      const current = recorder.current;
+      recorder.current = null;
+      setRecording(null);
+      const audio = await current.stop();
+      if (audio.size <= 44 + 16_000) { setError("That was too short to hear. Hold on a little longer, then press the microphone again to send."); return; }
+      void run("🎤 Voice note", () => call<ChatReply>("/api/me/chat/voice", { method: "POST", headers: { "content-type": "audio/wav" }, body: audio }));
+      return;
+    }
+    if (busy) return;
+    setError(null);
+    try {
+      recorder.current = await startRecording();
+      setRecording({ since: Date.now() });
+    } catch {
+      setError("We could not use your microphone. Please allow it in your browser, or type your message.");
+    }
+  }
+
+  // The clock while recording, and an automatic send at the limit so a forgotten recording does not grow forever.
+  useEffect(() => {
+    if (!recording) return;
+    const timer = setInterval(() => {
+      const s = Math.floor((Date.now() - recording.since) / 1000);
+      setSeconds(s);
+      if (s >= MAX_VOICE_SECONDS) void toggleVoice();
+    }, 250);
+    return () => clearInterval(timer);
+  });
+
+  useEffect(() => () => recorder.current?.cancel(), []);
+
   const empty = loaded && messages.length === 0 && waitingForStored.length === 0 && !context;
 
   return (
@@ -141,7 +178,7 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
           {messages.map((m) => m.source === "system" ? (
             <p key={m.id} className="text-center text-xs text-muted">{m.content}</p>
           ) : (
-            <Bubble key={m.id} role={m.role} time={clock(m.created_at)} text={m.content} files={chatFiles(m)} />
+            <Bubble key={m.id} role={m.role} time={clock(m.created_at)} text={m.content} files={chatFiles(m)} pins={chatPins(m)} />
           ))}
           {waitingForStored.map((u) => <Bubble key={u.key} role="buyer" time={clock(u.at)} text={u.content} faded />)}
 
@@ -166,7 +203,16 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(text); } }}
               className="max-h-32 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-line bg-white px-4 py-2.5 text-[15px] outline-none" />
-            <button type="submit" disabled={busy || !text.trim()} className={buttonClass("brass", "h-11 px-6 disabled:opacity-50")}>Send</button>
+            <button type="button" onClick={() => void toggleVoice()} disabled={busy && !recording}
+              aria-label={recording ? "Stop and send the voice note" : "Record a voice note"} aria-pressed={!!recording}
+              className={`inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition disabled:opacity-50 ${recording ? "border-bad/40 bg-bad/10 text-bad" : "border-line bg-white text-ink hover:bg-raised"}`}>
+              {recording ? (
+                <><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-bad" aria-hidden="true" /><span className="tnum">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</span> Send</>
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+              )}
+            </button>
+            <button type="submit" disabled={busy || !text.trim() || !!recording} className={buttonClass("brass", "h-11 px-6 disabled:opacity-50")}>Send</button>
           </div>
         </form>
       </section>
@@ -194,7 +240,7 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
   );
 }
 
-function Bubble({ role, time, text, files = [], faded = false }: { role: WebMessage["role"]; time: string; text: string; files?: ChatFile[]; faded?: boolean }) {
+function Bubble({ role, time, text, files = [], pins = [], faded = false }: { role: WebMessage["role"]; time: string; text: string; files?: ChatFile[]; pins?: { href: string; label: string }[]; faded?: boolean }) {
   const mine = role === "buyer";
   const style = mine ? "rounded-br-md bg-ink text-white" : role === "broker" ? "rounded-bl-md border border-accent/30 bg-accent/10" : "rounded-bl-md border border-line bg-bg";
   return (
@@ -202,6 +248,15 @@ function Bubble({ role, time, text, files = [], faded = false }: { role: WebMess
       <div className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed sm:max-w-[80%] ${style}`}>
         <p className={`mb-0.5 text-[11px] font-semibold ${mine ? "text-white/60" : "text-muted"}`}>{mine ? "You" : role === "broker" ? "Our broker" : "Assistant"} <time className="font-normal">{time}</time></p>
         <p className="whitespace-pre-wrap break-words">{text}</p>
+        {pins.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {pins.map((p) => (
+              <a key={p.href} href={p.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-white px-3.5 py-1.5 text-sm font-medium text-accent transition hover:bg-accent/10">
+                <span aria-hidden="true">📍</span>{p.label} <span aria-hidden="true">&#8599;</span>
+              </a>
+            ))}
+          </div>
+        )}
         {files.length > 0 && (
           <div className="mt-3 space-y-2">
             {files.filter((f) => f.kind === "image").map((f) => (

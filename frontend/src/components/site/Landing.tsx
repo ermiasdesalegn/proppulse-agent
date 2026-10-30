@@ -3,6 +3,7 @@ import { fmtEtb } from "@/lib/format";
 import { num, specsLine, type Featured, type PortalUnit } from "@/lib/portal";
 import HeroPhoto from "./HeroPhoto";
 import ListingCard from "./ListingCard";
+import TelegramQR from "./TelegramQR";
 import { buttonClass } from "./ui";
 
 const wrap = "mx-auto max-w-7xl px-4 sm:px-6 lg:px-8";
@@ -211,6 +212,7 @@ export function Assistant() {
             ))}
           </ul>
           <Link href="/signup" className={buttonClass("light", "mt-10")}>Start a conversation</Link>
+          <TelegramQR tone="dark" className="mt-8 max-w-md rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10" />
         </div>
         <div className="rounded-3xl bg-white/[0.06] p-5 ring-1 ring-white/10" aria-label="Example conversation">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-white/50">Example conversation</p>

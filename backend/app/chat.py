@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.ads import BUTTONS, DEEPLINK
 from app.agent.graph import BrokerAgent
 from app.agent.nodes import option_block
+from app.agent.prompts import TRANSCRIBE, UNINTELLIGIBLE
 from app.config import Settings
 from app.events import excerpt
 from app.language import detect_language, msg
@@ -87,6 +88,15 @@ class ChatService:
         self._locks: dict[str, asyncio.Lock] = {}
         self._takeover_acks: dict[str, float] = {}  # thread -> when the buyer was last told the broker has the chat
         self.projects: Any = None  # ProjectService, set by the application
+
+    async def transcribe(self, audio: bytes, mime_type: str) -> str | None:
+        """What a voice note recorded on the website says, with the same prompt a Telegram voice note gets; None when it cannot be made out."""
+        try:
+            text = (await self.agent.gateway.transcribe_audio(audio, mime_type=mime_type, prompt=TRANSCRIBE)).strip()
+        except Exception:
+            log.exception("web voice note could not be transcribed")
+            return None
+        return None if not text or UNINTELLIGIBLE in text.upper() else text
 
     def _emit(self, kind: str, **data: Any) -> None:
         if self.events:

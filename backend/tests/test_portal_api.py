@@ -418,3 +418,45 @@ async def test_a_buyer_cannot_open_files_through_a_message_id_from_another_conve
     assert theirs["attachments"]
     await client.post("/api/me/chat", json={"text": "hello"}, headers=auth(USER_A))  # USER_A has a conversation of their own
     assert (await client.get(theirs["attachments"][0]["url"], headers=auth(USER_A))).status_code == 404
+
+
+# ---------------- the home page's 3D viewer, voice notes and the visit-day map pin ----------------
+
+async def test_a_homes_3d_model_is_served_only_once_the_broker_saved_its_layout(site):
+    client, repo = site
+    first = (await client.get("/api/me/listings", headers=auth())).json()["items"][0]
+    url = f"/api/me/listings/{first['id']}/model.glb"
+    assert (await client.get(url)).status_code == 401
+    assert (await client.get(url, headers=auth())).status_code == 404
+    await repo.set_layout(first["id"], pack_rooms(ROOMS, title=first["title"]).model_dump(mode="json"))
+    res = await client.get(url, headers=auth())
+    assert res.status_code == 200 and res.headers["content-type"] == "model/gltf-binary" and res.content[:4] == b"glTF"
+    assert (await client.get(f"/api/me/listings/{GHOST}/model.glb", headers=auth())).status_code == 404
+
+
+async def test_a_voice_note_from_the_website_is_heard_and_answered(spy_repo):
+    gw = FakeGateway([ext("small_talk")], transcript="I want a 3 bedroom in Bole")
+    chat, _, _ = make_chat(spy_repo, gw, **OVERRIDES)
+    app = create_app(use_lifespan=False)
+    app.state.settings, app.state.repo, app.state.chat = chat.settings, spy_repo, chat
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        wav = {**auth(), "Content-Type": "audio/wav"}
+        assert (await client.post("/api/me/chat/voice", content=b"RIFF....WAVE", headers={"Content-Type": "audio/wav"})).status_code == 401
+        assert (await client.post("/api/me/chat/voice", content=b"x", headers={**auth(), "Content-Type": "text/plain"})).status_code == 415
+        assert (await client.post("/api/me/chat/voice", content=b"x" * 3_000_001, headers=wav)).status_code == 413
+        res = await client.post("/api/me/chat/voice", content=b"RIFF....WAVE", headers=wav)
+        assert res.status_code == 200 and res.json()["heard"] == "I want a 3 bedroom in Bole" and res.json()["reply"]
+        assert gw.audio == [b"RIFF....WAVE"]
+        seen = (await client.get("/api/me/chat/messages", headers=auth())).json()["messages"]
+        assert seen[0]["role"] == "buyer" and seen[0]["content"] == "🎤 I want a 3 bedroom in Bole", "the buyer sees what was heard"
+
+        gw.transcript = "UNINTELLIGIBLE"
+        assert (await client.post("/api/me/chat/voice", content=b"RIFF....WAVE", headers=wav)).status_code == 422
+
+
+def test_a_visit_day_pin_becomes_a_map_link_on_the_website():
+    from app.portal_api import _files
+
+    pin = {"kind": "location", "lat": 8.99, "lng": 38.79, "title": "Bole 3BR"}
+    assert _files(7, [pin]) == [{"kind": "map", "lat": 8.99, "lng": 38.79, "label": "Map: Bole 3BR"}]
+    assert _files(7, [{"kind": "location", "lat": "8.99", "lng": None}]) == [], "only real coordinates make a pin"

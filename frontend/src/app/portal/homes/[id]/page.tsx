@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import Layout3D from "@/components/portal/Layout3D";
 import { SaveButton } from "@/components/portal/PortalControls";
 import Problem from "@/components/portal/Problem";
 import Cover from "@/components/site/Cover";
@@ -63,10 +64,7 @@ export default async function HomePage({ params }: { params: { id: string } }) {
           {unit.has_layout && (
             <section aria-labelledby="layout">
               <h2 id="layout" className="display text-2xl font-medium">Floor layout in 3D</h2>
-              <div className="mt-3 overflow-hidden rounded-2xl border border-line bg-white p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element -- drawn on demand by the backend and sent through this site with the buyer's sign-in */}
-                <img src={`/api/me/listings/${unit.id}/preview.png`} alt={`3D layout of ${unit.title}`} loading="lazy" className="mx-auto max-h-[28rem] w-auto" />
-              </div>
+              <div className="mt-3"><Layout3D id={unit.id} title={unit.title} /></div>
             </section>
           )}
 

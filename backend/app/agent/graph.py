@@ -77,6 +77,11 @@ class BrokerAgent:
         self._deps = deps
         self.graph = build_graph(deps, checkpointer)
 
+    @property
+    def gateway(self) -> Any:
+        """The model gateway, for work outside a turn (transcribing a voice note the website recorded)."""
+        return self._deps.gateway
+
     async def add_message(self, thread_id: str, message: BaseMessage, **state_updates: Any) -> None:
         """Write a message into the conversation history without running the agent (used during human takeover
         and for messages the system sends on its own). Extra keyword arguments update other state fields, for

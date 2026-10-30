@@ -71,9 +71,9 @@ class ProactiveService:
                 log.exception("email to buyer %s failed", buyer["id"])
         return "+".join(channels) or None
 
-    async def _remember(self, buyer: dict, text: str, active_matches: list[dict] | None = None) -> None:
+    async def _remember(self, buyer: dict, text: str, active_matches: list[dict] | None = None, attachments: list[dict] | None = None) -> None:
         """Put the message in the transcript and in the agent's memory, so a reply like 'book the first one' works."""
-        await self.repo.add_message(buyer["id"], "agent", text)
+        await self.repo.add_message(buyer["id"], "agent", text, attachments=attachments)
         try:
             extra = {"active_matches": active_matches} if active_matches else {}
             await self.agent.add_message(buyer["thread_id"], AIMessage(content=text), **extra)
@@ -212,14 +212,17 @@ class ProactiveService:
                 out["failed"] += 1
                 continue
             first = next((x for x in stops if x.get("lat") is not None), None)
+            pin: list[dict] = []
             if first and buyer.get("telegram_id") is not None:
                 try:
                     await self.services.telegram.send_location(buyer["telegram_id"], first["lat"], first["lng"])
                 except Exception:
                     log.exception("location pin could not be sent")
+            elif first:  # a website buyer gets the pin in the chat, as a link that opens their maps app
+                pin = [{"kind": "location", "lat": float(first["lat"]), "lng": float(first["lng"]), "title": first.get("title")}]
             await self._finish(claim, text, channel)
             await self.repo.mark_reminder_sent(tour["id"])
-            await self._remember(buyer, text)
+            await self._remember(buyer, text, attachments=pin)
             out["sent"] += 1
             out["details"].append({"tour": str(tour["id"]), "channel": channel})
         return out

@@ -102,6 +102,17 @@ async def listing_preview(property_id: UUID, _: BuyerIdentity = Depends(current_
     return Response(await run_in_threadpool(render_png, Layout.model_validate(stored)), media_type="image/png", headers={"Cache-Control": "private, max-age=600"})
 
 
+@router.get("/api/me/listings/{property_id}/model.glb")
+async def listing_model(property_id: UUID, _: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of)):
+    """The 3D model the broker built for this home, for the page's interactive viewer (and to download)."""
+    unit = await repo.portal_unit(property_id)
+    stored = await repo.get_layout(property_id) if unit else None
+    if stored is None:
+        raise HTTPException(404, "This home has no 3D layout yet")
+    return Response(await run_in_threadpool(to_glb, Layout.model_validate(stored)), media_type="model/gltf-binary",
+                    headers={"Cache-Control": "private, max-age=600", "Content-Disposition": f'inline; filename="{model_file_name(unit["title"])}"'})
+
+
 # ---------------- saved homes ----------------
 
 @router.get("/api/me/saved")
@@ -146,6 +157,8 @@ def _files(message_id: int | None, attachments: list[dict] | None) -> list[dict]
                     {"kind": "download", "url": f"{base}/model.glb", "label": "Download 3D model (.glb)"}]
         elif a.get("kind") == "comparison":
             out.append({"kind": "download", "url": f"{base}/comparison.pdf", "label": "Download comparison (PDF)"})
+        elif a.get("kind") == "location" and isinstance(a.get("lat"), int | float) and isinstance(a.get("lng"), int | float):
+            out.append({"kind": "map", "lat": a["lat"], "lng": a["lng"], "label": f"Map: {a.get('title') or 'first stop'}"})
     return out
 
 
@@ -164,6 +177,31 @@ def _answer(outcome) -> dict:
 async def chat(body: MeChatIn, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of), service: ChatService = Depends(chat_of)):
     await _known_buyer(repo, me)
     return _answer(await service.handle_inbound(Inbound(channel="web", external_id=me.user_id, kind="text", text=body.text)))
+
+
+MAX_VOICE_BYTES = 3_000_000  # about 90 seconds of the 16 kHz mono WAV the website records
+VOICE_TYPES = {"audio/wav", "audio/x-wav", "audio/ogg", "audio/mpeg", "audio/mp3", "audio/aac", "audio/flac", "audio/webm", "audio/mp4"}
+
+
+@router.post("/api/me/chat/voice")
+async def chat_voice(request: Request, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of),
+                     service: ChatService = Depends(chat_of)):
+    """A voice note from the website, sent as the raw audio body. It is transcribed the way a Telegram voice note is, and the buyer sees
+    what was heard in the chat, so a mishearing can be corrected by typing."""
+    mime = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if mime not in VOICE_TYPES:
+        raise HTTPException(415, "Please send the voice note as audio")
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(422, "The recording was empty")
+    if len(audio) > MAX_VOICE_BYTES:
+        raise HTTPException(413, "Please keep voice notes under a minute and a half")
+    await _known_buyer(repo, me)
+    heard = await service.transcribe(audio, mime)
+    if not heard:
+        raise HTTPException(422, "We could not make out the recording. Please try again, or type your message.")
+    inbound = Inbound(channel="web", external_id=me.user_id, kind="text", text=heard, shown_as=f"🎤 {heard}"[:2000])
+    return {**_answer(await service.handle_inbound(inbound)), "heard": heard}
 
 
 # "Ask the assistant about this home": the same deep links the channel ads use (ask / compare / book), so the agent opens exactly this unit.

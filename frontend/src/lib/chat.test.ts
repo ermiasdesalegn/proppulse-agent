@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatFiles, mergeMessages, newestId, stillWaiting, type Unconfirmed, type WebMessage } from "./chat";
+import { chatFiles, chatPins, mergeMessages, newestId, stillWaiting, type Unconfirmed, type WebMessage } from "./chat";
 
 const msg = (id: number, role: WebMessage["role"], content: string): WebMessage => ({ id, role, source: "text", content, created_at: "2026-11-01T08:00:00Z" });
 const pending = (content: string, after: number, key = 1): Unconfirmed => ({ key, content, at: "2026-11-01T08:00:00Z", after });
@@ -63,5 +63,19 @@ describe("chatFiles", () => {
     ];
     expect(chatFiles({ ...msg(7, "agent", "hi"), attachments: odd })).toEqual([]);
     expect(chatFiles(msg(8, "agent", "hi"))).toEqual([]);
+  });
+});
+
+describe("map pins in a message", () => {
+  const base = { id: 9, role: "agent" as const, source: "text" as const, content: "Your visit is tomorrow", created_at: "2026-11-02T08:00:00Z" };
+
+  it("opens the first stop in the maps app, built from the coordinates alone", () => {
+    expect(chatPins({ ...base, attachments: [{ kind: "map", lat: 8.995, lng: 38.79, label: "Map: Bole 3BR" }] }))
+      .toEqual([{ href: "https://www.google.com/maps/search/?api=1&query=8.995000,38.790000", label: "Map: Bole 3BR" }]);
+  });
+
+  it("ignores pins without real coordinates", () => {
+    const odd = [{ kind: "map", lat: 120, lng: 38, label: "x" }, { kind: "map", lat: Number.NaN, lng: 1, label: "y" }] as never;
+    expect(chatPins({ ...base, attachments: odd })).toEqual([]);
   });
 });

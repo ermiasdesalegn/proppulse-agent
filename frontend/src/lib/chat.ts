@@ -6,13 +6,21 @@ export interface WebMessage {
   source: "text" | "voice" | "system";
   content: string;
   created_at: string;
-  attachments?: ChatFile[];
+  attachments?: (ChatFile | ChatPin)[];
 }
 
 /** A file an agent message carries: a picture shown in the chat, or a link to download (a 3D model, a comparison PDF). */
 export interface ChatFile {
   kind: "image" | "download";
   url: string;
+  label: string;
+}
+
+/** A place an agent message points to (the first stop on visit day), opened in the buyer's maps app. */
+export interface ChatPin {
+  kind: "map";
+  lat: number;
+  lng: number;
   label: string;
 }
 
@@ -73,7 +81,14 @@ export function stillWaiting(messages: WebMessage[], pending: Unconfirmed[]): Un
 
 /** The files of a message the chat may show: only the buyer's own message files, served through the signed-in /api/me route. */
 export function chatFiles(message: WebMessage): ChatFile[] {
-  return (message.attachments ?? []).filter((f) => (f.kind === "image" || f.kind === "download") && /^\/api\/me\/chat\/messages\/\d+\/\w[\w.-]*$/.test(f.url));
+  return (message.attachments ?? []).filter((f): f is ChatFile => (f.kind === "image" || f.kind === "download") && /^\/api\/me\/chat\/messages\/\d+\/\w[\w.-]*$/.test(f.url));
+}
+
+/** The map pins of a message, as links the maps app opens. Built here from the coordinates, so a message can never carry an arbitrary link. */
+export function chatPins(message: WebMessage): { href: string; label: string }[] {
+  return (message.attachments ?? [])
+    .filter((f): f is ChatPin => f.kind === "map" && Number.isFinite(f.lat) && Number.isFinite(f.lng) && Math.abs(f.lat) <= 90 && Math.abs(f.lng) <= 180)
+    .map((p) => ({ href: `https://www.google.com/maps/search/?api=1&query=${p.lat.toFixed(6)},${p.lng.toFixed(6)}`, label: p.label }));
 }
 
 export function newestId(messages: WebMessage[]): number {

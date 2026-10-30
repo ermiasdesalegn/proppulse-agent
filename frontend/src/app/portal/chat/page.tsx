@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import ChatClient from "@/components/portal/ChatClient";
+import TelegramQR from "@/components/site/TelegramQR";
 import type { PortalUnitDetail } from "@/lib/portal";
 import { portalGet } from "@/lib/portal-server";
 
@@ -15,9 +16,12 @@ export default async function ChatPage({ searchParams }: { searchParams: { about
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="display text-4xl font-medium">Concierge</h1>
-        <p className="mt-1 text-muted">Ask about any home, compare options or book a visit. Our broker can step in whenever you want a person.</p>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="display text-4xl font-medium">Concierge</h1>
+          <p className="mt-1 text-muted">Ask about any home, compare options or book a visit. Our broker can step in whenever you want a person.</p>
+        </div>
+        <TelegramQR className="rounded-2xl border border-line bg-white p-3 lg:max-w-sm" />
       </div>
       <ChatClient about={about} />
     </div>
