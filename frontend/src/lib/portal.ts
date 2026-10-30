@@ -62,3 +62,114 @@ export async function loadFeatured(): Promise<Featured | null> {
     return null;
   }
 }
+
+// ---------------- browsing: filters live in the address, so a search can be shared, bookmarked and used with the back button ----------------
+
+export const PAGE_SIZE = 24;
+export const SORTS = [
+  { value: "newest", label: "Newest first" },
+  { value: "price_asc", label: "Price: low to high" },
+  { value: "price_desc", label: "Price: high to low" },
+  { value: "size_desc", label: "Largest first" },
+] as const;
+export type Sort = (typeof SORTS)[number]["value"];
+
+export interface Filters {
+  q: string;
+  sub_city: string;
+  developer: string;
+  min_bedrooms: number | null;
+  price_min: number | null;
+  price_max: number | null;
+  sort: Sort;
+  page: number;
+}
+
+type Raw = Record<string, string | string[] | undefined>;
+
+const first = (v: string | string[] | undefined): string => (Array.isArray(v) ? v[0] : v) ?? "";
+const whole = (v: string, max: number): number | null => (/^\d{1,12}$/.test(v) && Number(v) <= max ? Number(v) : null);
+
+/** Whatever is in the address becomes a safe set of filters: unknown or malformed values are dropped, not passed on. */
+export function parseFilters(raw: Raw): Filters {
+  const sort = first(raw.sort);
+  return {
+    q: first(raw.q).trim().slice(0, 80),
+    sub_city: first(raw.sub_city).trim().slice(0, 80),
+    developer: /^[a-z0-9-]{1,60}$/.test(first(raw.developer)) ? first(raw.developer) : "",
+    min_bedrooms: whole(first(raw.min_bedrooms), 20),
+    price_min: whole(first(raw.price_min), 1e12),
+    price_max: whole(first(raw.price_max), 1e12),
+    sort: SORTS.some((s) => s.value === sort) ? (sort as Sort) : "newest",
+    page: Math.max(1, whole(first(raw.page), 10_000) ?? 1),
+  };
+}
+
+/** The filters as address parameters, leaving out anything that is at its default. */
+export function filtersToParams(f: Filters, override: Partial<Filters> = {}): URLSearchParams {
+  const x = { ...f, ...override };
+  const p = new URLSearchParams();
+  if (x.q) p.set("q", x.q);
+  if (x.sub_city) p.set("sub_city", x.sub_city);
+  if (x.developer) p.set("developer", x.developer);
+  if (x.min_bedrooms !== null) p.set("min_bedrooms", String(x.min_bedrooms));
+  if (x.price_min !== null) p.set("price_min", String(x.price_min));
+  if (x.price_max !== null) p.set("price_max", String(x.price_max));
+  if (x.sort !== "newest") p.set("sort", x.sort);
+  if (x.page > 1) p.set("page", String(x.page));
+  return p;
+}
+
+/** What the backend is asked for. The page number turns into an offset. */
+export function apiQuery(f: Filters, limit = PAGE_SIZE): string {
+  const p = filtersToParams(f, { page: 1 });
+  p.set("limit", String(limit));
+  if (f.page > 1) p.set("offset", String((f.page - 1) * limit));
+  return p.toString();
+}
+
+export function hasFilters(f: Filters): boolean {
+  return Boolean(f.q || f.sub_city || f.developer || f.min_bedrooms !== null || f.price_min !== null || f.price_max !== null);
+}
+
+export interface Listings {
+  items: PortalUnit[];
+  total: number;
+  saved: string[];
+  facets: {
+    price_min: number | string;
+    price_max: number | string;
+    bedrooms_max: number;
+    units: number;
+    sub_cities: { sub_city: string; units: number }[];
+    developers: { slug: string; name: string; units: number }[];
+  };
+}
+
+export interface PortalUnitDetail extends PortalUnit {
+  description: string | null;
+  payment_plan: { installments?: number; interval_months?: number; handover_pct?: number } | null;
+  vision_amenities: { tags?: string[] } | null;
+  source_url: string | null;
+  floor_plan_image_url: string | null;
+  saved: boolean;
+}
+
+/** The payment terms in a sentence, from what the listing states. Null when it states none. */
+export function describePlan(unit: Pick<PortalUnitDetail, "down_payment_pct" | "payment_plan">): string | null {
+  const parts: string[] = [];
+  const down = num(unit.down_payment_pct);
+  if (down > 0) parts.push(`${Number(down.toFixed(1))}% down payment`);
+  const plan = unit.payment_plan;
+  if (plan?.installments && plan.interval_months) {
+    const every = plan.interval_months === 1 ? "every month" : `every ${plan.interval_months} months`;
+    parts.push(`${plan.installments} instalments ${every}`);
+  }
+  if (plan?.handover_pct) parts.push(`${Number(plan.handover_pct)}% at handover`);
+  return parts.length ? parts.join(", ") : null;
+}
+
+export function pricePerSqm(unit: Pick<PortalUnit, "price_etb" | "sqm">): number | null {
+  const sqm = num(unit.sqm);
+  return sqm > 0 ? Math.round(num(unit.price_etb) / sqm) : null;
+}

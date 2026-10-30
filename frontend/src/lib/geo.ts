@@ -55,3 +55,13 @@ export function centroid(points: LatLng[]): LatLng {
   const n = points.length || 1;
   return [points.reduce((s, p) => s + p[0], 0) / n, points.reduce((s, p) => s + p[1], 0) / n];
 }
+
+/** Greater Addis Ababa. A scraped listing whose location falls outside it was mis-geocoded and would stretch the whole map. */
+export function inAddis(lat: number, lng: number): boolean {
+  return lat >= 8.75 && lat <= 9.25 && lng >= 38.6 && lng <= 39.0;
+}
+
+/** Homes at the same spot (to about 100 m) share one key, so they can be shown as one pin. */
+export function spotKey(lat: number, lng: number): string {
+  return `${lat.toFixed(3)},${lng.toFixed(3)}`;
+}

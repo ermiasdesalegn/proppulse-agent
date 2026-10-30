@@ -29,7 +29,7 @@ function CoverArt({ unit }: { unit: Pick<PortalUnit, "id" | "unit_type" | "sub_c
   const cols = 3 + (h % 2);
 
   return (
-    <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice" className="h-full w-full" role="img" aria-label={`${unit.unit_type} in ${unit.sub_city}`}>
+    <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMax slice" className="h-full w-full" role="img" aria-label={`${unit.unit_type} in ${unit.sub_city}`}>
       <defs>
         <linearGradient id={gradient} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor={from} />
