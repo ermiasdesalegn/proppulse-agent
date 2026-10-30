@@ -1,6 +1,6 @@
 # PropPulse AI
 
-An AI sales assistant for an independent real-estate broker in Addis Ababa. Buyers chat on Telegram or the web in English or Amharic; the agent finds matching units, answers worries from stored facts, books site visits and calls, protects the broker's commission, and follows up on its own. The broker watches and steers everything from a live Command Center.
+An AI sales assistant for an independent real-estate broker in Addis Ababa. Buyers chat on Telegram or on the website in English or Amharic; the agent finds matching units, answers worries from stored facts, books site visits and calls, protects the broker's commission, and follows up on its own. The broker watches and steers everything from a live Command Center.
 
 **Stack:** FastAPI · **LangGraph** · Gemini · **Supabase Postgres + pgvector (RAG)** · Scrapy + scrapy-playwright · Next.js 14 · Telegram · Google Calendar · Mapbox · Render + Vercel + GitHub Actions (all free).
 
@@ -13,6 +13,7 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 | Why each design choice was made | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | Proof that it works | [Evaluation](#evaluation-replayed-from-a-recording-27-seconds-no-network) and [backend/evals](backend/evals/README.md) |
 | How it is deployed and operated | [docs/FREE_DEPLOYMENT.md](docs/FREE_DEPLOYMENT.md) (Render + Vercel + GitHub Actions) or [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Cloud Run) |
+| The public website and Client Portal | [The public site and Client Portal](#the-public-site-and-client-portal) and [section 10 of the architecture](docs/ARCHITECTURE.md#10-the-public-site-and-the-client-portal) |
 | Security posture | [SECURITY.md](SECURITY.md) |
 
 ## How it fits together
@@ -110,6 +111,22 @@ Guard rails: robots.txt and pacing everywhere; a bot-check page or a 403/429 sto
 - **3D model of a unit:** the broker gives a unit its rooms (read from a floor-plan picture, or typed in) in the Studio. The agent builds a 3D model file (.glb) and a 3D picture from them in code, with no model call and no invented rooms, and sends both to a buyer on Telegram when they ask for that unit's details (`backend/app/model3d.py`).
 - **Channel ads:** composes and posts listings with Ask / Compare / Book buttons that deep-link back to the bot. Real posts need an explicit second step.
 
+## The public site and Client Portal
+
+The same Next.js app has a public front door for buyers, so the agent is available on the website and not only on Telegram.
+
+| Where | What it does |
+|---|---|
+| `/` | Landing page: search, live counts, featured homes from different developers, how it works, the assistant, areas |
+| `/signup`, `/login` | Buyers create an account with email and password (Supabase Auth, confirmed by email). The broker's account is the confirmed one whose email is `BROKER_EMAIL`, and the old password login stays behind **Broker access** |
+| `/portal` | Browse every listing with filters in the address (search, area, bedrooms, price, developer, sort), paging and hearts |
+| `/portal/homes/<id>` | Full details: price per m², payment terms, delivery, construction progress, 3D layout when there is one, link to the original listing, save, ask the assistant |
+| `/portal/map`, `/portal/saved` | The homes on a map, and the buyer's saved homes |
+| `/portal/chat` | The **Concierge**: the same LangGraph agent as Telegram, quick-reply buttons, the homes it suggests, and a notice when the broker takes over. "Ask the assistant about this home" opens exactly that home |
+| `/console/*` | The broker's Command Center (below) |
+
+Roles are decided by one tested function (`frontend/src/lib/access.ts`) that denies by default: signed-out visitors see the public pages, buyers get `/portal`, and only the broker gets `/console`. Buyers reach the backend with their own token and never with the admin key. Details: [docs/ARCHITECTURE.md section 10](docs/ARCHITECTURE.md#10-the-public-site-and-the-client-portal) and [docs/DECISIONS.md](docs/DECISIONS.md).
+
 ## The Command Center
 
 | Page | What it does |
@@ -149,7 +166,7 @@ Start the server with `python -m app`, not `uvicorn`: on Windows the database dr
 
 ```bash
 cd frontend
-cp .env.example .env.local    # backend URL, admin key, dashboard password
+cp .env.example .env.local    # backend URL, admin key, dashboard password; add the Supabase URL, public key and BROKER_EMAIL for buyer accounts
 npm install && npm run dev    # http://localhost:3000
 ```
 
@@ -188,14 +205,14 @@ The live setup is free: Supabase (database), a Render web service (backend), Ver
 | `backend/app/agent` | LangGraph graph, nodes, state, checkpointer, prompts, lead scoring |
 | `backend/app/ingest` | Fetching, parsing, the portal page reader, the ingestion service, project crawling |
 | `backend/scraper` | The Scrapy portal crawler: spider, per-site configuration, pipeline to the backend |
-| `backend/migrations` | SQL schema 001–015 |
+| `backend/migrations` | SQL schema 001–017 |
 | `backend/evals` | Evaluation suite, recordings and reports |
 | `backend/scripts` | `migrate`, `seed`, live checks, `post_deploy_check` |
 | `backend/tests` | pytest suite |
-| `frontend` | Next.js dashboard, vitest and Playwright tests |
+| `frontend` | Next.js app: public site, Client Portal (`/portal`), Command Center (`/console`), vitest and Playwright tests |
 | `deploy` | Cloud Run and Scheduler scripts |
 | `.github/workflows` | CI, scheduled jobs, the portal crawl |
-| `docs` | Architecture, decisions, deployment, demo script, manual test lists |
+| `docs` | Architecture, decisions, deployment, demo script, manual test lists (`MANUAL_TESTS_PUBLIC.md` for the website) |
 
 ## Live integrations
 Google Calendar (service account shared on the calendar with "Make changes to events") and Mapbox switch on automatically once their keys are set (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID`, `MAPBOX_TOKEN`); force with `CALENDAR_BACKEND` / `ROUTING_BACKEND`. `NEXT_PUBLIC_MAPBOX_TOKEN` (a public `pk.` token) enables the live map. `GITHUB_TOKEN` and `GITHUB_REPO` let the dashboard start the portal crawl. `DEMO_RESET_ENABLED=true` shows the Reset demo button on a demo instance. Never commit `.env` or the service-account file.

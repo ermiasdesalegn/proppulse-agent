@@ -154,3 +154,57 @@ Hard SQL filters (available, budget, bedrooms, area) run before similarity, beca
 ranks with a floor of 0.64, tuned on the seed data so known non-matches score at most 0.606 and real matches at least 0.666. "The cheapest" and
 "the largest" are deterministic rankings with no embedding, since they are rules and not descriptions. When nothing fits, a bounded loop widens
 the search by rule and says so; the buyer's stored preferences are never changed by a search.
+
+## Buyers and the broker use two doors into one backend
+
+The broker's console reaches the backend through a proxy that adds the admin key. Buyers never get that route: `/api/me/*` forwards the buyer's own Supabase
+token, and the backend checks it itself (the public signing keys at `SUPABASE_URL`, or the shared secret for older projects; the algorithm is only trusted
+if it is on the list for that kind of key). Every query is keyed by the user id inside the token, so a buyer can read and change only their own saved homes
+and chat. Listing responses are built from an allow-list: no developer email, commission rate, reliability score, content hash or embedding. A test fails if
+one of those names ever appears. The admin key is not a buyer's sign-in, and a buyer's token does not open the broker API.
+
+## The broker is the confirmed account with BROKER_EMAIL
+
+A role is worked out from the sign-in: the old password cookie means broker; otherwise a Supabase account whose email equals `BROKER_EMAIL` **and which the
+auth server says is confirmed** is the broker; any other account is a buyer. Anyone can type the broker's address into the sign-up form, so the address alone
+proves nothing; only that one account is checked against the auth server (once a minute per sign-in), everyone else is verified from the token's signature
+alone. "Confirm email" must stay on in Supabase. The password login stays behind a "Broker access" link so the console is never locked out by the auth service.
+
+## One pure function decides who may open what, and it denies by default
+
+`lib/access.ts` maps a path and a role to allow, redirect or deny (401 or 403 for API paths). The middleware only applies the answer. Public: `/`, sign-in and
+sign-up pages, `/auth/*`, `/api/auth/*`, `/api/public/*`. Buyer area: `/portal/*` and `/api/me/*` (the broker may look too). Everything else, including any path
+added later by mistake, is broker-only. Signed-in people are sent past the sign-in pages; `?next=` only follows paths on this site.
+
+## The console moved to /console so that / can be the front door
+
+The route group became a real folder. Nothing else about the console changed.
+
+## A buyer's web chat is one conversation per account
+
+The thread is `web:<Supabase user id>`, so history follows the buyer across devices, and the broker's takeover, notes and CRM record work as they do on Telegram.
+The account's name and email fill the CRM record only where it is empty, so what the agent learned in conversation is never overwritten. "Ask the assistant
+about this home" reuses the channel-ad deep links (`ask`, `cmp`, `book`), so the agent opens exactly that unit instead of guessing from words; `shown_as` keeps
+the transcript in the website's wording.
+
+## Rejected buyer sign-ins must not lock the broker out
+
+The website's server is one client to the backend. Counting an expired buyer token as a failed admin key would block the console for a minute. `/api/me/*` is
+therefore left out of the failed-key counter and the block, and `/api/public/*` has the public rate limit instead.
+
+## The landing page is rendered on request, and shows real but limited data
+
+A prerendered page keeps whatever the build could reach: with the backend down at build time, an empty fallback would be baked in. The page renders per request,
+with the featured homes cached for a minute by the fetch. Visitors who are not signed in see six homes spread across developers (price, area, size, cover), the
+live counts, and areas; descriptions, links and details wait for an account. No testimonials or claims of verification are invented.
+
+## Homes without photographs get a drawing, and bad coordinates are ignored
+
+A unit's cover is its project's uploaded photo, else the developer's picture, else a line drawing of the kind of home in a quiet colour fixed by its id. About one
+listing in a hundred is mis-geocoded (one Lebu home sits in Texas) and many share an identical point, so the map ignores locations outside greater Addis Ababa
+and the drawn fallback shows one pin per spot ("16 homes"). The fix at the source belongs in the geocoder.
+
+## Fonts are part of the repository
+
+Fraunces and Inter (SIL OFL, latin only) are kept in `frontend/src/fonts`. The build once failed because Google's font host timed out; self-hosting removes that,
+and visitors' browsers never contact Google.

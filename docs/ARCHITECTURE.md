@@ -11,6 +11,7 @@ This is the long version of the README's "How it works". Every claim below names
 7. [Proactive jobs and the broker's controls](#7-proactive-jobs-and-the-brokers-controls)
 8. [Data model](#8-data-model)
 9. [Where things run](#9-where-things-run)
+10. [The public site and the Client Portal](#10-the-public-site-and-the-client-portal)
 
 ---
 
@@ -217,7 +218,7 @@ The **Command Center** shows all of it live: Overview, CRM & Takeover, Deal Boar
 
 ## 8. Data model
 
-`buyers_crm` (preferences, deal stage, preference vector, lead score and its signals), `developers`, `properties` (embedding, price, floor-plan tags, `source_url`), `price_history`, `projects` (embedding, offers, media), `price_requests`, `tours_and_appointments` and stops, `commission_ledger`, `chat_messages`, `proactive_events`, `ingest_runs`, `crawl_runs`, `channel_posts`, `project_posts`, the LangGraph checkpoint tables, and the durable event log that feeds the live dashboard. Row-level security is enabled on every table (a test fails if one is missed). SQL lives in `backend/migrations` (001 to 015).
+`buyers_crm` (preferences, deal stage, preference vector, lead score and its signals), `developers`, `properties` (embedding, price, floor-plan tags, `source_url`), `price_history`, `projects` (embedding, offers, media), `price_requests`, `tours_and_appointments` and stops, `commission_ledger`, `chat_messages`, `proactive_events`, `ingest_runs`, `crawl_runs`, `channel_posts`, `project_posts`, `unit_layouts`, `saved_homes`, the LangGraph checkpoint tables, and the durable event log that feeds the live dashboard. Row-level security is enabled on every table (a test fails if one is missed). SQL lives in `backend/migrations` (001 to 017).
 
 ## 9. Where things run
 
@@ -225,8 +226,44 @@ The **Command Center** shows all of it live: Overview, CRM & Takeover, Deal Boar
 |---|---|
 | Database | Supabase Postgres + pgvector |
 | Backend (API, agent, LLM sweep, alerts) | Render free web service (`python -m app`); the scripted alternative is Cloud Run (`docs/DEPLOYMENT.md`) |
-| Dashboard | Vercel (Next.js); a server-side proxy adds the admin key so it never reaches the browser |
+| Dashboard, public site and portal | Vercel (Next.js); a server-side proxy adds the admin key for the console so it never reaches the browser; buyers reach `/api/me/*`, which carries their own token instead |
+| Buyer accounts | Supabase Auth (email and password, confirmation on); the backend checks the tokens itself |
 | Heavy crawling | GitHub Actions (free), started from the Portals page |
 | Scheduled jobs | GitHub Actions `cron.yml` |
 | Models | Gemini (text, structured output, embeddings, voice, images) with a fall-back chain and a pool of keys that rotate on quota |
 | Outside services | Telegram, Google Calendar, Mapbox, Resend: each has an offline mock, so the whole system runs without keys |
+
+
+---
+
+## 10. The public site and the Client Portal
+
+Besides the broker's console, the Next.js app has a public front door and a signed-in area for buyers. Files named below are under `frontend/src` unless they start with `backend`.
+
+```
+ visitor ──▶ /  (landing page, rendered per request) ──▶ GET /api/public/featured ──▶ 6 homes + live counts
+    │
+    ├─ /signup, /login ──▶ Supabase Auth (email + password, confirmed by email) ──▶ cookie  sb-…-auth-token
+    │
+ buyer ──▶ /portal, /portal/homes/<id>, /portal/saved, /portal/map ──▶ server pages call  GET /api/me/…  with the buyer's token
+    │                                                                         (backend/app/portal_api.py)
+    └─ /portal/chat ──▶ browser ──▶ /api/me/chat[/open|/messages]  (Next route, token attached) ──▶ ChatService ──▶ LangGraph agent
+                                                                       same agent, same thread rules as Telegram, thread  web:<user id>
+ broker ──▶ /console/…  ──▶ /api/proxy/…  (admin key added server-side)       sign-in: password cookie, or the confirmed BROKER_EMAIL account
+```
+
+**Who may open what** (`lib/access.ts`, applied by `middleware.ts`, tested in `lib/access.test.ts`):
+
+| Path | Signed out | Buyer | Broker |
+|---|---|---|---|
+| `/`, `/login`, `/signup`, `/auth/*`, `/api/public/*` | open | open (sign-in pages pass on to the buyer's home) | open |
+| `/portal/*`, `/api/me/*` | sign-in page, then back | allowed | allowed (preview) |
+| `/console/*`, `/api/proxy/*`, anything else | sign-in page / 401 | sent to `/portal` / 403 | allowed |
+
+**Roles** (`lib/role.ts`): the password cookie means broker; otherwise the Supabase session is verified with `getClaims()` (a signature check, no network once the keys are cached) and the account whose email equals `BROKER_EMAIL` and is confirmed is the broker; everyone else is a buyer.
+
+**Buyer API** (`backend/app/portal_api.py`, `backend/app/buyer_auth.py`): `GET /api/public/featured` and `GET /api/public/covers/<project>`; with a token, `GET /api/me/listings` (area, bedrooms, price range, developer, text, four sorts, paging; the filter options and the buyer's saved ids come back with it), `GET /api/me/listings/<id>`, `…/preview.png` (the 3D layout when one exists), `GET/PUT/DELETE /api/me/saved`, `POST /api/me/chat`, `POST /api/me/chat/open`, `GET /api/me/chat/messages`. Responses use an allow-list of fields.
+
+**Pages.** Browse keeps every filter in the address (`lib/portal.ts` `parseFilters` drops anything malformed), so a search can be shared and the back button works; the filter bar is a plain GET form. The map uses Mapbox when a public token is set and otherwise draws its own, grouping homes that share a spot. The chat (`components/portal/ChatClient.tsx`) shows a sent message at once and swaps in the stored copy when polling brings it (`lib/chat.ts` `stillWaiting`), shows the agent's quick replies as buttons, lists the homes the agent suggested, and tells the buyer when the broker has taken over.
+
+**Look.** The public site and the portal use a scoped light theme (`.site` in `globals.css`) that redefines the console's colour tokens, so shared classes turn light inside it. Headings use Fraunces, text Inter, both self-hosted.
