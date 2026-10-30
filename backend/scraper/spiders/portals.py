@@ -123,7 +123,7 @@ class PortalSpider(scrapy.Spider):
             "portal": site.slug, "portal_name": site.name, "url": response.url, "ref": listing.ref, "title": listing.title,
             "price_etb": listing.price_etb, "sqm": listing.sqm, "bedrooms": listing.bedrooms, "sub_city": listing.sub_city,
             "property_type": listing.property_type, "deal": listing.deal, "description": (listing.description or "")[:4000] or None,
-            "lat": listing.lat, "lng": listing.lng, "found_by": listing.found_by, "text": None,
+            "lat": listing.lat, "lng": listing.lng, "image_url": listing.image_url, "found_by": listing.found_by, "text": None,
         }
         if listing.price_etb is None:
             self.crawler.stats.inc_value(f"portals/{site.slug}/no_local_price")

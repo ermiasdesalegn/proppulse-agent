@@ -25,8 +25,10 @@ MATCH_FIELDS = ("id", "title", "sub_city", "price_etb", "bedrooms", "similarity"
 
 def _unit(row: dict[str, Any]) -> dict[str, Any]:
     """The row as the website receives it: the cover becomes one address and the lookup columns disappear."""
-    out = {k: v for k, v in row.items() if k not in {"cover_project_id", "cover_media_id", "cover_image_url", "rn", "created_at"}}
-    if row.get("cover_media_id"):
+    out = {k: v for k, v in row.items() if k not in {"photo_url", "cover_project_id", "cover_media_id", "cover_image_url", "rn", "created_at"}}
+    if row.get("photo_url"):  # the listing's own photo beats its project's picture
+        out["cover"] = row["photo_url"]
+    elif row.get("cover_media_id"):
         out["cover"] = f"/api/public/covers/{row['cover_project_id']}"
     else:
         out["cover"] = row.get("cover_image_url") or None

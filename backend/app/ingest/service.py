@@ -232,6 +232,8 @@ class IngestionService:
                     await self.repo.update_property_price(existing["id"], unit.price_etb)
             if unit.source_url and unit.source_url != existing["source_url"] and not dry_run:
                 await self.repo.update_property_source(existing["id"], unit.source_url)  # a quiet fix-up: not a change the broker needs to hear about
+            if unit.photo_url and unit.photo_url != existing.get("photo_url") and not dry_run:
+                await self.repo.update_property_photo(existing["id"], unit.photo_url)  # quiet too: only the website shows it
             if unit.floor_plan_image_url and unit.floor_plan_image_url != existing["floor_plan_image_url"]:
                 changed = True
                 report["image_updated"].append({"title": existing["title"]})

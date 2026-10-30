@@ -159,7 +159,7 @@ class Repository:
 
     async def get_property_by_hash(self, content_hash: str) -> dict | None:
         return await self._one(
-            "select id, developer_id, title, price_etb, status, floor_plan_image_url, source_url from properties where content_hash = %s", (content_hash,))
+            "select id, developer_id, title, price_etb, status, floor_plan_image_url, source_url, photo_url from properties where content_hash = %s", (content_hash,))
 
     async def insert_property(self, *, developer_id: UUID | str, unit: Any, content_hash: str, embedding: Sequence[float],
                               vision_amenities: dict, lat: float | None, lng: float | None) -> UUID | None:
@@ -169,16 +169,24 @@ class Repository:
         row = await self._one(
             "insert into properties (developer_id, title, project_name, unit_type, sub_city, lat, lng, price_etb, bedrooms, sqm, "
             "down_payment_pct, construction_stage_pct, est_rental_yield_pct, delivery_date, description, floor_plan_image_url, "
-            "vision_amenities, content_hash, embedding, source_url) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector,%s) "
+            "vision_amenities, content_hash, embedding, source_url, photo_url) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector,%s,%s) "
             "on conflict (content_hash) do nothing returning id",
             (str(developer_id), unit.display_title, unit.project_name, unit.unit_type, unit.sub_city, lat, lng, unit.price_etb, unit.bedrooms,
              unit.sqm, unit.down_payment_pct, unit.construction_stage_pct, unit.est_rental_yield_pct, unit.delivery_date, unit.description,
-             unit.floor_plan_image_url, Jsonb(vision_amenities), content_hash, vector_literal(embedding), unit.source_url),
+             unit.floor_plan_image_url, Jsonb(vision_amenities), content_hash, vector_literal(embedding), unit.source_url, unit.photo_url),
         )
         return None if row is None else row["id"]
 
     async def update_property_source(self, property_id: UUID | str, url: str) -> None:
         await self._fetch("update properties set source_url = %s where id = %s returning id", (url, str(property_id)))
+
+    async def properties_missing_photo(self) -> list[dict]:
+        return await self._fetch(
+            "select p.id, p.source_url, d.slug as developer_slug from properties p join developers d on d.id = p.developer_id "
+            "where p.source_url is not null and p.photo_url is null and p.status = 'AVAILABLE' order by d.slug, p.created_at desc")
+
+    async def update_property_photo(self, property_id: UUID | str, url: str) -> None:
+        await self._fetch("update properties set photo_url = %s where id = %s returning id", (url, str(property_id)))
 
     async def update_property_image(self, property_id: UUID | str, url: str) -> None:
         await self._fetch("update properties set floor_plan_image_url = %s where id = %s returning id", (url, str(property_id)))
@@ -693,7 +701,7 @@ class Repository:
         "select p.id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, p.bedrooms, p.sqm, p.delivery_date, "
         "p.construction_stage_pct, p.down_payment_pct, p.est_rental_yield_pct, p.status, p.created_at, "
         "d.name as developer_name, d.slug as developer_slug, "
-        "c.project_id as cover_project_id, c.media_id as cover_media_id, c.image_url as cover_image_url, "
+        "p.photo_url, c.project_id as cover_project_id, c.media_id as cover_media_id, c.image_url as cover_image_url, "
         "exists (select 1 from unit_layouts l where l.property_id = p.id) as has_layout "
         "{extra}"
         "from properties p join developers d on d.id = p.developer_id "
@@ -749,10 +757,12 @@ class Repository:
         return {**row, "sub_cities": areas, "developers": developers}
 
     async def portal_featured(self, limit: int = 6) -> list[dict]:
-        """A spread across developers: each one's newest unit first, then their next, so one developer cannot fill the page."""
+        """A spread across developers: each one's newest unit first, then their next, so one developer cannot fill the page.
+        Units with a photo of their own come first, within each developer and across them."""
         return await self._fetch(
-            "select * from (" + self._PORTAL_UNIT.format(extra=", row_number() over (partition by p.developer_id order by p.created_at desc, p.id) as rn ")
-            + "where p.status = 'AVAILABLE') t order by rn, created_at desc limit %s",
+            "select * from (" + self._PORTAL_UNIT.format(
+                extra=", row_number() over (partition by p.developer_id order by (p.photo_url is null), p.created_at desc, p.id) as rn ")
+            + "where p.status = 'AVAILABLE') t order by rn, (photo_url is null), created_at desc limit %s",
             (limit,),
         )
 

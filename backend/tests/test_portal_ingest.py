@@ -301,3 +301,36 @@ async def test_units_read_by_the_model_keep_the_pages_address_and_get_the_same_p
     assert report["counts"]["created"] == 1 and "per m²" in report["skipped"][0]["reason"]
     cur = await db_conn.execute("select source_url from properties p join developers d on d.id = p.developer_id where d.slug = 'model-src'")
     assert [r["source_url"] for r in await cur.fetchall()] == ["https://epc.test/for-sale/60"]
+
+
+# ---------------- the listing's own photo ----------------
+
+LOGO_AND_TRANSFER_STATE = (
+    '<html><head><meta property="og:image" content="https://cdn.test/bg/le-logo.webp"></head><body>'
+    '<script type="application/json">{&q;p&q;:{&q;title&q;:&q;3BR Apartment&q;,&q;price&q;:9000000,&q;bedrooms&q;:3,&q;area&q;:120,'
+    '&q;images&q;:[{&q;url&q;:&q;https://cdn.test/second.webp&q;,&q;cover&q;:false},{&q;url&q;:&q;https://cdn.test/front.webp&q;,&q;cover&q;:true}]}}</script>'
+    '</body></html>'
+)
+
+
+def test_the_photo_the_site_marks_as_cover_is_kept_and_a_logo_never_is():
+    listing = extract_listing(LOGO_AND_TRANSFER_STATE, "https://le.test/site/property-details/2547")
+    assert listing.image_url == "https://cdn.test/front.webp" and listing.found_by["image_url"] == "embedded-json"
+    only_logo = extract_listing('<html><head><meta property="og:image" content="https://cdn.test/icon/logo_white.webp"></head></html>', "https://le.test/p/1")
+    assert only_logo.image_url is None
+
+
+def test_the_photo_travels_from_the_crawler_to_the_unit_and_an_odd_address_is_dropped_not_fatal():
+    assert item("7", image_url="javascript:alert(1)").image_url is None and item("8", image_url="https://p.test/x.jpg").image_url
+    listing = extract_listing(LOGO_AND_TRANSFER_STATE, "https://le.test/site/property-details/2547")
+    listing.sub_city, listing.sqm = "Bole", 120
+    unit = to_unit(listing, "Live Ethio")
+    assert not isinstance(unit, str) and unit.photo_url == "https://cdn.test/front.webp"
+
+
+async def test_a_crawl_stores_the_photo_and_a_later_crawl_updates_it(repo, db_conn):
+    service, _, _ = make(repo)
+    await service.run_portal(portal="photo-test", name="Photo Test", items=[item("1", url="https://p.test/1", image_url="https://p.test/a.jpg")])
+    await service.run_portal(portal="photo-test", name="Photo Test", items=[item("1", url="https://p.test/1", image_url="https://p.test/b.jpg")])
+    cur = await db_conn.execute("select p.photo_url from properties p join developers d on d.id = p.developer_id where d.slug = 'photo-test'")
+    assert [r["photo_url"] for r in await cur.fetchall()] == ["https://p.test/b.jpg"]

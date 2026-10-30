@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ListingUnit(BaseModel):
@@ -24,6 +25,7 @@ class ListingUnit(BaseModel):
     description: str | None = None
     floor_plan_image_url: str | None = None
     source_url: str | None = Field(default=None, max_length=2048, description="Where the unit is listed (a portal listing page); never sent to buyers")
+    photo_url: str | None = Field(default=None, description="The listing's own cover photo, shown on the website")
 
     @property
     def display_title(self) -> str:
@@ -79,8 +81,15 @@ class PortalItem(BaseModel):
     description: str | None = Field(default=None, max_length=4000)
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
+    image_url: str | None = None
     text: str | None = Field(default=None, max_length=12_000)
     found_by: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def _web_address_or_nothing(cls, value: object) -> str | None:
+        """A picture is a nice-to-have: an odd address is dropped rather than refusing the listing (or the whole batch)."""
+        return value if isinstance(value, str) and len(value) <= 2048 and re.match(r"^https?://", value) else None
 
 
 class ScrapeProfile(BaseModel):

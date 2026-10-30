@@ -71,8 +71,19 @@ class PortalListing:
     def set(self, name: str, value: Any, source: str) -> None:
         if value in (None, "") or getattr(self, name) not in (None, ""):
             return
+        if name == "image_url" and not is_listing_photo(str(value)):
+            return  # a site's logo or icon (often its og:image) is not a photo of the home; a later reader may still find one
         setattr(self, name, value)
         self.found_by[name] = source
+
+
+_NOT_A_PHOTO = re.compile(r"(logo|icon|favicon|placeholder|sprite|avatar|no[-_]?image|default)[^/]*$", re.I)
+
+
+def is_listing_photo(url: str) -> bool:
+    """A picture address that can stand for the home itself: not a logo, icon or placeholder, and not inline data."""
+    path = unquote(urlsplit(url).path)
+    return not url.startswith("data:") and not _NOT_A_PHOTO.search(path) and not path.lower().endswith(".svg")
 
 
 def is_portal_unit(unit: dict) -> bool:
@@ -208,6 +219,16 @@ def _read_embedded(listing: PortalListing, soup: BeautifulSoup) -> None:
         listing.set("lng", _number(record.get("longitude")), "embedded-json")
         content = record.get("content") or record.get("description")
         listing.set("description", BeautifulSoup(content, "html.parser").get_text(" ", strip=True) if isinstance(content, str) else None, "embedded-json")
+        listing.set("image_url", _cover_of(record.get("images") or record.get("photos") or record.get("gallery")), "embedded-json")
+
+
+def _cover_of(images: Any) -> str | None:
+    """The picture the site marks as the cover, else its first one. Entries are addresses or records with a `url`."""
+    if not isinstance(images, list):
+        return None
+    urls = [(img.get("url") or img.get("src"), bool(img.get("cover"))) if isinstance(img, dict) else (img, False) for img in images]
+    urls = [(u, cover) for u, cover in urls if isinstance(u, str) and u.strip()]
+    return next((u for u, cover in urls if cover), urls[0][0] if urls else None)
 
 
 def _select(soup: BeautifulSoup, selector: str) -> str | None:
@@ -411,6 +432,7 @@ def to_unit(listing: PortalListing, portal_name: str) -> ListingUnit | str:
             project_name=project_name_for(listing, portal_name), unit_type=unit_type_for(listing), sub_city=listing.sub_city or "",
             bedrooms=listing.bedrooms or 0, sqm=listing.sqm or 0, price_etb=listing.price_etb or 0, title=(listing.title or None),
             description=(listing.description or "")[:2000] or None, lat=listing.lat, lng=listing.lng, floor_plan_image_url=None, source_url=listing.url,
+            photo_url=listing.image_url if listing.image_url and re.match(r"^https?://", listing.image_url) and len(listing.image_url) <= 2048 else None,
         )
     except ValidationError as exc:
         return f"{exc.errors()[0]['loc'][0]} is out of range"
