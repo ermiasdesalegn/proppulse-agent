@@ -32,6 +32,18 @@ export function safeNext(next: string | null | undefined): string | null {
   return next;
 }
 
+/**
+ * When Supabase does not recognise the address a sign-up asked to return to, it falls back to the site's home page:
+ * `/?code=...` for a good link, `/?error_code=otp_expired...` for a used or expired one. Both are passed on to where they are handled.
+ */
+export function emailLinkRedirect(pathname: string, params: URLSearchParams): string | null {
+  if (pathname !== "/") return null;
+  const code = params.get("code");
+  if (code && /^[\w-]{8,200}$/.test(code)) return `/auth/callback?code=${encodeURIComponent(code)}`;
+  if (params.get("error_code") || params.get("error")) return "/login?notice=link";
+  return null;
+}
+
 export function decide(pathname: string, role: Role, search = ""): Decision {
   const isPublic = PUBLIC_PAGES.some((p) => (p === "/" ? pathname === "/" : under(pathname, p))) || PUBLIC_API.some((p) => under(pathname, p));
   if (isPublic) {

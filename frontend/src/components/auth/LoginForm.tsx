@@ -8,6 +8,7 @@ import { browserClient } from "@/lib/supabase/browser";
 const NOTICES: Record<string, string> = {
   confirm: "Your email is confirmed. Sign in below to continue.",
   signedout: "You have been signed out.",
+  link: "That email link has expired or was already used. If your account is not confirmed yet, sign up again with the same email for a new link.",
 };
 
 const field = "mt-1 w-full rounded-md border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30";

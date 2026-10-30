@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { decide, type Role } from "@/lib/access";
+import { decide, emailLinkRedirect, type Role } from "@/lib/access";
 import { mightBeBroker, roleFromClaims, type Claims } from "@/lib/role";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
 import { supabaseConfig } from "@/lib/supabase/config";
@@ -56,7 +56,9 @@ async function whoIsThis(request: NextRequest, refreshed: CookieToSet[], headers
 }
 
 export async function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+  const { pathname, search, searchParams } = request.nextUrl;
+  const emailLink = emailLinkRedirect(pathname, searchParams);
+  if (emailLink) return NextResponse.redirect(new URL(emailLink, request.url));
   const refreshed: CookieToSet[] = [];
   const headers: Record<string, string> = {};
   const role = await whoIsThis(request, refreshed, headers);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decide, homeFor, safeNext } from "./access";
+import { decide, emailLinkRedirect, homeFor, safeNext } from "./access";
 
 describe("access rules", () => {
   it("lets anyone open the public pages and sign-in endpoints", () => {
@@ -50,5 +50,23 @@ describe("access rules", () => {
     expect(safeNext("/\\evil.example")).toBeNull();
     expect(safeNext(null)).toBeNull();
     expect(homeFor("anonymous")).toBe("/login");
+  });
+});
+
+describe("email links that Supabase sent to the home page", () => {
+  const at = (query: string, path = "/") => emailLinkRedirect(path, new URLSearchParams(query));
+
+  it("passes a sign-in code on to the callback", () => {
+    expect(at("code=bb79709c-a42a-4d79-aea6-653d60e362a7")).toBe("/auth/callback?code=bb79709c-a42a-4d79-aea6-653d60e362a7");
+  });
+
+  it("sends a used or expired link to the sign-in page with an explanation", () => {
+    expect(at("error=access_denied&error_code=otp_expired")).toBe("/login?notice=link");
+  });
+
+  it("leaves every other page and odd codes alone", () => {
+    expect(at("")).toBeNull();
+    expect(at("code=abc", "/portal")).toBeNull();
+    expect(at("code=<script>")).toBeNull();
   });
 });
