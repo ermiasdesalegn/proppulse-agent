@@ -39,3 +39,17 @@ export function responseHeaders(upstream: Headers): Headers {
   }
   return out;
 }
+
+// ---- the website's own routes: /api/me/* carries the buyer's sign-in, /api/public/* carries nothing. Neither ever gets the admin key. ----
+
+const BUYER_REQUEST_HEADERS = ["content-type", "accept"];
+
+export function buyerHeaders(incoming: Headers, accessToken: string | null): Headers {
+  const out = new Headers();
+  for (const name of BUYER_REQUEST_HEADERS) {
+    const value = incoming.get(name);
+    if (value) out.set(name, value);
+  }
+  if (accessToken) out.set("authorization", `Bearer ${accessToken}`);
+  return out;
+}

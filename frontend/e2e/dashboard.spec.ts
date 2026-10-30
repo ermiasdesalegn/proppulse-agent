@@ -4,6 +4,7 @@ const PASSWORD = process.env.DASHBOARD_PASSWORD ?? "ci-password";
 
 async function signIn(page: Page) {
   await page.goto("/login");
+  await page.getByRole("button", { name: "Broker access" }).click();
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
@@ -18,6 +19,7 @@ test("the dashboard is closed to anyone who is not signed in", async ({ page }) 
 
 test("a wrong password is refused and the right one signs in and out", async ({ page }) => {
   await page.goto("/login");
+  await page.getByRole("button", { name: "Broker access" }).click();
   await page.getByLabel("Password").fill("not-the-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("alert")).toBeVisible();
