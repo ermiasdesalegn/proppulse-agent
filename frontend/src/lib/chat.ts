@@ -6,6 +6,14 @@ export interface WebMessage {
   source: "text" | "voice" | "system";
   content: string;
   created_at: string;
+  attachments?: ChatFile[];
+}
+
+/** A file an agent message carries: a picture shown in the chat, or a link to download (a 3D model, a comparison PDF). */
+export interface ChatFile {
+  kind: "image" | "download";
+  url: string;
+  label: string;
 }
 
 export interface QuickReply {
@@ -61,6 +69,11 @@ export function stillWaiting(messages: WebMessage[], pending: Unconfirmed[]): Un
     if (stored) claimed.add(stored.id);
     return !stored;
   });
+}
+
+/** The files of a message the chat may show: only the buyer's own message files, served through the signed-in /api/me route. */
+export function chatFiles(message: WebMessage): ChatFile[] {
+  return (message.attachments ?? []).filter((f) => (f.kind === "image" || f.kind === "download") && /^\/api\/me\/chat\/messages\/\d+\/\w[\w.-]*$/.test(f.url));
 }
 
 export function newestId(messages: WebMessage[]): number {

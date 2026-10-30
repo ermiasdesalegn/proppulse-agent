@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeMessages, newestId, stillWaiting, type Unconfirmed, type WebMessage } from "./chat";
+import { chatFiles, mergeMessages, newestId, stillWaiting, type Unconfirmed, type WebMessage } from "./chat";
 
 const msg = (id: number, role: WebMessage["role"], content: string): WebMessage => ({ id, role, source: "text", content, created_at: "2026-11-01T08:00:00Z" });
 const pending = (content: string, after: number, key = 1): Unconfirmed => ({ key, content, at: "2026-11-01T08:00:00Z", after });
@@ -43,5 +43,25 @@ describe("newestId", () => {
   it("is zero for an empty chat and the highest id otherwise", () => {
     expect(newestId([])).toBe(0);
     expect(newestId([msg(3, "buyer", "a"), msg(9, "agent", "b"), msg(5, "buyer", "c")])).toBe(9);
+  });
+});
+
+describe("chatFiles", () => {
+  it("keeps pictures and downloads served from the buyer's own message route", () => {
+    const files = [
+      { kind: "image" as const, url: "/api/me/chat/messages/7/model.png", label: "3D view: Bole" },
+      { kind: "download" as const, url: "/api/me/chat/messages/7/model.glb", label: "Download 3D model (.glb)" },
+    ];
+    expect(chatFiles({ ...msg(7, "agent", "hi"), attachments: files })).toEqual(files);
+  });
+
+  it("drops anything pointing elsewhere, and copes with a message that has none", () => {
+    const odd = [
+      { kind: "download" as const, url: "https://evil.example/x.pdf", label: "x" },
+      { kind: "image" as const, url: "/api/proxy/buyers", label: "x" },
+      { kind: "download" as const, url: "/api/me/chat/messages/7/../../saved", label: "x" },
+    ];
+    expect(chatFiles({ ...msg(7, "agent", "hi"), attachments: odd })).toEqual([]);
+    expect(chatFiles(msg(8, "agent", "hi"))).toEqual([]);
   });
 });

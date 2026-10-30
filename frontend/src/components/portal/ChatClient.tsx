@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/site/ui";
-import { clock, mergeMessages, newestId, STARTERS, stillWaiting, type ChatReply, type MatchRef, type Polled, type QuickReply, type Unconfirmed, type WebMessage } from "@/lib/chat";
+import { chatFiles, clock, mergeMessages, newestId, STARTERS, stillWaiting, type ChatFile, type ChatReply, type MatchRef, type Polled, type QuickReply, type Unconfirmed, type WebMessage } from "@/lib/chat";
 import { fmtEtb } from "@/lib/format";
 
 type Action = "ask" | "cmp" | "book";
@@ -141,7 +141,7 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
           {messages.map((m) => m.source === "system" ? (
             <p key={m.id} className="text-center text-xs text-muted">{m.content}</p>
           ) : (
-            <Bubble key={m.id} role={m.role} time={clock(m.created_at)} text={m.content} />
+            <Bubble key={m.id} role={m.role} time={clock(m.created_at)} text={m.content} files={chatFiles(m)} />
           ))}
           {waitingForStored.map((u) => <Bubble key={u.key} role="buyer" time={clock(u.at)} text={u.content} faded />)}
 
@@ -194,7 +194,7 @@ export default function ChatClient({ about }: { about: { id: string; title: stri
   );
 }
 
-function Bubble({ role, time, text, faded = false }: { role: WebMessage["role"]; time: string; text: string; faded?: boolean }) {
+function Bubble({ role, time, text, files = [], faded = false }: { role: WebMessage["role"]; time: string; text: string; files?: ChatFile[]; faded?: boolean }) {
   const mine = role === "buyer";
   const style = mine ? "rounded-br-md bg-ink text-white" : role === "broker" ? "rounded-bl-md border border-accent/30 bg-accent/10" : "rounded-bl-md border border-line bg-bg";
   return (
@@ -202,6 +202,21 @@ function Bubble({ role, time, text, faded = false }: { role: WebMessage["role"];
       <div className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed sm:max-w-[80%] ${style}`}>
         <p className={`mb-0.5 text-[11px] font-semibold ${mine ? "text-white/60" : "text-muted"}`}>{mine ? "You" : role === "broker" ? "Our broker" : "Assistant"} <time className="font-normal">{time}</time></p>
         <p className="whitespace-pre-wrap break-words">{text}</p>
+        {files.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {files.filter((f) => f.kind === "image").map((f) => (
+              // eslint-disable-next-line @next/next/no-img-element -- a private, signed-in file the image optimiser cannot fetch
+              <img key={f.url} src={f.url} alt={f.label} loading="lazy" className="w-full max-w-sm rounded-xl border border-line bg-white" />
+            ))}
+            <div className="flex flex-wrap gap-2">
+              {files.filter((f) => f.kind === "download").map((f) => (
+                <a key={f.url} href={f.url} download className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-white px-3.5 py-1.5 text-sm font-medium text-accent transition hover:bg-accent/10">
+                  <span aria-hidden="true">↓</span>{f.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

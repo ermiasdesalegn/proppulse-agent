@@ -63,6 +63,8 @@ class Outcome:
     error: bool = False
     state: dict = field(default_factory=dict)
     quick_replies: list = field(default_factory=list)  # button rows the channel may show under the reply
+    message_id: int | None = None  # the stored reply, which the website's file links point at
+    attachments: list = field(default_factory=list)  # files the website shows with the reply (Telegram has already been sent them)
 
 
 def inline_keyboard(rows: list[list[dict]] | None) -> dict | None:
@@ -232,14 +234,17 @@ class ChatService:
                 await self.repo.update_message_content(stored["id"], str(spoken.content))
 
         quick_replies = [] if error else list(state.get("quick_replies") or [])
+        attachments = [] if error or inbound.channel != "web" else list(state.get("attachments") or [])
+        sent = None
         if reply:
-            sent = await self.repo.add_message(buyer_id, "agent", reply)
+            sent = await self.repo.add_message(buyer_id, "agent", reply, attachments=attachments)
             self._emit("message", role="agent", buyer_id=buyer_id, message_id=sent["id"], source="text", channel=inbound.channel, text=excerpt(reply))
             if inbound.channel == "telegram" and inbound.chat_id is not None:
                 await self._send_telegram(inbound.chat_id, reply, quick_replies)
         if state.get("human_takeover"):
             self._takeover_acks[inbound.thread_id] = time.monotonic()  # this turn already told the buyer the broker is taking over
-        return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state, quick_replies=quick_replies)
+        return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state, quick_replies=quick_replies,
+                       message_id=sent["id"] if sent else None, attachments=attachments if sent else [])
 
     async def _typing(self, inbound: Inbound) -> None:
         while True:

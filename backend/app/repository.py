@@ -498,14 +498,21 @@ class Repository:
     # ---- transcript ----
 
     async def add_message(
-        self, buyer_id: UUID | str, role: str, content: str, *, source: str = "text", telegram_file_id: str | None = None
+        self, buyer_id: UUID | str, role: str, content: str, *, source: str = "text", telegram_file_id: str | None = None,
+        attachments: Sequence[dict] | None = None,
     ) -> dict:
+        from psycopg.types.json import Jsonb
+
         row = await self._one(
-            "insert into chat_messages (buyer_id, role, content, source, telegram_file_id) values (%s, %s, %s, %s, %s) returning *",
-            (str(buyer_id), role, content, source, telegram_file_id),
+            "insert into chat_messages (buyer_id, role, content, source, telegram_file_id, attachments) values (%s, %s, %s, %s, %s, %s) returning *",
+            (str(buyer_id), role, content, source, telegram_file_id, Jsonb(list(attachments or []))),
         )
         assert row is not None
         return row
+
+    async def get_buyer_message(self, buyer_id: UUID | str, message_id: int) -> dict | None:
+        """One message of this buyer's transcript; None when it belongs to someone else."""
+        return await self._one("select * from chat_messages where id = %s and buyer_id = %s", (message_id, str(buyer_id)))
 
     async def list_messages(self, buyer_id: UUID | str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
         return await self._fetch(

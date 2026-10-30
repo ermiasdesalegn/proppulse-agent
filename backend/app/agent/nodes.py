@@ -207,6 +207,15 @@ def objection_notes(worries: list[str], rows: list[dict], today: date) -> list[s
     return notes[:6]
 
 
+def on_telegram(chat_id: int | str | None) -> bool:
+    """A Telegram chat id is a number; the website has none."""
+    return chat_id is not None and str(chat_id).lstrip("-").isdigit()
+
+
+def model_file_name(title: Any) -> str:
+    return ("".join(c if c.isalnum() else "-" for c in str(title).lower()).strip("-")[:60] or "unit") + ".glb"
+
+
 def say(text: str, **extra: Any) -> dict:
     return {"reply": text, "messages": [AIMessage(content=text)], **extra}
 
@@ -258,7 +267,7 @@ class AgentNodes:
         reset = {
             "reply": None, "transcript_failed": False, "comparison_matrix": None, "booked": False,
             "lead_reg_failed": [], "selected_property_ids": [], "tour_start_iso": None,
-            "query_embedding": None, "human_takeover": False, "intent": "", "quick_replies": [],
+            "query_embedding": None, "human_takeover": False, "intent": "", "quick_replies": [], "attachments": [],
             "injection": False, "handoff_reason": None, "objections_now": [],
         }
         inbound = state.get("inbound") or {}
@@ -575,27 +584,29 @@ class AgentNodes:
         if p.get("description"):
             lines += ["", p["description"]]
         lines += objection_notes(state.get("objections_now") or [], rows, self.d.now().date())
-        if await self._send_3d_model(state, p):
+        attachments: list[dict] = []
+        if await self._send_3d_model(state, p, attachments):
             lines += ["", msg("d_3d", lang)]
         rows_ = [[{"label": msg("btn_book", lang, n=number), "text": f"Book a site visit for option {number}"}]]
         if len(active) > 1:
             rows_.append([{"label": msg("btn_compare", lang), "text": "Compare these options"}])
-        return {**say("\n".join(lines), quick_replies=rows_), "active_matches": active}
+        return {**say("\n".join(lines), quick_replies=rows_, attachments=attachments), "active_matches": active}
 
-    async def _send_3d_model(self, state: BrokerAgentState, p: dict) -> bool:
-        """If the broker saved a layout for this unit, send the buyer its 3D picture and the model file. Best effort: a failure here never spoils the reply."""
+    async def _send_3d_model(self, state: BrokerAgentState, p: dict, attachments: list[dict]) -> bool:
+        """If the broker saved a layout for this unit, send the buyer its 3D picture and the model file. Best effort: a failure here never spoils the reply.
+        The website has no Telegram chat: there the reply carries an attachment instead, and the files are made when the buyer opens them."""
         chat_id = state.get("chat_id")
-        if chat_id is None or not str(chat_id).lstrip("-").isdigit():
-            return False  # the web simulator has no Telegram chat to send files to
         try:
             stored = await self.d.repo.get_layout(p["id"])
             if not stored:
                 return False
             layout = Layout.model_validate(stored)
+            if not on_telegram(chat_id):
+                attachments.append({"kind": "model3d", "property_id": str(p["id"]), "title": str(p["title"])})
+                return True
             picture, model = await asyncio.gather(asyncio.to_thread(render_png, layout), asyncio.to_thread(to_glb, layout))
-            name = "".join(c if c.isalnum() else "-" for c in str(p["title"]).lower()).strip("-")[:60] or "unit"
             await self.d.services.telegram.send_photo_bytes(chat_id, picture, f"3D view: {p['title']}")
-            await self.d.services.telegram.send_document(chat_id, f"{name}.glb", model, "3D model file (opens on most phones and in any 3D viewer)")
+            await self.d.services.telegram.send_document(chat_id, model_file_name(p["title"]), model, "3D model file (opens on most phones and in any 3D viewer)")
             return True
         except Exception:
             log.exception("3D model could not be sent")
@@ -776,11 +787,14 @@ class AgentNodes:
                 )
             except Exception:
                 log.exception("itinerary email failed")
+        attachments: list[dict] = []
         if pdf and state.get("chat_id"):
             try:
                 await d.services.telegram.send_document(state["chat_id"], "property-comparison.pdf", pdf, "Your property comparison for the visit")
             except Exception:
                 log.exception("brochure could not be sent on Telegram")
+        elif pdf:
+            attachments.append({"kind": "comparison", "tour_id": str(tour["id"])})  # the website makes the PDF again from the tour when it is opened
         try:
             await deliver_dossier(d.repo, d.services, s, tour["id"], today=now.date())
         except Exception:
@@ -804,7 +818,7 @@ class AgentNodes:
             lines += ["", f"Because of the size of this purchase, {s.broker_name} will personally take over this chat from here."]
         text = "\n".join(lines)
         return {
-            **say(text), "booked": True, "lead_reg_failed": failed, "deal_stage": "SITE_VISIT_BOOKED",
+            **say(text, attachments=attachments), "booked": True, "lead_reg_failed": failed, "deal_stage": "SITE_VISIT_BOOKED",
             "human_takeover": high_value, "active_matches": state.get("active_matches", []), "pending_booking": None,
         }
 

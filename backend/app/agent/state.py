@@ -51,6 +51,7 @@ class BrokerAgentState(TypedDict, total=False):
     human_takeover: bool
     reply: str | None
     quick_replies: list[list[dict]]  # rows of {label, text}: buttons the channel may show under the reply
+    attachments: list[dict]  # files for a channel without Telegram to show with the reply: {"kind": "model3d", "property_id", "title"} or {"kind": "comparison", "tour_id"}
 
 
 EMPTY_PREFS = {"max_budget_etb": None, "min_bedrooms": None, "preferred_sub_cities": []}

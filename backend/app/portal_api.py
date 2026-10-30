@@ -7,16 +7,20 @@ from __future__ import annotations
 
 from typing import Any, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
+from app.agent.nodes import model_file_name
 from app.api import _clean_text, chat_of, repo_of
+from app.brochure import brochure_data
+from app.brochure import render_pdf as brochure_pdf
 from app.buyer_auth import BuyerIdentity, current_buyer
 from app.chat import ChatService, Inbound
 from app.ingest.portal import is_listing_photo
-from app.model3d import Layout, render_png
+from app.model3d import Layout, render_png, to_glb
 from app.repository import Repository
 
 router = APIRouter()
@@ -132,9 +136,23 @@ async def _known_buyer(repo: Repository, me: BuyerIdentity) -> dict:
     return await repo.update_buyer(buyer["id"], **fill) if fill else buyer
 
 
+def _files(message_id: int | None, attachments: list[dict] | None) -> list[dict]:
+    """What the chat shows for a message's attachments: a picture to show inline, or a link to download. Each address names the message, so
+    the file route can check the message is the buyer's own."""
+    base, out = f"/api/me/chat/messages/{message_id}", []
+    for a in attachments or []:
+        if a.get("kind") == "model3d":
+            out += [{"kind": "image", "url": f"{base}/model.png", "label": f"3D view: {a.get('title', '')}"},
+                    {"kind": "download", "url": f"{base}/model.glb", "label": "Download 3D model (.glb)"}]
+        elif a.get("kind") == "comparison":
+            out.append({"kind": "download", "url": f"{base}/comparison.pdf", "label": "Download comparison (PDF)"})
+    return out
+
+
 def _answer(outcome) -> dict:
     return {
         "reply": outcome.reply,
+        "attachments": _files(outcome.message_id, outcome.attachments),
         "quick_replies": outcome.quick_replies,
         "takeover": outcome.takeover,
         "error": outcome.error,
@@ -181,4 +199,40 @@ async def chat_messages(after_id: int = Query(default=0, ge=0), me: BuyerIdentit
         return {"takeover": False, "messages": []}
     rows = await repo.list_messages(buyer["id"], after_id=after_id)
     keep = ("id", "role", "source", "content", "created_at")
-    return {"takeover": bool(buyer["human_takeover"]), "messages": [{k: r[k] for k in keep if k in r} for r in rows]}
+    return {"takeover": bool(buyer["human_takeover"]), "messages": [{**{k: r[k] for k in keep if k in r}, "attachments": _files(r["id"], r.get("attachments"))} for r in rows]}
+
+
+# Files an agent message carries: made again from what is stored each time they are opened, never kept as files.
+CHAT_FILES = {"model.png": "model3d", "model.glb": "model3d", "comparison.pdf": "comparison"}
+
+
+@router.get("/api/me/chat/messages/{message_id}/{name}")
+async def chat_file(request: Request, message_id: int, name: Literal["model.png", "model.glb", "comparison.pdf"],
+                    me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of)):
+    buyer = await repo.get_buyer_by_thread(me.thread_id)
+    row = await repo.get_buyer_message(buyer["id"], message_id) if buyer else None  # only ever a message of this buyer's own conversation
+    found = next((a for a in (row or {}).get("attachments") or [] if a.get("kind") == CHAT_FILES[name]), None)
+    if row is None or found is None:
+        raise HTTPException(404, "This file is not in your conversation")
+    private = {"Cache-Control": "private, max-age=600"}
+    if found["kind"] == "model3d":
+        stored = await repo.get_layout(found["property_id"])
+        if stored is None:
+            raise HTTPException(404, "This home's 3D layout has been removed")
+        layout = Layout.model_validate(stored)
+        if name == "model.png":
+            return Response(await run_in_threadpool(render_png, layout), media_type="image/png", headers=private)
+        return Response(await run_in_threadpool(to_glb, layout), media_type="model/gltf-binary",
+                        headers={**private, "Content-Disposition": f'attachment; filename="{model_file_name(found.get("title"))}"'})
+    tour = await repo.get_tour(found["tour_id"])
+    if tour is None or str(tour["buyer_id"]) != str(buyer["id"]):
+        raise HTTPException(404, "This visit is no longer on record")
+    stops = await repo.get_tour_stops(tour["id"])
+    homes = await repo.get_properties([s["property_id"] for s in stops])
+    if not homes:
+        raise HTTPException(404, "The homes in this comparison are no longer listed")
+    s = request.app.state.settings
+    sheet = brochure_data(homes, today=row["created_at"].astimezone(ZoneInfo(s.timezone)).date(), broker_name=s.broker_name,
+                          buyer_name=buyer.get("full_name"), route=tour.get("mapbox_route_json"))
+    return Response(await run_in_threadpool(brochure_pdf, sheet), media_type="application/pdf",
+                    headers={**private, "Content-Disposition": 'attachment; filename="property-comparison.pdf"'})

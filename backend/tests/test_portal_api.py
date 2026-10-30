@@ -10,8 +10,11 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from app.buyer_auth import BuyerIdentity, TokenError, TokenVerifier
 from app.main import create_app
+from app.model3d import pack_rooms
 from app.telegram_updates import TelegramUpdateHandler
 from tests.agent_helpers import FakeGateway, ext, make_chat
+from tests.test_agent_graph import BOLE_3BR
+from tests.test_model3d import ROOMS, glb_parts
 
 SECRET = "test-jwt-secret-that-is-long-enough-for-hs256"
 OVERRIDES = dict(admin_api_key="test-admin-key", telegram_webhook_secret="test-hook-secret", supabase_jwt_secret=SECRET, supabase_url="")
@@ -256,7 +259,7 @@ async def test_chat_runs_the_agent_and_fills_in_the_buyer_record(site):
 
     seen = (await client.get("/api/me/chat/messages", headers=auth())).json()
     assert [m["role"] for m in seen["messages"]] == ["buyer", "agent"] and not seen["takeover"]
-    assert all(set(m) <= {"id", "role", "source", "content", "created_at"} for m in seen["messages"])
+    assert all(set(m) <= {"id", "role", "source", "content", "created_at", "attachments"} for m in seen["messages"])
     later = (await client.get("/api/me/chat/messages", headers=auth(), params={"after_id": seen["messages"][0]["id"]})).json()
     assert [m["role"] for m in later["messages"]] == ["agent"]
 
@@ -339,3 +342,79 @@ async def test_opening_a_home_while_the_broker_has_the_chat_does_not_wake_the_ag
     await client.post(f"/api/buyers/{buyer['id']}/takeover", json={"on": True}, headers={"X-Admin-Key": "test-admin-key"})
     res = (await client.post("/api/me/chat/open", json={"property_id": home["id"]}, headers=auth())).json()
     assert res["takeover"] is True and not res["active_matches"]
+
+
+# ---------------- files the agent sends: on the website they come as attachments of the reply ----------------
+
+BOOK_BOTH = dict(referenced_options=[1, 2], tour_start_iso="2026-11-03T10:00:00+03:00", full_name="Abel Tesfaye", phone="+251911000000", email="abel@buyer.test")
+
+
+@pytest_asyncio.fixture
+async def agent_site(spy_repo, vector_of):
+    gw = FakeGateway([ext(**BOLE_3BR), ext("book_tour", **BOOK_BOTH)], vector=await vector_of("Noah Bole Towers 3BR%"))
+    chat, services, _ = make_chat(spy_repo, gw, **OVERRIDES)
+    app = create_app(use_lifespan=False)
+    app.state.settings, app.state.repo, app.state.chat = chat.settings, spy_repo, chat
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        yield client, spy_repo, services
+
+
+async def test_a_web_buyer_gets_the_3d_view_and_model_file_as_attachments(agent_site):
+    client, repo, services = agent_site
+    found = (await client.post("/api/me/chat", json={"text": "3BR in Bole"}, headers=auth())).json()
+    first = found["active_matches"][0]
+    plain = (await client.post("/api/me/chat", json={"text": "Tell me more about option 1"}, headers=auth())).json()
+    assert plain["attachments"] == [], "no layout saved, nothing is attached"
+
+    await repo.set_layout(first["id"], pack_rooms(ROOMS, title=first["title"]).model_dump(mode="json"))
+    shown = (await client.post("/api/me/chat", json={"text": "Tell me more about option 1"}, headers=auth())).json()
+    assert "3D view of the layout" in shown["reply"]
+    picture, model = shown["attachments"]
+    assert picture["kind"] == "image" and first["title"] in picture["label"] and picture["url"].endswith("/model.png")
+    assert model == {"kind": "download", "url": picture["url"].replace("model.png", "model.glb"), "label": "Download 3D model (.glb)"}
+    assert not services.telegram.photos and not services.telegram.documents, "nothing goes to Telegram for a web buyer"
+
+    stored = (await client.get("/api/me/chat/messages", headers=auth())).json()["messages"]
+    assert stored[-1]["attachments"] == shown["attachments"] and all(m["attachments"] == [] for m in stored[:-1])
+
+    png = await client.get(picture["url"], headers=auth())
+    assert png.status_code == 200 and png.headers["content-type"] == "image/png" and png.content.startswith(b"\x89PNG")
+    glb = await client.get(model["url"], headers=auth())
+    assert glb.status_code == 200 and glb.headers["content-type"] == "model/gltf-binary"
+    assert glb.headers["content-disposition"].startswith("attachment;") and ".glb" in glb.headers["content-disposition"]
+    glb_parts(glb.content)
+
+    for url in (picture["url"], model["url"]):
+        assert (await client.get(url, headers=auth(USER_B))).status_code == 404, "another buyer cannot open these files"
+        assert (await client.get(url)).status_code == 401
+    assert (await client.get(picture["url"].replace("model.png", "comparison.pdf"), headers=auth())).status_code == 404, "this message has no comparison"
+
+    await repo.delete_layout(first["id"])
+    assert (await client.get(picture["url"], headers=auth())).status_code == 404, "a layout the broker removed is not served"
+
+
+async def test_a_web_buyer_who_books_a_visit_gets_the_comparison_pdf(agent_site):
+    client, repo, services = agent_site
+    await client.post("/api/me/chat", json={"text": "3BR in Bole"}, headers=auth())
+    booked = (await client.post("/api/me/chat", json={"text": "book 1 and 2 tomorrow at 10"}, headers=auth())).json()
+    assert "site visit is booked" in booked["reply"]
+    [pdf] = booked["attachments"]
+    assert pdf["kind"] == "download" and pdf["label"] == "Download comparison (PDF)" and pdf["url"].endswith("/comparison.pdf")
+    assert not services.telegram.documents
+
+    got = await client.get(pdf["url"], headers=auth())
+    assert got.status_code == 200 and got.headers["content-type"] == "application/pdf" and got.content.startswith(b"%PDF")
+    assert 'filename="property-comparison.pdf"' in got.headers["content-disposition"]
+    assert (await client.get(pdf["url"], headers=auth(USER_B))).status_code == 404, "another buyer cannot open the comparison"
+    assert (await client.get(pdf["url"].replace("comparison.pdf", "model.glb"), headers=auth())).status_code == 404
+    assert (await client.get(pdf["url"].replace("comparison.pdf", "secrets.txt"), headers=auth())).status_code == 422
+
+
+async def test_a_buyer_cannot_open_files_through_a_message_id_from_another_conversation(agent_site):
+    client, repo, _ = agent_site
+    await client.post("/api/me/chat", json={"text": "3BR in Bole"}, headers=auth(USER_B))
+    await client.post("/api/me/chat", json={"text": "book 1 and 2 tomorrow at 10"}, headers=auth(USER_B))
+    theirs = (await client.get("/api/me/chat/messages", headers=auth(USER_B))).json()["messages"][-1]
+    assert theirs["attachments"]
+    await client.post("/api/me/chat", json={"text": "hello"}, headers=auth(USER_A))  # USER_A has a conversation of their own
+    assert (await client.get(theirs["attachments"][0]["url"], headers=auth(USER_A))).status_code == 404
