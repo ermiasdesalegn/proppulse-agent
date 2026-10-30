@@ -686,6 +686,106 @@ class Repository:
             "order by d.slug, p.price_etb"
         )
 
+    # ---- the buyer-facing website ----
+    # Only fields a buyer may see: no developer contact, commission rate, reliability score, content hash or embedding.
+
+    _PORTAL_UNIT = (
+        "select p.id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, p.bedrooms, p.sqm, p.delivery_date, "
+        "p.construction_stage_pct, p.down_payment_pct, p.est_rental_yield_pct, p.status, p.created_at, "
+        "d.name as developer_name, d.slug as developer_slug, "
+        "c.project_id as cover_project_id, c.media_id as cover_media_id, c.image_url as cover_image_url, "
+        "exists (select 1 from unit_layouts l where l.property_id = p.id) as has_layout "
+        "{extra}"
+        "from properties p join developers d on d.id = p.developer_id "
+        "left join lateral (select pr.id as project_id, pr.image_url, "
+        "(select m.id from project_media m where m.project_id = pr.id and m.kind = 'photo' order by m.id desc limit 1) as media_id "
+        "from projects pr where pr.developer_id = p.developer_id and lower(pr.name) = lower(p.project_name) limit 1) c on true "
+    )
+    _PORTAL_SORTS = {
+        "newest": "p.created_at desc, p.id",
+        "price_asc": "p.price_etb asc, p.id",
+        "price_desc": "p.price_etb desc, p.id",
+        "size_desc": "p.sqm desc, p.id",
+    }
+
+    async def portal_units(self, *, q: str | None = None, sub_city: str | None = None, min_bedrooms: int | None = None, price_min: float | None = None,
+                           price_max: float | None = None, developer: str | None = None, sort: str = "newest", limit: int = 24, offset: int = 0) -> tuple[list[dict], int]:
+        where, params = ["p.status = 'AVAILABLE'"], []
+        if q:
+            like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            where.append("(p.title ilike %s or p.project_name ilike %s or p.sub_city ilike %s or d.name ilike %s)")
+            params += [like] * 4
+        if sub_city:
+            where.append("lower(p.sub_city) = lower(%s)")
+            params.append(sub_city)
+        if min_bedrooms is not None:
+            where.append("p.bedrooms >= %s")
+            params.append(min_bedrooms)
+        if price_min is not None:
+            where.append("p.price_etb >= %s")
+            params.append(price_min)
+        if price_max is not None:
+            where.append("p.price_etb <= %s")
+            params.append(price_max)
+        if developer:
+            where.append("d.slug = %s")
+            params.append(developer)
+        clause = " where " + " and ".join(where)
+        order = self._PORTAL_SORTS.get(sort, self._PORTAL_SORTS["newest"])
+        rows = await self._fetch(self._PORTAL_UNIT.format(extra="") + clause + f" order by {order} limit %s offset %s", (*params, limit, offset))
+        total = await self._one("select count(*) as n from properties p join developers d on d.id = p.developer_id" + clause, tuple(params))
+        return rows, int(total["n"]) if total else 0
+
+    async def portal_facets(self) -> dict:
+        row = await self._one(
+            "select coalesce(min(price_etb), 0) as price_min, coalesce(max(price_etb), 0) as price_max, coalesce(max(bedrooms), 0) as bedrooms_max, count(*) as units "
+            "from properties where status = 'AVAILABLE'"
+        )
+        assert row is not None
+        areas = await self._fetch("select sub_city, count(*) as units from properties where status = 'AVAILABLE' group by sub_city order by count(*) desc, sub_city")
+        developers = await self._fetch(
+            "select d.slug, d.name, count(*) as units from properties p join developers d on d.id = p.developer_id where p.status = 'AVAILABLE' group by d.slug, d.name order by d.name"
+        )
+        return {**row, "sub_cities": areas, "developers": developers}
+
+    async def portal_featured(self, limit: int = 6) -> list[dict]:
+        """A spread across developers: each one's newest unit first, then their next, so one developer cannot fill the page."""
+        return await self._fetch(
+            "select * from (" + self._PORTAL_UNIT.format(extra=", row_number() over (partition by p.developer_id order by p.created_at desc, p.id) as rn ")
+            + "where p.status = 'AVAILABLE') t order by rn, created_at desc limit %s",
+            (limit,),
+        )
+
+    async def portal_unit(self, property_id: UUID | str) -> dict | None:
+        return await self._one(
+            self._PORTAL_UNIT.format(extra=", p.description, p.payment_plan, p.vision_amenities, p.source_url, p.floor_plan_image_url ") + "where p.id = %s",
+            (str(property_id),),
+        )
+
+    async def portal_cover(self, project_id: UUID | str) -> dict | None:
+        return await self._one(
+            "select m.mime, m.data from project_media m where m.project_id = %s and m.kind = 'photo' order by m.id desc limit 1", (str(project_id),)
+        )
+
+    async def portal_saved(self, user_id: str) -> list[dict]:
+        return await self._fetch(
+            "select * from (" + self._PORTAL_UNIT.format(extra=", s.created_at as saved_at ").replace("left join lateral", "join saved_homes s on s.property_id = p.id and s.user_id = %s left join lateral", 1)
+            + "where true) t order by saved_at desc",
+            (user_id,),
+        )
+
+    async def saved_ids(self, user_id: str) -> list[str]:
+        return [str(r["property_id"]) for r in await self._fetch("select property_id from saved_homes where user_id = %s order by created_at desc", (user_id,))]
+
+    async def save_home(self, user_id: str, property_id: UUID | str) -> bool:
+        rows = await self._fetch(
+            "insert into saved_homes (user_id, property_id, created_at) select %s, id, clock_timestamp() from properties where id = %s on conflict do nothing returning property_id", (user_id, str(property_id))
+        )
+        return bool(rows) or str(property_id) in await self.saved_ids(user_id)
+
+    async def unsave_home(self, user_id: str, property_id: UUID | str) -> None:
+        await self._fetch("delete from saved_homes where user_id = %s and property_id = %s returning property_id", (user_id, str(property_id)))
+
     async def list_tours(self, limit: int = 100) -> list[dict]:
         return await self._fetch(
             "select t.id, t.scheduled_start, t.kind, t.mapbox_route_json, t.reminder_sent, t.project_id, pj.name as project_name, b.id as buyer_id, b.full_name, b.thread_id, "

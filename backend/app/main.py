@@ -23,6 +23,7 @@ from app.ingest.browser import BrowserFetcher, Politeness
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
 from app.observability import GuardMiddleware
+from app.portal_api import router as portal_router
 from app.proactive import ProactiveService
 from app.projects import ProjectService
 from app.repository import Repository
@@ -126,6 +127,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.add_middleware(GuardMiddleware, public_per_minute=s.rate_limit_public_per_minute, failed_auth_per_minute=s.rate_limit_failed_auth_per_minute,
                        trust_proxy=s.trust_proxy_headers)
     app.include_router(router)
+    app.include_router(portal_router)
 
     @app.get("/health")
     def health() -> dict:

@@ -133,7 +133,9 @@ class SlidingWindow:
                 del self._hits[idle]
 
 
-PUBLIC_PREFIXES = ("/api/webhooks/", "/api/telegram/webhook", "/demo/")
+PUBLIC_PREFIXES = ("/api/webhooks/", "/api/telegram/webhook", "/demo/", "/api/public/")
+# Buyers sign in with their own token. A buyer whose sign-in expired must not count as someone guessing the admin key (the website's server is one client for all of them).
+BUYER_PREFIX = "/api/me/"
 
 
 class GuardMiddleware(BaseHTTPMiddleware):
@@ -158,7 +160,7 @@ class GuardMiddleware(BaseHTTPMiddleware):
         started, client, path = time.monotonic(), self._client(request), request.url.path
         try:
             retry = 0.0
-            if path.startswith("/api/") and (wait := self._failures.blocked(client)):
+            if path.startswith("/api/") and not path.startswith(BUYER_PREFIX) and (wait := self._failures.blocked(client)):
                 retry = wait  # too many rejected keys: even a correct one waits until the window passes
             elif path.startswith(PUBLIC_PREFIXES):
                 if wait := self._public.blocked(client):
@@ -169,7 +171,7 @@ class GuardMiddleware(BaseHTTPMiddleware):
                 response: Response = JSONResponse({"detail": "Too many requests"}, status_code=429, headers={"Retry-After": str(int(retry) + 1)})
             else:
                 response = await call_next(request)
-                if response.status_code in (401, 403) and path.startswith("/api/") and not path.startswith(PUBLIC_PREFIXES):
+                if response.status_code in (401, 403) and path.startswith("/api/") and not path.startswith((*PUBLIC_PREFIXES, BUYER_PREFIX)):
                     self._failures.hit(client)
             response.headers["X-Request-ID"] = rid
             if path != "/health":

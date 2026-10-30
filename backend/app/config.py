@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    supabase_jwt_secret: str = ""  # only for projects that still sign tokens with the shared HS256 secret; newer ones are checked against the published public keys
     database_url: str = ""
 
     telegram_bot_token: str = ""
