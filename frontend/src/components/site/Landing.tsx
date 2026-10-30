@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { fmtEtb } from "@/lib/format";
 import { num, specsLine, type Featured, type PortalUnit } from "@/lib/portal";
+import HeroPhoto from "./HeroPhoto";
 import ListingCard from "./ListingCard";
 import { buttonClass } from "./ui";
 
@@ -31,6 +32,7 @@ function HeroArt({ unit }: { unit?: PortalUnit }) {
             <path d="M34 430v-70M34 360c-22-8-30-32-18-50 8 14 28 16 36 50-6 6-14 6-18 0Z" opacity=".6" />
           </g>
         </svg>
+        <HeroPhoto unit={unit} />
       </div>
 
       {unit && (

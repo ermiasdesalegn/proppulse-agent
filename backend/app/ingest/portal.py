@@ -63,6 +63,7 @@ class PortalListing:
     property_type: str | None = None
     deal: str | None = None  # 'sale', 'rent' or None when the page does not say
     image_url: str | None = None
+    image_alternatives: list[str] = field(default_factory=list)  # other sizes of the same photo, for when the site deleted the main one
     description: str | None = None
     lat: float | None = None
     lng: float | None = None
@@ -219,16 +220,25 @@ def _read_embedded(listing: PortalListing, soup: BeautifulSoup) -> None:
         listing.set("lng", _number(record.get("longitude")), "embedded-json")
         content = record.get("content") or record.get("description")
         listing.set("description", BeautifulSoup(content, "html.parser").get_text(" ", strip=True) if isinstance(content, str) else None, "embedded-json")
-        listing.set("image_url", _cover_of(record.get("images") or record.get("photos") or record.get("gallery")), "embedded-json")
+        cover = _cover_of(record.get("images") or record.get("photos") or record.get("gallery"))
+        if cover and listing.image_url is None:
+            listing.set("image_url", cover[0], "embedded-json")
+            if listing.image_url == cover[0]:
+                listing.image_alternatives = [u for u in cover[1:] if is_listing_photo(u)]
 
 
-def _cover_of(images: Any) -> str | None:
-    """The picture the site marks as the cover, else its first one. Entries are addresses or records with a `url`."""
+def _cover_of(images: Any) -> list[str] | None:
+    """The picture the site marks as the cover (else its first one), then the other sizes the site keeps of that same picture.
+    Entries are addresses or records with a `url` (and possibly `small_url`, `bkp_url`)."""
     if not isinstance(images, list):
         return None
-    urls = [(img.get("url") or img.get("src"), bool(img.get("cover"))) if isinstance(img, dict) else (img, False) for img in images]
-    urls = [(u, cover) for u, cover in urls if isinstance(u, str) and u.strip()]
-    return next((u for u, cover in urls if cover), urls[0][0] if urls else None)
+    entries = [img if isinstance(img, dict) else {"url": img} for img in images]
+    entries = [e for e in entries if isinstance(e.get("url") or e.get("src"), str) and (e.get("url") or e.get("src")).strip()]
+    if not entries:
+        return None
+    chosen = next((e for e in entries if e.get("cover")), entries[0])
+    versions = [chosen.get("url") or chosen.get("src"), chosen.get("small_url"), chosen.get("bkp_url"), chosen.get("thumbnail")]
+    return list(dict.fromkeys(v for v in versions if isinstance(v, str) and v.strip()))
 
 
 def _select(soup: BeautifulSoup, selector: str) -> str | None:
@@ -379,6 +389,7 @@ def extract_listing(html: str, url: str, hints: SiteHints | None = None) -> Port
     listing.sub_city = _sub_city_from(listing.sub_city, url, listing.title)
     if listing.image_url:
         listing.image_url = urljoin(url, listing.image_url)
+        listing.image_alternatives = [urljoin(url, u) for u in listing.image_alternatives]
     return listing
 
 

@@ -131,7 +131,30 @@ class PortalSpider(scrapy.Spider):
                 item["text"] = page_text(response.text, 12_000)
         else:
             self.crawler.stats.inc_value(f"portals/{site.slug}/local_price")
-        yield item
+        if listing.image_url and listing.image_alternatives:  # the site keeps other sizes: make sure the photo sent is one that still exists
+            yield self._photo_check(item, [listing.image_url, *listing.image_alternatives])
+        else:
+            yield item
+
+    # ---------------- the listing's photo ----------------
+
+    def _photo_check(self, item: dict, candidates: list[str]) -> scrapy.Request:
+        return scrapy.Request(candidates[0], method="HEAD", callback=self.photo_checked, errback=self.photo_failed, dont_filter=True,
+                              cb_kwargs={"item": item, "rest": candidates[1:]})
+
+    def photo_checked(self, response: Response, item: dict, rest: list[str]) -> Iterator[Any]:
+        if response.status == 200 and response.headers.get(b"Content-Type", b"").startswith(b"image/"):
+            yield {**item, "image_url": response.url}
+        else:
+            yield self._next_photo(item, rest)
+
+    def photo_failed(self, failure: Any) -> Iterator[Any]:
+        kwargs = failure.request.cb_kwargs
+        yield self._next_photo(kwargs["item"], kwargs["rest"])
+
+    def _next_photo(self, item: dict, rest: list[str]) -> Any:
+        """Try the next size, or send the listing without a photo: a missing picture never costs the listing."""
+        return self._photo_check(item, rest) if rest else {**item, "image_url": None}
 
     # ---------------- helpers ----------------
 

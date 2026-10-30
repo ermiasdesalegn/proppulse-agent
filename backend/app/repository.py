@@ -180,12 +180,13 @@ class Repository:
     async def update_property_source(self, property_id: UUID | str, url: str) -> None:
         await self._fetch("update properties set source_url = %s where id = %s returning id", (url, str(property_id)))
 
-    async def properties_missing_photo(self) -> list[dict]:
+    async def properties_missing_photo(self, *, include_existing: bool = False) -> list[dict]:
+        missing = "" if include_existing else "and p.photo_url is null "
         return await self._fetch(
-            "select p.id, p.source_url, d.slug as developer_slug from properties p join developers d on d.id = p.developer_id "
-            "where p.source_url is not null and p.photo_url is null and p.status = 'AVAILABLE' order by d.slug, p.created_at desc")
+            "select p.id, p.source_url, p.photo_url, d.slug as developer_slug from properties p join developers d on d.id = p.developer_id "
+            f"where p.source_url is not null {missing}and p.status = 'AVAILABLE' order by d.slug, p.created_at desc")
 
-    async def update_property_photo(self, property_id: UUID | str, url: str) -> None:
+    async def update_property_photo(self, property_id: UUID | str, url: str | None) -> None:
         await self._fetch("update properties set photo_url = %s where id = %s returning id", (url, str(property_id)))
 
     async def update_property_image(self, property_id: UUID | str, url: str) -> None:
@@ -758,11 +759,11 @@ class Repository:
 
     async def portal_featured(self, limit: int = 6) -> list[dict]:
         """A spread across developers: each one's newest unit first, then their next, so one developer cannot fill the page.
-        Units with a photo of their own come first, within each developer and across them."""
+        Units with a picture (their own photo, else their project's) fill the page first: a drawing only when too few have one."""
         return await self._fetch(
             "select * from (" + self._PORTAL_UNIT.format(
                 extra=", row_number() over (partition by p.developer_id order by (p.photo_url is null), p.created_at desc, p.id) as rn ")
-            + "where p.status = 'AVAILABLE') t order by rn, (photo_url is null), created_at desc limit %s",
+            + "where p.status = 'AVAILABLE') t order by (coalesce(photo_url, cover_image_url, cover_media_id::text) is null), rn, created_at desc limit %s",
             (limit,),
         )
 

@@ -308,7 +308,7 @@ async def test_units_read_by_the_model_keep_the_pages_address_and_get_the_same_p
 LOGO_AND_TRANSFER_STATE = (
     '<html><head><meta property="og:image" content="https://cdn.test/bg/le-logo.webp"></head><body>'
     '<script type="application/json">{&q;p&q;:{&q;title&q;:&q;3BR Apartment&q;,&q;price&q;:9000000,&q;bedrooms&q;:3,&q;area&q;:120,'
-    '&q;images&q;:[{&q;url&q;:&q;https://cdn.test/second.webp&q;,&q;cover&q;:false},{&q;url&q;:&q;https://cdn.test/front.webp&q;,&q;cover&q;:true}]}}</script>'
+    '&q;images&q;:[{&q;url&q;:&q;https://cdn.test/second.webp&q;,&q;cover&q;:false},{&q;url&q;:&q;https://cdn.test/front.webp&q;,&q;cover&q;:true,&q;small_url&q;:&q;https://cdn.test/small_front.webp&q;,&q;bkp_url&q;:null}]}}</script>'
     '</body></html>'
 )
 
@@ -316,6 +316,7 @@ LOGO_AND_TRANSFER_STATE = (
 def test_the_photo_the_site_marks_as_cover_is_kept_and_a_logo_never_is():
     listing = extract_listing(LOGO_AND_TRANSFER_STATE, "https://le.test/site/property-details/2547")
     assert listing.image_url == "https://cdn.test/front.webp" and listing.found_by["image_url"] == "embedded-json"
+    assert listing.image_alternatives == ["https://cdn.test/small_front.webp"], "a smaller copy to fall back on when the site deletes the main one"
     only_logo = extract_listing('<html><head><meta property="og:image" content="https://cdn.test/icon/logo_white.webp"></head></html>', "https://le.test/p/1")
     assert only_logo.image_url is None
 
@@ -334,3 +335,21 @@ async def test_a_crawl_stores_the_photo_and_a_later_crawl_updates_it(repo, db_co
     await service.run_portal(portal="photo-test", name="Photo Test", items=[item("1", url="https://p.test/1", image_url="https://p.test/b.jpg")])
     cur = await db_conn.execute("select p.photo_url from properties p join developers d on d.id = p.developer_id where d.slug = 'photo-test'")
     assert [r["photo_url"] for r in await cur.fetchall()] == ["https://p.test/b.jpg"]
+
+
+def test_the_spider_sends_the_first_photo_size_that_still_exists():
+    from scrapy.http import Request, Response
+
+    from scraper.spiders.portals import PortalSpider
+
+    spider = PortalSpider(site="livingethio")
+    check = spider._photo_check({"ref": "1"}, ["https://cdn.test/full.jpg", "https://cdn.test/small.webp"])
+    assert check.method == "HEAD" and check.url == "https://cdn.test/full.jpg"
+
+    gone = Response("https://cdn.test/full.jpg", status=403, headers={"Content-Type": "application/xml"}, request=check)
+    retry = next(spider.photo_checked(gone, **check.cb_kwargs))
+    assert isinstance(retry, Request) and retry.url == "https://cdn.test/small.webp"
+
+    ok = Response("https://cdn.test/small.webp", status=200, headers={"Content-Type": "image/webp"}, request=retry)
+    assert next(spider.photo_checked(ok, **retry.cb_kwargs)) == {"ref": "1", "image_url": "https://cdn.test/small.webp"}
+    assert next(spider.photo_checked(gone, item={"ref": "1"}, rest=[])) == {"ref": "1", "image_url": None}, "no working photo: the listing still goes"
