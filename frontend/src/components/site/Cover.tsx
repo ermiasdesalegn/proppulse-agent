@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { coverSrc, type PortalUnit } from "@/lib/portal";
 
 // Warm, quiet duotones. A unit without a photo gets one of these, chosen from its id so it stays the same on every visit.
@@ -68,12 +68,17 @@ function CoverArt({ unit }: { unit: Pick<PortalUnit, "id" | "unit_type" | "sub_c
 
 export default function Cover({ unit, className = "" }: { unit: Pick<PortalUnit, "id" | "unit_type" | "sub_city" | "bedrooms" | "cover" | "title">; className?: string }) {
   const [failed, setFailed] = useState(false);
+  const img = useRef<HTMLImageElement>(null);
   const src = coverSrc(unit.cover);
+  // A photo that failed before this script ran never reports it: look at the image itself.
+  useEffect(() => {
+    if (img.current?.complete && img.current.naturalWidth === 0) setFailed(true);
+  }, [src]);
   return (
     <div className={`relative overflow-hidden bg-raised ${className}`}>
       {src && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element -- pictures come from developer websites, which Next's image optimiser is not set up to fetch
-        <img src={src} alt={`${unit.title}`} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+        <img ref={img} src={src} alt={`${unit.title}`} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" />
       ) : (
         <CoverArt unit={unit} />
       )}

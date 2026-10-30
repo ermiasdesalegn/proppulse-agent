@@ -1,17 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { coverSrc, type PortalUnit } from "@/lib/portal";
 
 /** The featured home's own photo over the hero drawing. If it cannot load, it steps aside and the drawing shows. */
 export default function HeroPhoto({ unit }: { unit?: Pick<PortalUnit, "cover" | "title"> }) {
   const [state, setState] = useState<"loading" | "shown" | "failed">("loading");
+  const img = useRef<HTMLImageElement>(null);
   const src = coverSrc(unit?.cover);
+
+  // The page arrives with the <img> already in it, so the photo can finish (or fail) before this script runs and its load event is
+  // missed. Look at the image itself once the script is running.
+  useEffect(() => {
+    const el = img.current;
+    if (el?.complete) setState(el.naturalWidth > 0 ? "shown" : "failed");
+  }, [src]);
+
   if (!src || state === "failed") return null;
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element -- pictures come from developer websites, which Next's image optimiser is not set up to fetch */}
       <img
+        ref={img}
         src={src}
         alt={unit?.title ?? ""}
         decoding="async"
