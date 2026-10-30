@@ -103,7 +103,7 @@ export default function ScorePanel({ buyerId }: { buyerId: string }) {
             {tours.map((t) => (
               <li key={t.id} className="flex flex-wrap items-center justify-between gap-2">
                 <span>{t.kind === "CONSULTATION" ? "Phone call" : `${t.stops.length} stop${t.stops.length === 1 ? "" : "s"}`} - {fmtDateTime(t.scheduled_start)}</span>
-                <Link href={`/tours/${t.id}`} className="text-xs font-medium text-accent hover:underline">Open dossier</Link>
+                <Link href={`/console/tours/${t.id}`} className="text-xs font-medium text-accent hover:underline">Open dossier</Link>
               </li>
             ))}
           </ul>

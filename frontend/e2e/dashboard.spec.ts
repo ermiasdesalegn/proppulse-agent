@@ -10,7 +10,7 @@ async function signIn(page: Page) {
 }
 
 test("the dashboard is closed to anyone who is not signed in", async ({ page }) => {
-  await page.goto("/crm");
+  await page.goto("/console/crm");
   await expect(page).toHaveURL(/\/login/);
   const response = await page.request.get("/api/proxy/buyers");
   expect(response.status()).toBe(401);

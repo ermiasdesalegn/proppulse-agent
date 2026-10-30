@@ -15,7 +15,7 @@ export default function LoginPage() {
     try {
       const res = await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
       if (res.ok) {
-        window.location.href = "/";
+        window.location.href = "/console";
         return;
       }
       setError((await res.json().catch(() => null))?.detail ?? "Sign-in failed.");

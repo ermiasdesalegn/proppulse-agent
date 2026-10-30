@@ -38,7 +38,7 @@ export default function OverviewPage() {
       <PageHeader
         title="Overview"
         description={s ? <>{s.buyers} buyers and <span className="tnum text-white">{fmtEtb(Number(s.pipeline_commission_etb))}</span> in the commission pipeline, {s.upcoming_tours} upcoming {s.upcoming_tours === 1 ? "tour" : "tours"}.</> : "Your buyers, deals and the agent at a glance."}
-        actions={<><Link href="/board" className="rounded-lg border border-[#2a2a2a] px-3.5 py-1.5 text-sm font-medium hover:border-[#444] hover:bg-white/[0.04]">View deal board</Link><Link href="/chat" className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-[#111] hover:brightness-110"><Icon name="plus" className="h-4 w-4" />New conversation</Link></>}
+        actions={<><Link href="/console/board" className="rounded-lg border border-[#2a2a2a] px-3.5 py-1.5 text-sm font-medium hover:border-[#444] hover:bg-white/[0.04]">View deal board</Link><Link href="/console/chat" className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-[#111] hover:brightness-110"><Icon name="plus" className="h-4 w-4" />New conversation</Link></>}
       />
 
       {stats.error && <ErrorNote>{stats.error}</ErrorNote>}
@@ -56,7 +56,7 @@ export default function OverviewPage() {
           <ActivityList events={events} nameOf={nameOf} />
         </Card>
 
-        <Card title="Recent activity" subtitle="Alerts and reminders that went out" action={<CardLink href="/analytics">View analytics</CardLink>}>
+        <Card title="Recent activity" subtitle="Alerts and reminders that went out" action={<CardLink href="/console/analytics">View analytics</CardLink>}>
           {notices.loading ? <Empty>Loading...</Empty> : (notices.data ?? []).length === 0 ? (
             <Empty>Nothing yet. Price drops, tour reminders and payment notices appear here when they are sent.</Empty>
           ) : (

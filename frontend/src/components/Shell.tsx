@@ -12,20 +12,20 @@ import { Avatar } from "./ui";
 
 const GROUPS: { label: string; items: { href: string; label: string; icon: IconName }[] }[] = [
   { label: "Workspace", items: [
-    { href: "/", icon: "overview", label: "Overview" },
-    { href: "/crm", icon: "crm", label: "CRM & Takeover" },
-    { href: "/board", icon: "board", label: "Deal Board" },
-    { href: "/map", icon: "map", label: "Map & Tours" },
-    { href: "/projects", icon: "listing", label: "Projects" },
-    { href: "/portals", icon: "deals", label: "Portals" },
+    { href: "/console", icon: "overview", label: "Overview" },
+    { href: "/console/crm", icon: "crm", label: "CRM & Takeover" },
+    { href: "/console/board", icon: "board", label: "Deal Board" },
+    { href: "/console/map", icon: "map", label: "Map & Tours" },
+    { href: "/console/projects", icon: "listing", label: "Projects" },
+    { href: "/console/portals", icon: "deals", label: "Portals" },
   ] },
   { label: "Intelligence", items: [
-    { href: "/brain", icon: "brain", label: "Agent Brain" },
-    { href: "/analytics", icon: "analytics", label: "Analytics" },
+    { href: "/console/brain", icon: "brain", label: "Agent Brain" },
+    { href: "/console/analytics", icon: "analytics", label: "Analytics" },
   ] },
   { label: "Tools", items: [
-    { href: "/studio", icon: "studio", label: "Studio" },
-    { href: "/chat", icon: "chat", label: "Chat Simulator" },
+    { href: "/console/studio", icon: "studio", label: "Studio" },
+    { href: "/console/chat", icon: "chat", label: "Chat Simulator" },
   ] },
 ];
 
@@ -55,8 +55,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   // Ahead of the click: fetch every page's code (a production build does this on its own for visible links; this also covers the rest).
   useEffect(() => { for (const g of GROUPS) for (const i of g.items) router.prefetch(i.href); }, [router]);
   const current = target ?? pathname;
-  const here = GROUPS.flatMap((g) => g.items).find((i) => (i.href === "/" ? pathname === "/" : pathname.startsWith(i.href)));
-  useEffect(() => { document.title = here ? `${here.label} | PropPulse AI` : pathname.startsWith("/tours") ? "Pre-tour dossier | PropPulse AI" : "PropPulse AI | Command Center"; }, [here, pathname]);
+  const here = GROUPS.flatMap((g) => g.items).find((i) => (i.href === "/console" ? pathname === "/console" : pathname.startsWith(i.href)));
+  useEffect(() => { document.title = here ? `${here.label} | PropPulse AI` : pathname.startsWith("/console/tours") ? "Pre-tour dossier | PropPulse AI" : "PropPulse AI | Command Center"; }, [here, pathname]);
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -82,7 +82,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <div key={group.label} className="flex gap-1 md:mb-4 md:flex-col">
                 <p className="hidden px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted/70 md:block">{group.label}</p>
                 {group.items.map((item) => {
-                  const active = item.href === "/" ? current === "/" : current.startsWith(item.href);
+                  const active = item.href === "/console" ? current === "/console" : current.startsWith(item.href);
                   return (
                     <Link
                       key={item.href} href={item.href} prefetch aria-current={active ? "page" : undefined}

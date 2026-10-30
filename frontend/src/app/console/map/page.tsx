@@ -211,7 +211,7 @@ export default function MapPage() {
                       {t.id === tourId && drive ? <p className="tnum text-xs text-muted">{kmFromMeters(drive.distanceMeters)}, about {Math.max(1, Math.round(drive.durationSeconds / 60))} min driving from {me ? "you" : "Meskel Square"}</p>
                         : t.mapbox_route_json && <p className="tnum text-xs text-muted">{kmFromMeters(t.mapbox_route_json.distance_meters)}, about {Math.round(t.mapbox_route_json.duration_seconds / 60)} min driving</p>}
                     </button>
-                    <Link href={`/tours/${t.id}`} className="block border-b border-line/60 px-4 pb-2 text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>
+                    <Link href={`/console/tours/${t.id}`} className="block border-b border-line/60 px-4 pb-2 text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>
                   </li>
                 ))}
               </ul>

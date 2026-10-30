@@ -33,13 +33,13 @@ export default function DossierPage() {
   }
 
   if (dossier.loading) return <Empty>Loading the dossier...</Empty>;
-  if (!d) return <div className="space-y-3"><ErrorNote>{dossier.error ?? "Dossier not found."}</ErrorNote><Link href="/map" className="text-sm text-accent hover:underline">Back to the map</Link></div>;
+  if (!d) return <div className="space-y-3"><ErrorNote>{dossier.error ?? "Dossier not found."}</ErrorNote><Link href="/console/map" className="text-sm text-accent hover:underline">Back to the map</Link></div>;
 
   const b = d.buyer;
   const call = d.kind === "CONSULTATION";
   return (
     <div className="space-y-6">
-      <Link href="/board" className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-white">&larr; Deal Board</Link>
+      <Link href="/console/board" className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-white">&larr; Deal Board</Link>
       <PageHeader
         eyebrow={`${call ? "Phone consultation" : d.project ? "Project visit" : "Site visit"} - pre-tour dossier`} title={b.name ?? "Unnamed buyer"}
         description={<>{fmtDateTime(d.starts_at)}{d.route ? ` - ${d.route.distance_km} km, about ${d.route.minutes} min of driving` : ""}</>}
@@ -123,7 +123,7 @@ export default function DossierPage() {
               <div><dt className="text-xs text-muted">Wants</dt><dd>{b.wants ?? "-"}</dd></div>
               <div><dt className="text-xs text-muted">Areas</dt><dd>{b.areas.join(", ") || "-"}</dd></div>
             </dl>
-            <p className="border-t border-line px-4 py-3 text-xs"><Link href="/crm" className="text-accent hover:underline">Open in CRM</Link></p>
+            <p className="border-t border-line px-4 py-3 text-xs"><Link href="/console/crm" className="text-accent hover:underline">Open in CRM</Link></p>
           </Card>
         </div>
       </div>

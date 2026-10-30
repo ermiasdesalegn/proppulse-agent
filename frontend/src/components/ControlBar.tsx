@@ -112,7 +112,7 @@ function ResetDemo() {
     setBusy(true); setError(null);
     try {
       await post("demo/reset", { confirm: "RESET" });
-      window.location.href = "/";
+      window.location.href = "/console";
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
