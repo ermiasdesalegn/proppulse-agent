@@ -98,6 +98,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "d_yield": {"en": "Estimated rental yield: {pct}%.", "am": "የሚጠበቅ የኪራይ ገቢ፦ {pct}%።"},
     "d_features": {"en": "Features: {items}.", "am": "ገጽታዎች፦ {items}።"},
     "d_plan": {"en": "Payment plan: {plan} (about {monthly} a month on average).", "am": "የክፍያ ዕቅድ፦ {plan} (በአማካይ በወር ወደ {monthly})።"},
+    "d_3d": {"en": "I have sent you a 3D view of the layout and the 3D model file.", "am": "የክፍሎቹን 3D እይታና የ3D ሞዴል ፋይል ልኬልዎታለሁ።"},
     "btn_details": {"en": "Details {n}", "am": "ዝርዝር {n}"},
     "btn_book": {"en": "Book {n}", "am": "ቀጠሮ {n}"},
     "btn_compare": {"en": "Compare all", "am": "ሁሉንም አወዳድር"},

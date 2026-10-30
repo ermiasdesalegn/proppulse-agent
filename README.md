@@ -107,6 +107,7 @@ Guard rails: robots.txt and pacing everywhere; a bot-check page or a 403/429 sto
 - **Proactive jobs:** price-drop alerts to matching buyers, price-increase notices to the broker, new-listing matches, 24 h tour and milestone reminders (idempotent, scheduler-triggered).
 - **Market ingestion:** the two strategies above, plus pasted announcements and an inbound-email webhook; only new units cost a model call.
 - **Projects (price on request):** most Addis developers publish projects, not unit prices. The bot lists matching projects with an **Ask the price** button; the broker is told, enters the price once, and every waiting buyer is messaged. Live offers are advertised to the channel once each.
+- **3D model of a unit:** the broker gives a unit its rooms (read from a floor-plan picture, or typed in) in the Studio. The agent builds a 3D model file (.glb) and a 3D picture from them in code, with no model call and no invented rooms, and sends both to a buyer on Telegram when they ask for that unit's details (`backend/app/model3d.py`).
 - **Channel ads:** composes and posts listings with Ask / Compare / Book buttons that deep-link back to the bot. Real posts need an explicit second step.
 
 ## The Command Center
@@ -121,7 +122,7 @@ Guard rails: robots.txt and pacing everywhere; a bot-check page or a 403/429 sto
 | **Portals** | Start the portal crawler, see every run (status, counts, share priced without the model, GitHub log) and which portal needs attention |
 | Agent Brain | The live graph and a timeline of every step with model requests, tokens, fall-backs and tool calls |
 | Analytics | Pipeline, commission, messages per day, lead scores, worries, reply time, model usage, evaluation results |
-| Studio | Read listing pages and announcements, floor plans, price simulator, channel ads, scrape health |
+| Studio | Read listing pages and announcements, floor plans, 3D models of units, price simulator, channel ads, scrape health |
 | Chat Simulator | Talk to the agent as a buyer, with the same buttons Telegram shows |
 
 | Page | Look |

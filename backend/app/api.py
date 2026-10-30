@@ -8,6 +8,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,6 +19,7 @@ from app.ingest.fetch import FetchError
 from app.ingest.models import PortalItem, ScrapeProfile
 from app.ingest.sample import sample_listing
 from app.ingest.service import ExtractionError, IngestionService
+from app.model3d import MAX_ROOMS, PLAN_PROMPT, Layout, PlanRead, layout_from_plan, pack_rooms, render_png, to_glb
 from app.portal_runs import PortalRunError, PortalRunService
 from app.repository import Repository
 from app.telegram_updates import TelegramUpdateHandler
@@ -643,6 +645,101 @@ async def move_deal(ledger_id: UUID, body: DealMoveIn, repo: Repository = Depend
 @router.get("/api/properties", dependencies=[Depends(require_admin)])
 async def list_properties(repo: Repository = Depends(repo_of)):
     return await repo.list_properties_for_map()
+
+
+# ---------------- 3D model of a unit ----------------
+
+
+class RoomSizeIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    w: float = Field(gt=0.4, le=100)
+    d: float = Field(gt=0.4, le=100)
+
+
+class PackIn(BaseModel):
+    """Rooms with a size but no position: they are placed in rows."""
+
+    title: str = Field(default="", max_length=80)
+    rooms: list[RoomSizeIn] = Field(min_length=1, max_length=MAX_ROOMS)
+
+
+class PlanIn(BaseModel):
+    image_base64: str = Field(max_length=7_000_000)
+    mime: Literal["image/png", "image/jpeg", "image/webp"]
+
+
+async def _unit(repo: Repository, property_id: UUID) -> dict:
+    rows = await repo.get_properties([property_id])
+    if not rows:
+        raise HTTPException(404, "Unit not found")
+    return rows[0]
+
+
+async def _layout_of(repo: Repository, property_id: UUID) -> tuple[dict, Layout]:
+    unit = await _unit(repo, property_id)
+    stored = await repo.get_layout(property_id)
+    if stored is None:
+        raise HTTPException(404, "This unit has no 3D layout yet")
+    return unit, Layout.model_validate(stored)
+
+
+def _file_name(unit: dict, extension: str) -> str:
+    stem = "".join(c if c.isalnum() else "-" for c in str(unit["title"]).lower()).strip("-")
+    return f"{stem[:60] or 'unit'}.{extension}"
+
+
+@router.post("/api/layouts/pack", dependencies=[Depends(require_admin)])
+async def pack_layout(body: PackIn) -> Layout:
+    return pack_rooms([(r.name, r.w, r.d) for r in body.rooms], title=body.title)
+
+
+@router.post("/api/properties/{property_id}/layout/read-plan", dependencies=[Depends(require_admin)])
+async def read_plan(property_id: UUID, body: PlanIn, repo: Repository = Depends(repo_of), service: IngestionService = Depends(ingest_of)) -> Layout:
+    """Reads a floor-plan image into rooms for the broker to check. Nothing is saved until the broker saves it."""
+    unit = await _unit(repo, property_id)
+    try:
+        image, mime = decode_image(body.image_base64, body.mime)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        read = await service.gateway.describe_image(image, mime_type=mime, prompt=PLAN_PROMPT, schema=PlanRead)
+        return layout_from_plan(read, sqm=float(unit["sqm"]) if unit.get("sqm") else None, title=str(unit["title"])[:80])
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except Exception:
+        raise HTTPException(502, "The plan could not be read right now. Try again in a minute, or enter the rooms by hand.") from None
+
+
+@router.get("/api/properties/{property_id}/layout", dependencies=[Depends(require_admin)])
+async def get_layout(property_id: UUID, repo: Repository = Depends(repo_of)) -> dict:
+    await _unit(repo, property_id)
+    return {"layout": await repo.get_layout(property_id)}
+
+
+@router.put("/api/properties/{property_id}/layout", dependencies=[Depends(require_admin)])
+async def save_layout(property_id: UUID, body: Layout, repo: Repository = Depends(repo_of)) -> Layout:
+    await _unit(repo, property_id)
+    await repo.set_layout(property_id, body.model_dump(mode="json"))
+    return body
+
+
+@router.delete("/api/properties/{property_id}/layout", dependencies=[Depends(require_admin)])
+async def delete_layout(property_id: UUID, repo: Repository = Depends(repo_of)) -> dict:
+    await _unit(repo, property_id)
+    return {"deleted": await repo.delete_layout(property_id)}
+
+
+@router.get("/api/properties/{property_id}/model.glb", dependencies=[Depends(require_admin)])
+async def model_file(property_id: UUID, repo: Repository = Depends(repo_of)) -> Response:
+    unit, layout = await _layout_of(repo, property_id)
+    return Response(await run_in_threadpool(to_glb, layout), media_type="model/gltf-binary",
+                    headers={"Content-Disposition": f'attachment; filename="{_file_name(unit, "glb")}"'})
+
+
+@router.get("/api/properties/{property_id}/preview.png", dependencies=[Depends(require_admin)])
+async def model_picture(property_id: UUID, repo: Repository = Depends(repo_of)) -> Response:
+    _, layout = await _layout_of(repo, property_id)
+    return Response(await run_in_threadpool(render_png, layout), media_type="image/png")
 
 
 @router.get("/api/tours", dependencies=[Depends(require_admin)])

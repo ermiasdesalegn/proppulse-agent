@@ -438,3 +438,20 @@ export interface PortalRuns {
   config: { portals: { slug: string; name: string }[]; can_start: boolean; min_success_rate: number };
   runs: CrawlRun[];
 }
+
+export interface LayoutRoom {
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+}
+
+/** The rooms of a unit in metres; the 3D model and its picture are built from this on the server. */
+export interface UnitLayout {
+  title: string;
+  width_m: number;
+  depth_m: number;
+  wall_height_m: number;
+  rooms: LayoutRoom[];
+}

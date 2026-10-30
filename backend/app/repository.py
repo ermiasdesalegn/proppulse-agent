@@ -879,6 +879,26 @@ class Repository:
     async def set_project_image(self, project_id: UUID | str, url: str | None) -> dict | None:
         return await self._one("update projects set image_url = %s where id = %s returning *", (url, str(project_id)))
 
+    # ---- unit layouts: the rooms of a unit, from which its 3D model is built ----
+
+    async def get_layout(self, property_id: UUID | str) -> dict | None:
+        row = await self._one("select layout from unit_layouts where property_id = %s", (str(property_id),))
+        return row["layout"] if row else None
+
+    async def set_layout(self, property_id: UUID | str, layout: dict) -> None:
+        from psycopg.types.json import Jsonb
+
+        await self._fetch(
+            "insert into unit_layouts (property_id, layout) values (%s, %s) "
+            "on conflict (property_id) do update set layout = excluded.layout, updated_at = now() returning property_id",
+            (str(property_id), Jsonb(layout)))
+
+    async def delete_layout(self, property_id: UUID | str) -> bool:
+        return bool(await self._fetch("delete from unit_layouts where property_id = %s returning property_id", (str(property_id),)))
+
+    async def units_with_layout(self) -> set[str]:
+        return {str(r["property_id"]) for r in await self._fetch("select property_id from unit_layouts")}
+
     async def answered_price_requests(self, project_id: UUID | str) -> list[dict]:
         """Buyers who asked for this project's price and were told: the ones to tell when the price changes."""
         return await self._fetch(
