@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Logo } from "@/components/icons";
+import { BrandMark } from "@/components/site/SiteChrome";
 import { browserClient } from "@/lib/supabase/browser";
 
 const NOTICES: Record<string, string> = {
@@ -11,7 +11,7 @@ const NOTICES: Record<string, string> = {
 };
 
 const field = "mt-1 w-full rounded-md border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30";
-const button = "mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-[#111] transition hover:brightness-110 disabled:opacity-50";
+const button = "mt-5 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50";
 
 /** Where to go once signed in: /login hands each person to their own home (middleware), or on to where they were headed. */
 function continueUrl(next: string | null): string {
@@ -48,23 +48,23 @@ export default function LoginForm({ next, notice }: { next: string | null; notic
 
   return (
     <main className="grid min-h-screen md:grid-cols-2">
-      <section className="relative hidden flex-col justify-between overflow-hidden border-r border-white/[0.07] p-12 md:flex">
-        <Link href="/" className="flex items-center gap-3"><Logo className="h-10 w-10" /><span className="text-sm font-semibold uppercase tracking-widest">PropPulse AI</span></Link>
+      <section className="relative hidden flex-col justify-between overflow-hidden border-r border-line bg-gradient-to-br from-[#f3e7d3] via-[#ead7b4] to-[#d3b27a] p-12 md:flex">
+        <Link href="/" className="flex items-center gap-3"><BrandMark className="h-10 w-10" /><span className="display text-xl font-medium">PropPulse AI</span></Link>
         <div>
-          <h2 className="text-4xl font-semibold leading-tight tracking-tight">Find the right home,<br /><span className="text-accent">with someone who answers.</span></h2>
-          <ul className="mt-6 space-y-3 text-sm text-muted">
-            <li>Verified listings from Addis Ababa developers</li>
+          <h2 className="display text-5xl font-medium leading-[1.08]">Find the right home,<br /><span className="italic text-[#5c4119]">with someone who answers.</span></h2>
+          <ul className="mt-6 space-y-3 text-[15px] text-[#4a3716]">
+            <li>Listings from Addis Ababa developers and portals</li>
             <li>An assistant that knows every unit, in English and Amharic</li>
             <li>Site visits booked in minutes</li>
           </ul>
         </div>
-        <p className="text-xs text-muted">Addis Ababa real estate, run by one broker and one agent.</p>
+        <p className="text-xs text-[#4a3716]/80">Addis Ababa real estate, with a real broker behind every chat.</p>
       </section>
       <div className="flex items-center justify-center px-4 py-10">
-        <form onSubmit={submit} className="card w-full max-w-sm rounded-xl border border-line bg-panel p-7">
-          <div className="mb-4 md:hidden"><Logo /></div>
+        <form onSubmit={submit} className="card w-full max-w-sm rounded-2xl border border-line bg-panel p-8 shadow-[0_30px_60px_-30px_rgb(60_40_10/0.35)]">
+          <Link href="/" className="mb-4 inline-block md:hidden"><BrandMark /></Link>
           <p className="text-xs font-semibold uppercase tracking-widest text-accent">PropPulse AI</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{broker ? "Broker access" : "Sign in"}</h1>
+          <h1 className="display mt-1 text-3xl font-medium">{broker ? "Broker access" : "Sign in"}</h1>
           <p className="mt-1 text-sm text-muted">{broker ? "Enter the console password." : "Welcome back. Pick up where you left off."}</p>
           {notice && NOTICES[notice] && <p role="status" className="mt-4 rounded-md border border-good/30 bg-good/10 px-3 py-2 text-sm text-good">{NOTICES[notice]}</p>}
 
@@ -83,7 +83,7 @@ export default function LoginForm({ next, notice }: { next: string | null; notic
 
           <div className="mt-5 flex items-center justify-between text-sm text-muted">
             {broker ? <span /> : <span>New here? <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"} className="font-medium text-accent hover:underline">Create an account</Link></span>}
-            <button type="button" onClick={() => { setBroker(!broker); setError(null); setPassword(""); }} className="text-xs hover:text-white">{broker ? "Back to sign in" : "Broker access"}</button>
+            <button type="button" onClick={() => { setBroker(!broker); setError(null); setPassword(""); }} className="text-xs hover:text-ink">{broker ? "Back to sign in" : "Broker access"}</button>
           </div>
         </form>
       </div>

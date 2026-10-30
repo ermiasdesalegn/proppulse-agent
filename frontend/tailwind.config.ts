@@ -15,6 +15,7 @@ const config: Config = {
         muted: token("muted"),
         accent: token("accent"),
         accent2: token("accent2"),
+        brand: token("brand"),
         good: token("good"),
         warn: token("warn"),
         bad: token("bad"),

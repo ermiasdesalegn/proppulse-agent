@@ -68,3 +68,10 @@ test("the chat simulator survives a model that is not available and still answer
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Agent", { exact: true }).first()).toBeVisible({ timeout: 80_000 });
 });
+
+test("the public home page is open to everyone and leads to sign-in", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Find a home in Addis Ababa");
+  await page.getByRole("link", { name: "Sign in" }).first().click();
+  await expect(page).toHaveURL(/\/login/);
+});

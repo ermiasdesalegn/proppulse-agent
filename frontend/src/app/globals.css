@@ -18,6 +18,7 @@
   --ayat: 96 150 255;
   --noah: 224 142 24;
   --gift: 167 112 240;
+  --brand: 255 106 19;
   color-scheme: dark;
 }
 
@@ -91,3 +92,27 @@ input[type="checkbox"]:disabled { opacity: .45; cursor: not-allowed; }
 @keyframes nav-progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 .nav-progress { animation: nav-progress 1s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .nav-progress { animation: none; width: 100%; } }
+
+/* ---- Public site and Client Portal: a warm, light theme. ----
+   It redefines the same tokens the console uses, so shared classes (bg-panel, text-muted, border-line, text-accent) turn light inside .site.
+   The accent is brass; the brand orange (--brand) is kept for small touches only. */
+.site {
+  --bg: 250 247 242; --panel: 255 255 255; --raised: 243 238 230; --line: 229 222 210;
+  --ink: 30 27 24; --muted: 107 99 89; --accent: 138 104 48; --accent2: 168 129 66;
+  --good: 21 128 74; --warn: 161 98 7; --bad: 185 28 28;
+  color-scheme: light; min-height: 100vh;
+  background: rgb(var(--bg)); color: rgb(var(--ink));
+  font-family: var(--font-sans), ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+body:has(.site) { background-color: #faf7f2; }
+.site .card { background: #fff; border-color: rgb(var(--line)); }
+.site ::selection { background: rgb(var(--accent) / .22); }
+.site input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover, .site select:hover, .site textarea:hover { border-color: rgb(var(--accent) / .55); }
+.site input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus, .site select:focus, .site textarea:focus { border-color: rgb(var(--accent)); box-shadow: 0 0 0 3px rgb(var(--accent) / .16); }
+.site input::placeholder, .site textarea::placeholder { color: rgb(var(--muted) / .75); }
+.site .display { font-family: var(--font-display), Georgia, Cambria, "Times New Roman", serif; font-optical-sizing: auto; letter-spacing: -0.015em; }
+.site .skeleton { background: linear-gradient(90deg, rgb(0 0 0 / .04) 25%, rgb(0 0 0 / .08) 50%, rgb(0 0 0 / .04) 75%); background-size: 200% 100%; }
+.site .msg-in { animation-duration: .25s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.site .rise { animation: rise .6s cubic-bezier(.2,.7,.2,1) both; }
+@media (prefers-reduced-motion: reduce) { .site .rise { animation: none; } }
