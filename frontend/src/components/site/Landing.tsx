@@ -13,26 +13,32 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 
 /* ---------------- hero ---------------- */
 
+/** The building drawing, shown only when the hero home has no photo or its photo cannot load. */
+function HeroDrawing() {
+  return (
+    <svg viewBox="0 0 400 500" preserveAspectRatio="xMidYMax slice" className="absolute inset-0 h-full w-full" aria-hidden="true">
+      <circle cx="300" cy="120" r="46" fill="#fff" opacity=".4" />
+      <circle cx="300" cy="120" r="80" fill="#fff" opacity=".12" />
+      <path d="M0 430h400v70H0z" fill="#6d4f1f" opacity=".18" />
+      <g fill="none" stroke="#5c4119" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".7">
+        <rect x="70" y="170" width="130" height="260" rx="3" />
+        <rect x="200" y="110" width="120" height="320" rx="3" />
+        <rect x="320" y="230" width="60" height="200" rx="3" />
+        {[0, 1, 2, 3, 4, 5, 6].map((r) => [0, 1, 2].map((c) => <rect key={`a${r}${c}`} x={84 + c * 38} y={186 + r * 34} width="24" height="16" rx="1.5" />))}
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((r) => [0, 1, 2].map((c) => <rect key={`b${r}${c}`} x={214 + c * 34} y={126 + r * 34} width="22" height="16" rx="1.5" />))}
+        {[0, 1, 2, 3, 4].map((r) => <rect key={`c${r}`} x="334" y={246 + r * 34} width="32" height="16" rx="1.5" />)}
+        <path d="M20 430h360" />
+        <path d="M34 430v-70M34 360c-22-8-30-32-18-50 8 14 28 16 36 50-6 6-14 6-18 0Z" opacity=".6" />
+      </g>
+    </svg>
+  );
+}
+
 function HeroArt({ unit }: { unit?: PortalUnit }) {
   return (
     <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
       <div className="relative aspect-[4/5] overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#f3e7d3] via-[#e4cda4] to-[#b88f4e] shadow-[0_40px_80px_-30px_rgb(90_60_20/0.5)] sm:aspect-[5/5] lg:aspect-[4/5]">
-        <svg viewBox="0 0 400 500" preserveAspectRatio="xMidYMax slice" className="absolute inset-0 h-full w-full" aria-hidden="true">
-          <circle cx="300" cy="120" r="46" fill="#fff" opacity=".4" />
-          <circle cx="300" cy="120" r="80" fill="#fff" opacity=".12" />
-          <path d="M0 430h400v70H0z" fill="#6d4f1f" opacity=".18" />
-          <g fill="none" stroke="#5c4119" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity=".7">
-            <rect x="70" y="170" width="130" height="260" rx="3" />
-            <rect x="200" y="110" width="120" height="320" rx="3" />
-            <rect x="320" y="230" width="60" height="200" rx="3" />
-            {[0, 1, 2, 3, 4, 5, 6].map((r) => [0, 1, 2].map((c) => <rect key={`a${r}${c}`} x={84 + c * 38} y={186 + r * 34} width="24" height="16" rx="1.5" />))}
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((r) => [0, 1, 2].map((c) => <rect key={`b${r}${c}`} x={214 + c * 34} y={126 + r * 34} width="22" height="16" rx="1.5" />))}
-            {[0, 1, 2, 3, 4].map((r) => <rect key={`c${r}`} x="334" y={246 + r * 34} width="32" height="16" rx="1.5" />)}
-            <path d="M20 430h360" />
-            <path d="M34 430v-70M34 360c-22-8-30-32-18-50 8 14 28 16 36 50-6 6-14 6-18 0Z" opacity=".6" />
-          </g>
-        </svg>
-        <HeroPhoto unit={unit} />
+        <HeroPhoto unit={unit} fallback={<HeroDrawing />} />
       </div>
 
       {unit && (
