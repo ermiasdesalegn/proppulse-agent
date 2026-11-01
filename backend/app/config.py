@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     email_from: str = ""
 
     admin_api_key: str = ""
+    secrets_master_key: str = ""  # 32 random bytes, base64: encrypts each agency's bot token and calendar key (python -m scripts.make_master_key)
     tenancy_strict: bool = False  # True: database work with no organization in scope is an error instead of using the legacy one
     cron_secret: str = ""
     frontend_origin: str = "http://localhost:3000"

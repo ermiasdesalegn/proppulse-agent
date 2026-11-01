@@ -23,6 +23,7 @@ from app.language import detect_language, msg
 from app.projects import PROJECT_LINK
 from app.repository import Repository
 from app.services import Services
+from app.tenancy import thread_key
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class ChatService:
             self.events.publish(kind, **data)
 
     def _lock(self, thread_id: str) -> asyncio.Lock:
-        return self._locks.setdefault(thread_id, asyncio.Lock())
+        return self._locks.setdefault(thread_key(thread_id), asyncio.Lock())  # per organization: two agencies may share a chat id
 
     # ---------------- inbound ----------------
 
@@ -212,8 +213,8 @@ class ChatService:
             who = buyer.get("full_name") or inbound.thread_id
             await self._best_effort(self.services.telegram.send_message(chat, f"{who}: {shown}"))
         now = time.monotonic()
-        if now - self._takeover_acks.get(inbound.thread_id, float("-inf")) >= TAKEOVER_ACK_SECONDS:
-            self._takeover_acks[inbound.thread_id] = now
+        if now - self._takeover_acks.get(thread_key(inbound.thread_id), float("-inf")) >= TAKEOVER_ACK_SECONDS:
+            self._takeover_acks[thread_key(inbound.thread_id)] = now
             note = msg("broker_has_chat", detect_language(inbound.text or ""), broker=self.settings.broker_name)
             return replace(await self._say(buyer, inbound, note), takeover=True)
         return Outcome(buyer_id=str(buyer["id"]), reply=None, takeover=True)
@@ -252,7 +253,7 @@ class ChatService:
             if inbound.channel == "telegram" and inbound.chat_id is not None:
                 await self._send_telegram(inbound.chat_id, reply, quick_replies)
         if state.get("human_takeover"):
-            self._takeover_acks[inbound.thread_id] = time.monotonic()  # this turn already told the buyer the broker is taking over
+            self._takeover_acks[thread_key(inbound.thread_id)] = time.monotonic()  # this turn already told the buyer the broker is taking over
         return Outcome(buyer_id=buyer_id, reply=reply, takeover=bool(state.get("human_takeover")), error=error, state=state, quick_replies=quick_replies,
                        message_id=sent["id"] if sent else None, attachments=attachments if sent else [])
 
@@ -278,7 +279,7 @@ class ChatService:
 
     async def set_takeover(self, buyer_id: str, on: bool) -> dict:
         buyer = await self.repo.set_human_takeover(buyer_id, on)
-        self._takeover_acks.pop(str(buyer.get("thread_id")), None)  # a new takeover starts with a fresh acknowledgement
+        self._takeover_acks.pop(thread_key(str(buyer.get("thread_id"))), None)  # a new takeover starts with a fresh acknowledgement
         note = "Broker took over this chat." if on else "Broker handed the chat back to the assistant."
         await self.repo.add_message(buyer_id, "broker", note, source="system")
         self._emit("takeover", buyer_id=str(buyer_id), on=on, name=buyer.get("full_name"))

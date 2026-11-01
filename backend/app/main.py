@@ -14,6 +14,7 @@ from app.agent.deps import AgentDeps
 from app.agent.graph import BrokerAgent
 from app.api import router
 from app.calllog import ModelCallLog
+from app.channels_api import router as channels_router
 from app.chat import ChatService
 from app.config import Settings, get_settings
 from app.db import make_pool
@@ -28,10 +29,12 @@ from app.portal_api import router as portal_router
 from app.proactive import ProactiveService
 from app.projects import ProjectService
 from app.repository import Repository
+from app.runtime import TenantRuntime
 from app.services import build_services
 from app.services.telegram import BotApiTelegramService
 from app.telegram_updates import TelegramPoller, TelegramUpdateHandler
 from app.tracing import trace_repo, trace_services
+from app.vault import Vault
 
 log = logging.getLogger("proppulse")
 
@@ -72,17 +75,20 @@ async def lifespan(app: FastAPI):
     calls = ModelCallLog(pool, events)
     await calls.start()
     gateway.recorder = calls.record
-    services = trace_services(real_services, events)  # every calendar, routing, email and Telegram call reports itself to the inspector
-    agent = BrokerAgent(AgentDeps(gateway=gateway, repo=trace_repo(repo, events), services=services, settings=s, events=events), checkpointer.saver)
-    chat = ChatService(repo, agent, services, s, events=events)
-    proactive = ProactiveService(repo, agent, services, s, events=events)
+    runtime = TenantRuntime(repo, s, real_services, Vault(s.secrets_master_key) if s.secrets_master_key else None)
+    ts = runtime.tenant_settings()  # the global settings, except the few values that belong to the agency in scope
+    # Every calendar, routing, email and Telegram call reports itself to the inspector; each resolves to the agency in scope.
+    services = trace_services(runtime.proxied_services(), events)
+    agent = BrokerAgent(AgentDeps(gateway=gateway, repo=trace_repo(repo, events), services=services, settings=ts, events=events), checkpointer.saver)
+    chat = ChatService(repo, agent, services, ts, events=events)
+    proactive = ProactiveService(repo, agent, services, ts, events=events)
     http_fetcher = HttpFetcher(allow_private=s.scrape_allow_private_hosts)
     politeness = Politeness(lambda u: http_fetcher.get_text(u, polite=False), min_interval=s.scrape_min_interval_seconds) if s.scrape_polite else None
     http_fetcher.politeness = politeness
     browser_fetcher = BrowserFetcher(http=http_fetcher, allow_private=s.scrape_allow_private_hosts, politeness=politeness)  # starts Chromium on first use
     ingest = IngestionService(repo, gateway, http_fetcher, s, events=events, browser=browser_fetcher)
-    ads = AdService(repo, gateway, services, s, events=events)
-    projects = ProjectService(repo, gateway, services, s, fetcher=http_fetcher, proactive=proactive, ads=ads, events=events)
+    ads = AdService(repo, gateway, services, ts, events=events)
+    projects = ProjectService(repo, gateway, services, ts, fetcher=http_fetcher, proactive=proactive, ads=ads, events=events)
     chat.projects = projects
     handler = TelegramUpdateHandler(chat)
 
@@ -103,6 +109,7 @@ async def lifespan(app: FastAPI):
     app.state.settings, app.state.repo, app.state.chat, app.state.proactive = s, repo, chat, proactive
     app.state.events, app.state.ingest, app.state.ads, app.state.projects = events, ingest, ads, projects
     app.state.telegram_handler, app.state.checkpointer_kind = handler, checkpointer.kind
+    app.state.runtime = runtime
     app.state.telegram_mode = telegram_status
     try:
         yield
@@ -130,6 +137,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(router)
     app.include_router(portal_router)
     app.include_router(org_router)
+    app.include_router(channels_router)
 
     @app.get("/health")
     def health() -> dict:

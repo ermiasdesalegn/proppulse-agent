@@ -26,6 +26,7 @@ services:
       - { key: BROKER_TELEGRAM_CHAT_ID, sync: false }
       - { key: ADMIN_API_KEY, sync: false }
       - { key: CRON_SECRET, sync: false }
+      - { key: SECRETS_MASTER_KEY, sync: false }
       - { key: GITHUB_TOKEN, sync: false }
       - { key: GITHUB_REPO, value: ermiasdesalegn/proppulse-agent }
       - { key: SUPABASE_URL, sync: false }

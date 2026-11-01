@@ -1132,3 +1132,56 @@ class Repository:
             return await (await conn.execute(
                 "select m.org_id, m.role, o.slug, o.name from memberships m join organizations o on o.id = m.org_id "
                 "where m.org_id = %s and m.user_id = %s", (inv["org_id"], str(user_id)))).fetchone()
+
+    # ---- channel settings and credentials (platform use; see app/runtime.py) ----
+
+    async def org_profile(self, org_id: UUID | str) -> dict | None:
+        return await self._one(
+            "select o.id, o.slug, o.name, o.status, s.display_name, s.broker_name, s.broker_chat_id, s.timezone, s.persona, "
+            "s.google_calendar_id, s.telegram_bot_username, s.telegram_connected_at "
+            "from organizations o left join org_settings s on s.org_id = o.id where o.id = %s", (str(org_id),))
+
+    async def org_by_slug(self, slug: str) -> dict | None:
+        return await self._one("select id, slug, name, status from organizations where slug = %s", (slug,))
+
+    async def active_org_ids(self) -> list[UUID]:
+        rows = await self._fetch("select id from organizations where status = 'active' order by created_at, slug")
+        return [r["id"] for r in rows]
+
+    async def org_key(self, org_id: UUID | str) -> str | None:
+        row = await self._one("select wrapped_key from org_keys where org_id = %s", (str(org_id),))
+        return row["wrapped_key"] if row else None
+
+    async def ensure_org_key(self, org_id: UUID | str, wrapped_key: str) -> str:
+        """Keep the organization's data key if it has none yet, and return the one that is stored (a racing request's wins)."""
+        rows = await self._fetch(
+            "insert into org_keys (org_id, wrapped_key) values (%s, %s) on conflict (org_id) do update set wrapped_key = org_keys.wrapped_key "
+            "returning wrapped_key", (str(org_id), wrapped_key))
+        return rows[0]["wrapped_key"]
+
+    async def org_secret_rows(self, org_id: UUID | str) -> list[dict]:
+        return await self._fetch("select name, ciphertext from org_secrets where org_id = %s", (str(org_id),))
+
+    async def put_org_secret(self, org_id: UUID | str, name: str, ciphertext: str) -> None:
+        await self._fetch(
+            "insert into org_secrets (org_id, name, ciphertext) values (%s, %s, %s) "
+            "on conflict (org_id, name) do update set ciphertext = excluded.ciphertext, updated_at = now() returning name",
+            (str(org_id), name, ciphertext))
+
+    async def delete_org_secret(self, org_id: UUID | str, name: str) -> bool:
+        return bool(await self._fetch("delete from org_secrets where org_id = %s and name = %s returning name", (str(org_id), name)))
+
+    async def update_org_settings(self, org_id: UUID | str, **fields: Any) -> dict:
+        """Change an organization's non-secret settings. Only the listed columns can be named."""
+        allowed = {"display_name", "broker_name", "persona", "broker_chat_id", "timezone", "google_calendar_id",
+                   "telegram_bot_username", "telegram_connected_at", "hero_property_id", "brand_color", "logo_url"}
+        unknown = set(fields) - allowed
+        if unknown or not fields:
+            raise ValueError(f"cannot update settings: {sorted(unknown) or 'none given'}")
+        sets = sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(k)) for k in fields)
+        rows = await self._fetch(
+            sql.SQL("update org_settings set {}, updated_at = now() where org_id = %s returning org_id").format(sets),
+            [*fields.values(), str(org_id)])
+        if not rows:
+            raise LookupError(f"organization {org_id} has no settings row")
+        return (await self.org_profile(org_id)) or {}

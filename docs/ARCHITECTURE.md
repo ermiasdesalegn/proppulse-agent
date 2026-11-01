@@ -271,3 +271,19 @@ Besides the broker's console, the Next.js app has a public front door and a sign
 **Same features as Telegram.** What Telegram sends as files the website carries as attachments of the agent's message (`chat_messages.attachments`, migration 019): the 3D picture shown inline, download links for the `.glb` model and the comparison PDF, and on visit day a map pin that the chat turns into a maps link from the coordinates alone. Voice notes are recorded in the browser as 16 kHz mono WAV (`lib/voice.ts`), the one format every browser can produce and Gemini reads directly; the backend transcribes them with the Telegram prompt and the chat shows `🎤` and what was heard. Home pages load Google's `<model-viewer>` only there to show the 3D model, with the drawn picture until it is ready. A QR code (`components/site/TelegramQR.tsx`, drawn on the server) opens the Telegram bot; it starts a separate conversation, not the web one.
 
 **Look.** The public site and the portal use a scoped light theme (`.site` in `globals.css`) that redefines the console's colour tokens, so shared classes turn light inside it. Headings use Fraunces, text Inter, both self-hosted.
+
+## 11. Many agencies on one platform
+
+```
+ request / webhook / cron ──▶ who is it? ──▶ runtime.scope(org) ──▶ everything below runs for that agency only
+   member token + X-Org-Id        (app/access.py)     │
+   the agency's bot webhook                           ├─ database: SET LOCAL ROLE app_user + app.org_id  ──▶ row-level security
+   cron secret (every agency)                         ├─ settings: broker name, chat, time zone, persona (TenantSettings)
+   X-Agency header (website)                          ├─ channels: its Telegram bot, its calendar (encrypted credentials)
+                                                      └─ conversations: checkpoint key org:<id>:<thread>
+```
+
+- **Shared:** the scraped market (developers, projects, listings, prices) is read by every agency and written by the platform's crawlers once.
+- **Private:** buyers, chats, tours, deals, saved homes, events and model calls carry `org_id`, enforced by row-level security and by composite foreign keys that refuse a link across agencies.
+- **Where to read:** `app/tenancy.py` (scope and `thread_key`), `app/access.py` (members, roles, job scope), `app/runtime.py` (per-agency settings and services), `app/vault.py` (credential encryption), `app/channels_api.py` (connect a bot or calendar), `app/org_api.py` (team and invitations), `tests/test_tenancy_*.py` and `tests/test_channels_api.py` (the isolation guarantees).
+

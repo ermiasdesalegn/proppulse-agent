@@ -9,6 +9,8 @@ What the system protects, how, and what it does not do. Report problems to the r
 | Console (`/console`, Next.js) | One password, checked on the server; a signed, expiring session cookie; login attempts are rate limited; or a Supabase account that is a member of an organization (the backend's `memberships` table decides, per request, and a role limits what the member may change). Every page and API route sits behind middleware that denies by default |
 | Buyer area (`/portal`, `/api/me/*`) | A Supabase sign-in. The backend verifies the token's signature, audience, issuer and expiry itself and keys every query by the user id inside it; responses use a field allow-list (no developer contacts or commission data); anonymous sign-ins are refused |
 | Public site (`/`, `/api/public/*`) | Open and read-only; six homes with limited fields; rate limited per client |
+| An agency's credentials (bot token, calendar key) | Encrypted with a per-agency key under a master key kept only in the server's environment (`SECRETS_MASTER_KEY`); bound to the agency and name; never returned by the API; the restricted database role cannot read them |
+| An agency's Telegram webhook (`/api/telegram/webhook/<agency>`) | A secret registered for that bot, compared in constant time; an unknown agency, a suspended one and a wrong secret all answer the same 403 |
 | Backend admin API (`/api/*`) | `X-Admin-Key` header compared in constant time; the key never leaves the dashboard's server (the browser talks to a proxy that adds it) |
 | Cron endpoints | `X-Cron-Secret` (Cloud Scheduler) or the admin key |
 | Telegram webhook | Secret token header compared in constant time; refuses everything if no secret is configured |
@@ -43,3 +45,6 @@ Logs pass through a redaction filter before any handler sees them: configured se
 - Buyer sign-up has no CAPTCHA; Supabase's own rate limits apply.
 - The prompt-injection check is a list of patterns. It stops the common attempts and costs nothing, but a determined attacker can phrase around it; the structural protection is that the agent's tools only act on the buyer's own conversation.
 - Telegram messages are not end-to-end encrypted; buyers' phone numbers and emails are stored in the database.
+- Losing `SECRETS_MASTER_KEY` makes every stored credential unreadable (agencies reconnect their channels); exposing it together with a copy of the database would expose them. Keep it in the host's secret store, not in the repository or the database.
+- Code that can run arbitrary SQL could change the organization label of its own transaction; the database protects against bugs and wrong queries, not against SQL injection. There is no raw SQL built from user input in the application.
+

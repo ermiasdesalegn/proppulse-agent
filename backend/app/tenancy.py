@@ -60,6 +60,23 @@ def use_tenant(org: TenantContext | UUID | str) -> Iterator[TenantContext]:
         _current.reset(token)
 
 
+_note: ContextVar[str] = ContextVar("agency_note", default="")
+
+
+@contextmanager
+def agency_note(text: str) -> Iterator[None]:
+    """A sentence about the agency in scope that is added to the assistant's instructions (who it works for, and its persona)."""
+    token = _note.set(text)
+    try:
+        yield
+    finally:
+        _note.reset(token)
+
+
+def current_agency_note() -> str:
+    return _note.get()
+
+
 def resolve_org_id(pinned: UUID | str | None = None, *, strict: bool = False) -> UUID:
     """The organization for a database call: an explicitly pinned one, else the one in scope, else the legacy default."""
     if pinned is not None:
@@ -78,6 +95,17 @@ async def _enter(conn: Any, org_id: UUID | str, role: str | None) -> None:
     await conn.execute("select set_config('app.org_id', %s, true)", (str(org_id),))
     if role:
         await conn.execute(sql.SQL("set local role {}").format(sql.Identifier(role)))
+
+
+def thread_key(thread_id: str, org_id: UUID | str | None = None) -> str:
+    """The key a conversation is stored under in the agent's checkpoint tables, which have no organization column.
+
+    The same Telegram chat id can exist at two agencies, so every organization but the original gets its own prefix; the
+    original keeps the bare id so conversations saved before multi-tenancy are still found. Resolved from the organization in
+    scope, so every caller that runs inside `use_tenant` is separated without having to remember to be.
+    """
+    org = resolve_org_id(org_id)
+    return thread_id if org == DEFAULT_ORG_ID else f"org:{org}:{thread_id}"
 
 
 @asynccontextmanager

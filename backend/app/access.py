@@ -7,14 +7,20 @@ inside `use_tenant(...)`, so every repository call is confined to that organizat
 """
 from __future__ import annotations
 
+import logging
+import re
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from fastapi import Header, HTTPException, Request
 
 from app.buyer_auth import BuyerIdentity, TokenError, verifier_of
 from app.tenancy import DEFAULT_ORG_ID, TenantContext, use_tenant
+
+log = logging.getLogger(__name__)
 
 READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -112,10 +118,105 @@ def require_role(minimum: str | None = None):
         else:
             principal = await _member_principal(request, authorization, org_id, need)
         request.state.principal = principal
-        with use_tenant(principal.tenant):
+        async with in_scope(request, principal.tenant):
             yield principal
 
     return guard
+
+
+@asynccontextmanager
+async def in_scope(request: Request, org: TenantContext | UUID) -> AsyncIterator[TenantContext]:
+    """Run as one organization: its rows, and (when the server has a runtime) its settings and channels too."""
+    runtime = getattr(request.app.state, "runtime", None)
+    if runtime is not None:
+        try:
+            async with runtime.scope(org) as tenant:
+                yield tenant
+        except LookupError:
+            raise HTTPException(404, "No such organization") from None
+    else:
+        with use_tenant(org) as tenant:
+            yield tenant
+
+
+AGENCY_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
+
+
+async def agency_scope(request: Request, x_agency: str | None = Header(default=None)) -> AsyncIterator[None]:
+    """For the public website: which agency a visitor is talking to. No header means the original agency; an unknown or
+    suspended one is "not found", the same answer either way."""
+    if not x_agency:
+        yield
+        return
+    slug = x_agency.strip().lower()
+    org = await request.app.state.repo.as_platform().org_by_slug(slug) if AGENCY_SLUG.match(slug) else None
+    if org is None or org["status"] != "active":
+        raise HTTPException(404, "No such agency")
+    async with in_scope(request, org["id"]):
+        yield
+
+
+def job_access(minimum: str = "agent"):
+    """Guard for the scheduled jobs. Returns the organizations the job should run for.
+
+    The cron secret runs a job for every active organization (or for the one named in X-Org-Id). The operator's admin key runs it
+    for the one named, or the original one. A signed-in member of at least `minimum` role runs it for their own organization only,
+    which is what the console's buttons do.
+    """
+
+    async def guard(
+        request: Request,
+        x_cron_secret: str | None = Header(default=None),
+        x_admin_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+        x_org_id: str | None = Header(default=None),
+    ) -> list[UUID]:
+        s = request.app.state.settings
+        org = _parse_org(x_org_id)
+        platform = request.app.state.repo.as_platform()
+
+        async def named() -> list[UUID]:
+            if await platform.organization(org) is None:  # type: ignore[arg-type]
+                raise HTTPException(404, "No such organization")
+            return [org]  # type: ignore[list-item]
+
+        if s.cron_secret and _same(x_cron_secret, s.cron_secret):
+            return await named() if org else await platform.active_org_ids()
+        if x_cron_secret is None and x_admin_key is None and _bearer(authorization):
+            return [(await _member_principal(request, authorization, org, minimum)).tenant.org_id]
+        if not s.cron_secret and not s.admin_api_key:
+            raise HTTPException(503, "Neither CRON_SECRET nor ADMIN_API_KEY is configured")
+        if s.admin_api_key and _same(x_admin_key, s.admin_api_key):
+            return await named() if org else [DEFAULT_ORG_ID]
+        raise HTTPException(401, "Invalid credentials")
+
+    return guard
+
+
+async def run_for_orgs(request: Request, orgs: list[UUID], job) -> dict:
+    """Run one job once for each organization, each inside its own scope, and combine the answers.
+
+    One agency's failure (a revoked bot, a broken calendar key) is reported and never stops the others. With a single
+    organization the job's own answer is returned unchanged.
+    """
+    repo = request.app.state.repo.as_platform()
+    results: list[tuple[str, dict]] = []
+    for org in orgs:
+        slug = str((await repo.organization(org) or {}).get("slug") or org)
+        try:
+            async with in_scope(request, org):
+                results.append((slug, await job()))
+        except Exception as exc:
+            log.exception("job failed for organization %s", slug)
+            results.append((slug, {"sent": 0, "skipped": 0, "failed": 1, "error": type(exc).__name__}))
+    if len(results) == 1:
+        return results[0][1]
+    combined: dict[str, Any] = {"organizations": [slug for slug, _ in results], "per_organization": dict(results)}
+    for key in ("sent", "skipped", "failed"):
+        combined[key] = sum(int(r.get(key, 0)) for _, r in results)
+    combined["dry_run"] = any(r.get("dry_run") for _, r in results)
+    combined["jobs"] = [{**j, "organization": slug} for slug, r in results for j in (r.get("jobs") or [r])]
+    return combined
 
 
 def principal_of(request: Request) -> Principal:

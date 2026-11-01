@@ -7,6 +7,7 @@ from collections import deque
 from typing import Any
 
 from app.chat import ChatService, Inbound
+from app.tenancy import resolve_org_id
 
 log = logging.getLogger(__name__)
 
@@ -53,16 +54,17 @@ def parse_callback(callback: dict) -> Inbound | None:
 class TelegramUpdateHandler:
     def __init__(self, chat: ChatService, *, remember: int = 2000):
         self._chat = chat
-        self._seen: deque[int] = deque(maxlen=remember)
+        self._seen: deque[tuple[str, int]] = deque(maxlen=remember)
         self._tasks: set[asyncio.Task] = set()
 
     def submit(self, update: dict) -> bool:
         """Start processing in the background and return at once, so Telegram gets its 200 immediately."""
         update_id = update.get("update_id")
         if update_id is not None:
-            if update_id in self._seen:
+            seen = (str(resolve_org_id()), update_id)  # every bot numbers its own updates, so the same number at two agencies is not a repeat
+            if seen in self._seen:
                 return False  # Telegram re-sends an update if it did not see a quick 200
-            self._seen.append(update_id)
+            self._seen.append(seen)
         task = asyncio.create_task(self.process(update))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)

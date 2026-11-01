@@ -13,6 +13,7 @@ from app.agent.nodes import AgentNodes, should_relax_constraints
 from app.agent.state import BrokerAgentState
 from app.events import summarize_update
 from app.gemini import CALL_CONTEXT
+from app.tenancy import thread_key
 
 ROUTES = {"search": "discovery", "details": "details", "affordability": "affordability", "compare": "analyst", "book_tour": "scheduler", "book_consultation": "scheduler", "small_talk": "smalltalk", "error": END}
 
@@ -86,14 +87,14 @@ class BrokerAgent:
         """Write a message into the conversation history without running the agent (used during human takeover
         and for messages the system sends on its own). Extra keyword arguments update other state fields, for
         example active_matches, so that "book the first one" refers to what the buyer was just shown."""
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {"configurable": {"thread_id": thread_key(thread_id)}}
         # as_node="human_gate" leads straight to END, so no node is left pending for the next real turn.
         await self.graph.aupdate_state(config, {"messages": [message], **state_updates}, as_node="human_gate")
 
     async def handle(
         self, *, buyer_id: str, thread_id: str, inbound: dict, chat_id: int | str | None = None
     ) -> TurnResult:
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": self._deps.settings.recursion_limit}
+        config = {"configurable": {"thread_id": thread_key(thread_id)}, "recursion_limit": self._deps.settings.recursion_limit}
         bus, ident = self._deps.events, {"thread_id": thread_id, "buyer_id": buyer_id}
         started = last = time.monotonic()
         if bus:

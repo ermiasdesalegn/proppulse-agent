@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
+from app.access import agency_scope
 from app.agent.nodes import model_file_name
 from app.api import _clean_text, chat_of, repo_of
 from app.brochure import brochure_data
@@ -23,7 +24,7 @@ from app.ingest.portal import is_listing_photo
 from app.model3d import Layout, render_png, to_glb
 from app.repository import Repository
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(agency_scope)])
 
 MATCH_FIELDS = ("id", "title", "sub_city", "price_etb", "bedrooms", "similarity")  # what the agent recommended, without internal ids
 

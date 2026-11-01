@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.geo import KNOWN_SUB_CITIES
+from app.tenancy import current_agency_note
 
 GLOSSARY = ", ".join(KNOWN_SUB_CITIES)
 
@@ -52,4 +53,4 @@ def extraction_prompt(*, now_iso: str, timezone: str, prefs: dict, profile: dict
 def persona_for(language: str) -> str:
     from app.language import PERSONA_ADDENDUM
 
-    return PERSONA + PERSONA_ADDENDUM.get(language, "")
+    return PERSONA + PERSONA_ADDENDUM.get(language, "") + current_agency_note()

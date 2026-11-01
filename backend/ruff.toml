@@ -19,7 +19,7 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/*" = ["S", "B", "RUF", "E402", "E731", "E741", "F841"]
+"tests/*" = ["S", "B", "RUF", "E402", "E731", "E741", "F841", "F811"]  # F811: a fixture imported from another test module is then named as a parameter
 "evals/*" = ["S", "RUF"]
 "scripts/*" = ["S", "E402"]
 "app/demo.py" = ["S"]

@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.access import console_access, console_admin, console_owner
+from app.access import console_access, console_admin, console_owner, job_access, run_for_orgs
 from app.ads import AdError
 from app.chat import ChatService, Conflict, Inbound
 from app.events import sse_frames
@@ -30,18 +30,6 @@ router = APIRouter()
 
 def _same(a: str | None, b: str) -> bool:
     return bool(a) and hmac.compare_digest(a.encode(), b.encode())
-
-
-async def require_cron_or_admin(
-    request: Request, x_cron_secret: str | None = Header(default=None), x_admin_key: str | None = Header(default=None)
-) -> None:
-    """Cloud Scheduler authenticates with the cron secret; the dashboard's buttons use the admin key."""
-    s = request.app.state.settings
-    if not s.cron_secret and not s.admin_api_key:
-        raise HTTPException(503, "Neither CRON_SECRET nor ADMIN_API_KEY is configured")
-    if (s.cron_secret and _same(x_cron_secret, s.cron_secret)) or (s.admin_api_key and _same(x_admin_key, s.admin_api_key)):
-        return
-    raise HTTPException(401, "Invalid credentials")
 
 
 def proactive_of(request: Request):
@@ -103,6 +91,21 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     return {"ok": True}
 
 
+@router.post("/api/telegram/webhook/{slug}")
+async def agency_telegram_webhook(slug: str, request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)):
+    """An agency's own bot calls here. The bot proves itself with the secret registered for it; an unknown agency, a suspended one
+    and a wrong secret all get the same answer, so the address says nothing about who has a bot."""
+    repo, runtime = request.app.state.repo.as_platform(), request.app.state.runtime
+    org = await repo.org_by_slug(slug.strip().lower()[:40])
+    expected = (await runtime.secrets(org["id"])).get("telegram_webhook_secret") if org and org["status"] == "active" else None
+    if not expected or not _same(x_telegram_bot_api_secret_token, expected):
+        raise HTTPException(403, "Forbidden")
+    handler: TelegramUpdateHandler = request.app.state.telegram_handler
+    async with runtime.scope(org["id"]):
+        handler.submit(await request.json())  # the update is processed in a task that keeps this agency in scope
+    return {"ok": True}
+
+
 # ---------------- web chat simulator ----------------
 
 @router.post("/api/chat/web", dependencies=[Depends(console_access)])
@@ -129,35 +132,42 @@ async def web_chat_messages(session_id: str, after_id: int = 0, repo: Repository
 
 # ---------------- proactive jobs ----------------
 
-@router.post("/api/cron/daily-proactive-run", dependencies=[Depends(require_cron_or_admin)])
-async def daily_proactive_run(dry_run: bool = False, proactive=Depends(proactive_of), projects=Depends(projects_of)):
-    result = await proactive.run_all(dry_run)
-    result["jobs"].append(await projects.run_promotion_ads(dry_run))  # developers' current offers, advertised once each
-    for key in ("sent", "skipped", "failed"):
-        result[key] = sum(j[key] for j in result["jobs"])
-    return result
+@router.post("/api/cron/daily-proactive-run")
+async def daily_proactive_run(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of), projects=Depends(projects_of)):
+    async def one() -> dict:
+        result = await proactive.run_all(dry_run)
+        result["jobs"].append(await projects.run_promotion_ads(dry_run))  # developers' current offers, advertised once each
+        for key in ("sent", "skipped", "failed"):
+            result[key] = sum(j[key] for j in result["jobs"])
+        return result
+
+    return await run_for_orgs(request, orgs, one)
 
 
-@router.post("/api/cron/reverse-rag-alerts", dependencies=[Depends(require_cron_or_admin)])
-async def reverse_rag_alerts(dry_run: bool = False, proactive=Depends(proactive_of)):
-    return await proactive.reverse_rag_alerts(dry_run)
+@router.post("/api/cron/reverse-rag-alerts")
+async def reverse_rag_alerts(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
+    """A price drop on a shared listing is matched, agency by agency, against each agency's own buyers and messaged through its own bot."""
+    return await run_for_orgs(request, orgs, lambda: proactive.reverse_rag_alerts(dry_run))
 
 
-@router.post("/api/cron/tour-reminders", dependencies=[Depends(require_cron_or_admin)])
-async def tour_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
-    return await proactive.tour_reminders(dry_run)
+@router.post("/api/cron/tour-reminders")
+async def tour_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
+    return await run_for_orgs(request, orgs, lambda: proactive.tour_reminders(dry_run))
 
 
-@router.post("/api/cron/milestone-reminders", dependencies=[Depends(require_cron_or_admin)])
-async def milestone_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
-    return await proactive.milestone_reminders(dry_run)
+@router.post("/api/cron/milestone-reminders")
+async def milestone_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
+    return await run_for_orgs(request, orgs, lambda: proactive.milestone_reminders(dry_run))
 
 
-@router.post("/api/cron/reminders", dependencies=[Depends(require_cron_or_admin)])
-async def all_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
+@router.post("/api/cron/reminders")
+async def all_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
     """Tour and milestone reminders together: the dashboard's 'Send 24h Tour & Milestone Reminders' button."""
-    jobs = [await proactive.tour_reminders(dry_run), await proactive.milestone_reminders(dry_run)]
-    return {"dry_run": dry_run, "jobs": jobs, **{k: sum(j[k] for j in jobs) for k in ("sent", "skipped", "failed")}}
+    async def one() -> dict:
+        jobs = [await proactive.tour_reminders(dry_run), await proactive.milestone_reminders(dry_run)]
+        return {"dry_run": dry_run, "jobs": jobs, **{k: sum(j[k] for j in jobs) for k in ("sent", "skipped", "failed")}}
+
+    return await run_for_orgs(request, orgs, one)
 
 
 @router.get("/api/proactive/events", dependencies=[Depends(console_access)])
@@ -509,7 +519,7 @@ async def demo_js_listing():
     return Response(page, media_type="text/html")
 
 
-@router.post("/api/cron/scrape-market", dependencies=[Depends(require_cron_or_admin)])
+@router.post("/api/cron/scrape-market", dependencies=[Depends(job_access("admin"))])  # shared market data: runs once, whoever asks
 async def scrape_market(request: Request, dry_run: bool = False, publish_ads: bool = False,
                         service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of)):
     """Read every developer that has a scrape address saved. One developer failing never stops the others."""
@@ -606,7 +616,7 @@ async def stream_events(request: Request, last_event_id: str | None = Header(def
     """Server-Sent Events: every agent node transition, message, takeover and proactive send, live.
     Reconnecting clients send Last-Event-ID and receive what they missed."""
     resume = int(last_event_id) if last_event_id and last_event_id.isdigit() else after
-    frames = sse_frames(request.app.state.events, after_id=resume, is_disconnected=request.is_disconnected)
+    frames = sse_frames(request.app.state.events, after_id=resume, is_disconnected=request.is_disconnected, org=str(request.state.principal.tenant.org_id))
     return StreamingResponse(frames, media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
 
@@ -923,9 +933,9 @@ async def project_ad(project_id: UUID, body: ProjectAdIn, projects=Depends(proje
         raise _project_error(exc) from None
 
 
-@router.post("/api/cron/promotion-ads", dependencies=[Depends(require_cron_or_admin)])
-async def promotion_ads(dry_run: bool = False, projects=Depends(projects_of)):
-    return await projects.run_promotion_ads(dry_run)
+@router.post("/api/cron/promotion-ads")
+async def promotion_ads(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), projects=Depends(projects_of)):
+    return await run_for_orgs(request, orgs, lambda: projects.run_promotion_ads(dry_run))
 
 
 class DeveloperIn(BaseModel):

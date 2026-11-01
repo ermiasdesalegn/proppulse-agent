@@ -224,3 +224,31 @@ for the cron jobs and the operator's password session; it acts as owner of the o
 
 Known limits: invitations are returned to the inviter instead of being emailed; roles are checked by route (read/write by HTTP method, a few routes stricter), not
 per field; the organization a buyer talks to on the public site is still the original one until buyers choose an agency by address.
+
+## Each agency brings its own channels, behind the names the code already uses
+
+About thirty places read `settings.broker_name`, `settings.broker_telegram_chat_id`, `services.telegram`, `services.calendar` and so on. Passing an
+organization through every one of them would have touched most of the codebase and been easy to get wrong. Instead `app/runtime.py` hands them
+`TenantSettings` and a `Services` made of proxies: inside `runtime.scope(org)` every read or call resolves to the organization in scope, outside it to the
+original configuration. Scope is a context variable, so a Telegram update processed in a background task keeps the agency it arrived for.
+
+Rules that follow from it: an agency without a bot or calendar gets a silent stand-in, **never the platform's own** (a buyer of one agency must not be messaged
+through another's bot); the demo's fallback chat and email are the platform owner's and are switched off for every other agency; the original agency keeps the
+platform's configured channels, so nothing changed for it.
+
+Credentials (`org_secrets`) are encrypted with AES-GCM under a per-agency data key, which is itself encrypted under a master key held only in the server's
+environment (`SECRETS_MASTER_KEY`). Each value is bound to its agency and name as associated data, so copying a ciphertext to another row makes it fail to open.
+`app_user` has no grant on the key or secret tables: they are read only on the platform path, after the caller's role is checked. The API never returns a
+token, and a connect request proves the token with Telegram's `getMe` before storing anything.
+
+Conversation memory: the agent's checkpoint tables have no organization column, so each conversation is stored under `org:<id>:<thread>` (the original agency keeps
+bare ids, so its saved chats still work). Events and model-call rows carry `org_id`, and a console tab's live stream is filtered to its own agency.
+
+Jobs: the cron secret runs every job once for each active agency, each inside its own scope; a failing agency is reported and never stops the others. A price drop on
+a shared listing is matched against each agency's own buyers and sent through that agency's own bot, once per agency. The market scraper writes shared data, so
+it runs once. A signed-in agent can start the jobs for their own agency from the console; an admin can start the market scraper.
+
+Known limits: Telegram long polling serves only the original agency (others use the webhook); the public site picks an agency by an `X-Agency` header, and a
+page for choosing one is still to be built; a master-key rotation is not automated (values carry a version prefix to allow it); calendar credentials are stored
+and used but the Google connection itself is not tested against Google here.
+

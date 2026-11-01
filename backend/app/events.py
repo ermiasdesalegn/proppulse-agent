@@ -17,7 +17,14 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from app.tenancy import current_tenant, resolve_org_id
+
 log = logging.getLogger(__name__)
+
+
+def _org_in_scope() -> str:
+    """The organization an event belongs to: the one the publishing code is working for, else the original one."""
+    return str(resolve_org_id() if current_tenant() is None else current_tenant().org_id)  # type: ignore[union-attr]
 
 
 class Subscription:
@@ -39,7 +46,7 @@ class EventBus:
 
     def publish(self, kind: str, /, **data: Any) -> dict:
         # `kind` is positional-only and written last, so a payload field of the same name can never replace the event type.
-        event = {**data, "id": self._next_id, "ts": datetime.now(UTC).isoformat(), "kind": kind}
+        event = {**data, "id": self._next_id, "ts": datetime.now(UTC).isoformat(), "kind": kind, "org": _org_in_scope()}
         self._next_id += 1
         self._fan_out(event)
         return event
@@ -85,7 +92,7 @@ class DurableEventBus(EventBus):
     # ---- publishing ----
 
     def publish(self, kind: str, /, **data: Any) -> dict:
-        event = {**data, "id": 0, "ts": datetime.now(UTC).isoformat(), "kind": kind}  # the real id is the database's
+        event = {**data, "id": 0, "ts": datetime.now(UTC).isoformat(), "kind": kind, "org": _org_in_scope()}  # the real id is the database's
         try:
             self._outbox.put_nowait(event)
         except asyncio.QueueFull:
@@ -95,10 +102,13 @@ class DurableEventBus(EventBus):
     async def _writer(self) -> None:
         while True:
             event = await self._outbox.get()
-            payload = {k: v for k, v in event.items() if k not in ("id", "ts", "kind")}
+            payload = {k: v for k, v in event.items() if k not in ("id", "ts", "kind", "org")}
             try:
                 async with self._pool.connection() as conn:
-                    await conn.execute("insert into event_log (kind, data) values (%s, %s::jsonb)", (event["kind"], json.dumps(payload, default=str)))
+                    await conn.execute(
+                        "insert into event_log (kind, data, org_id) values (%s, %s::jsonb, %s)",
+                        (event["kind"], json.dumps(payload, default=str), event["org"]),
+                    )
                 self._wake.set()  # this instance's own tabs hear about it at once; other instances on their next poll
                 self._writes += 1
                 if self._writes % 500 == 0:
@@ -118,14 +128,14 @@ class DurableEventBus(EventBus):
     @staticmethod
     def _row_to_event(row: dict) -> dict:
         data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
-        return {**data, "id": int(row["id"]), "ts": row["created_at"].isoformat(), "kind": row["kind"]}
+        return {**data, "id": int(row["id"]), "ts": row["created_at"].isoformat(), "kind": row["kind"], "org": str(row["org_id"])}
 
     async def _fetch_after(self, after_id: int, newest: int | None = None) -> list[dict]:
         if newest:
-            sql = ("select * from (select id, kind, data, created_at from event_log where id > %s order by id desc limit %s) t order by id")
+            sql = ("select * from (select id, kind, data, created_at, org_id from event_log where id > %s order by id desc limit %s) t order by id")
             params: tuple = (after_id, newest)
         else:
-            sql, params = "select id, kind, data, created_at from event_log where id > %s order by id", (after_id,)
+            sql, params = "select id, kind, data, created_at, org_id from event_log where id > %s order by id", (after_id,)
         async with self._pool.connection() as conn:
             return [self._row_to_event(r) for r in await (await conn.execute(sql, params)).fetchall()]
 
@@ -181,13 +191,18 @@ def format_sse(event: dict) -> str:
     return f"id: {event['id']}\nevent: {event['kind']}\ndata: {json.dumps(event, default=str)}\n\n"
 
 
-async def sse_frames(bus: EventBus, *, after_id: int = 0, is_disconnected: Callable[[], Awaitable[bool]], ping_seconds: float = 15.0) -> AsyncIterator[str]:
-    """Server-Sent Events frames for one dashboard tab: recent history first, then live events, with a ping while idle."""
+async def sse_frames(
+    bus: EventBus, *, after_id: int = 0, is_disconnected: Callable[[], Awaitable[bool]], ping_seconds: float = 15.0, org: str | None = None
+) -> AsyncIterator[str]:
+    """Server-Sent Events frames for one dashboard tab: recent history first, then live events, with a ping while idle.
+
+    With `org`, only that organization's events are sent: the bus carries everyone's, a tab must see only its own agency's."""
     sub = await bus.open(after_id)
     try:
         yield "retry: 3000\n: connected\n\n"
         for event in sub.backlog:
-            yield format_sse(event)
+            if org is None or event.get("org") == org:
+                yield format_sse(event)
         while not await is_disconnected():
             try:
                 event = await asyncio.wait_for(sub.queue.get(), timeout=ping_seconds)
@@ -196,7 +211,8 @@ async def sse_frames(bus: EventBus, *, after_id: int = 0, is_disconnected: Calla
                 continue
             if event["id"] > sub.last_id:  # skip anything already replayed from history
                 sub.last_id = event["id"]
-                yield format_sse(event)
+                if org is None or event.get("org") == org:
+                    yield format_sse(event)
     finally:
         sub.close()
 
