@@ -97,3 +97,17 @@ def test_a_firm_area_without_a_budget_goes_straight_to_the_waitlist():
 
 def test_an_area_that_is_not_firm_still_widens():
     assert relaxed_scope({**FIRM, "area_firm": False}, 2, 12.0, 2)["effective_sub_cities"] == []
+
+
+def test_a_firm_budget_never_stretches_but_a_first_ask_still_may():
+    soft = {"max_budget_etb": 10_000_000.0, "preferred_sub_cities": ["Bole"]}
+    assert relaxed_scope(soft, 2, 12.0, 2)["effective_max_budget_etb"] == pytest.approx(12_400_000)  # a small stretch, never 15M
+    firm = {**soft, "budget_firm": True}
+    assert relaxed_scope(firm, 1, 12.0, 2)["effective_max_budget_etb"] == 10_000_000.0
+
+
+def test_with_every_limit_firm_there_is_nothing_to_relax():
+    prefs = {"max_budget_etb": 10_000_000.0, "preferred_sub_cities": ["Bole"], "budget_firm": True, "area_firm": True}
+    assert not can_relax(prefs)
+    assert should_relax_constraints(_state([], 0, prefs=prefs)) == "waitlist"
+    assert can_relax({**prefs, "budget_firm": False})

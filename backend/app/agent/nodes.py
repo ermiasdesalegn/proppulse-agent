@@ -77,18 +77,24 @@ def area_is_firm(prefs: dict) -> bool:
     return bool(prefs.get("area_firm") and prefs.get("preferred_sub_cities"))
 
 
+def budget_is_firm(prefs: dict) -> bool:
+    return bool(prefs.get("budget_firm") and prefs.get("max_budget_etb") is not None)
+
+
 def can_relax(prefs: dict) -> bool:
-    if area_is_firm(prefs):
-        return prefs.get("max_budget_etb") is not None  # a stated area is a limit: only the budget may stretch
-    return prefs.get("max_budget_etb") is not None or bool(prefs.get("preferred_sub_cities"))
+    """A limit the buyer insisted on stays put; the first time they ask, a small stretch of the others is fine."""
+    budget_moves = prefs.get("max_budget_etb") is not None and not budget_is_firm(prefs)
+    area_moves = bool(prefs.get("preferred_sub_cities")) and not area_is_firm(prefs)
+    return budget_moves or area_moves
 
 
 def relaxed_scope(prefs: dict, next_step: int, step_pct: float, max_steps: int) -> dict:
-    """Deterministic widening. Step 1: more budget plus neighbouring areas. Step 2: even more budget, any area. A firm area never widens."""
+    """Deterministic widening. Step 1: more budget plus neighbouring areas. Step 2: even more budget, any area. A firm budget or area never widens.
+    Bedrooms are never widened."""
     budget = prefs.get("max_budget_etb")
     cities = list(prefs.get("preferred_sub_cities") or [])
     return {
-        "effective_max_budget_etb": None if budget is None else budget * (1 + next_step * step_pct / 100),
+        "effective_max_budget_etb": budget if budget is None or budget_is_firm(prefs) else budget * (1 + next_step * step_pct / 100),
         "effective_sub_cities": cities if area_is_firm(prefs) else expand_with_adjacent(cities) if next_step == 1 else [],
         "relaxation_step": next_step,
         "max_relaxation_steps": max_steps,
@@ -361,10 +367,19 @@ class AgentNodes:
             new_prefs["min_bedrooms"] = ex.min_bedrooms
         if ex.preferred_sub_cities is not None:
             new_prefs["preferred_sub_cities"] = normalize_sub_cities(ex.preferred_sub_cities)
-        if ex.area_is_firm is not None:
-            new_prefs["area_firm"] = ex.area_is_firm
-        elif ex.preferred_sub_cities is not None and ex.preferred_sub_cities != prefs["preferred_sub_cities"]:
-            new_prefs["area_firm"] = False  # a different area is a new preference, not yet an insistence
+        # The first time a limit is stated it may stretch a little. Said firmly, or repeated after we showed widened options, it may not.
+        came_back = bool(prefs.get("widened_last")) and ex.intent == "search"
+        for flag, said, changed in (
+            ("area_firm", ex.area_is_firm, ex.preferred_sub_cities is not None and new_prefs["preferred_sub_cities"] != prefs["preferred_sub_cities"]),
+            ("budget_firm", ex.budget_is_firm, ex.max_budget_etb is not None and new_prefs["max_budget_etb"] != prefs["max_budget_etb"]),
+        ):
+            if said is not None:
+                new_prefs[flag] = said
+            elif came_back:
+                new_prefs[flag] = True
+            elif changed:
+                new_prefs[flag] = False
+        new_prefs["widened_last"] = False  # set again by the reply if it shows widened options
         new_profile = dict(profile)
         for key in ("full_name", "phone", "email"):
             if value := (getattr(ex, key) or "").strip():
@@ -400,7 +415,7 @@ class AgentNodes:
 
         summary = state.get("preference_summary", "")
         has_prefs = bool(new_prefs["max_budget_etb"] or new_prefs["min_bedrooms"] is not None or new_prefs["preferred_sub_cities"])
-        if has_prefs and (new_prefs != prefs or not summary):
+        if has_prefs and (any(new_prefs.get(k) != prefs.get(k) for k in ("max_budget_etb", "min_bedrooms", "preferred_sub_cities")) or not summary):
             summary = await self._refresh_preference_vector(state["buyer_id"], new_prefs, query, summary, state["messages"])
 
         selected: list[str] = []
@@ -531,7 +546,7 @@ class AgentNodes:
                                                        threshold=self.d.settings.similarity_threshold, header="proj_also_header")
         if also:  # a project in the buyer's area, shown next to the priced options: the offer and the location are the hook
             text, buttons = f"{text}\n\n{also}", [*buttons, *project_buttons]
-        return {**say(text, quick_replies=buttons), "active_matches": matches}
+        return {**say(text, quick_replies=buttons), "active_matches": matches, "buyer_preferences": {**prefs, "widened_last": widened}}
 
     async def waitlist(self, state: BrokerAgentState) -> dict:
         scope, prefs = state["search_scope"], state["buyer_preferences"]
@@ -543,6 +558,8 @@ class AgentNodes:
         lang = self._lang(state)
         if area_is_firm(prefs):
             text = msg("waitlist_area", lang, area=" or ".join(prefs["preferred_sub_cities"]))
+        elif budget_is_firm(prefs):
+            text = msg("waitlist_budget", lang, budget=fmt_etb(prefs["max_budget_etb"]))
         elif scope["relaxation_step"] > 0 and prefs.get("max_budget_etb"):
             text = msg("waitlist_buffer", lang, pct=round(scope["relaxation_step"] * self.d.settings.relax_budget_step_pct))
         else:

@@ -54,4 +54,4 @@ class BrokerAgentState(TypedDict, total=False):
     attachments: list[dict]  # files for a channel without Telegram to show with the reply: {"kind": "model3d", "property_id", "title"} or {"kind": "comparison", "tour_id"}
 
 
-EMPTY_PREFS = {"max_budget_etb": None, "min_bedrooms": None, "preferred_sub_cities": [], "area_firm": False}
+EMPTY_PREFS = {"max_budget_etb": None, "min_bedrooms": None, "preferred_sub_cities": [], "area_firm": False, "budget_firm": False, "widened_last": False}

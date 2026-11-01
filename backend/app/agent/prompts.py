@@ -36,6 +36,7 @@ Rules:
 - Bedrooms: "3BR", "three bedroom" = 3. A studio is 0.
 - preferred_sub_cities: return the COMPLETE updated list, not just additions. Known areas: {GLOSSARY}. Keep other area names as written.
 - area_is_firm: true only when the latest message insists on the area ("only X", "I need X", "not in Y", "nothing outside X"); false when they open up ("anywhere is fine", "or nearby"); otherwise null.
+- budget_is_firm: true only when the latest message insists the budget is a hard ceiling ("not more than", "maximum", "I told you"); false when they allow some stretch; otherwise null.
 - search_query: a short English description of the home and lifestyle they want, even if they wrote in Amharic.
 - referenced_options: numbers from the most recent list shown to the buyer ("the first two" = [1, 2]). Empty if none.
 - tour_start_iso: the visit time they ask for, resolved against the current time given, with UTC offset. Null if no time was given.
