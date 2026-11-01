@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from psycopg import sql
+from psycopg.pq import TransactionStatus
 
 # The organization that existed before multi-tenancy. While `tenancy_strict` is off, work with no organization falls back to it.
 DEFAULT_ORG_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -96,6 +97,11 @@ async def tenant_connection(pool: Any, org_id: UUID | str, role: str | None = AP
                 yield conn
         else:
             await _enter(conn, org_id, role)
-            yield conn
-            if role:  # back to the connection's own role so a caller that keeps the transaction open is not left restricted
-                await conn.execute("reset role")
+            try:
+                yield conn
+            finally:
+                # Back to the connection's own role, so a caller that keeps the transaction open (or a failure that was handled
+                # inside it) does not leave the connection restricted for whoever uses it next. A transaction that is already
+                # aborted gets rolled back by the pool, which drops the role with it, and cannot run a statement anyway.
+                if role and conn.info.transaction_status != TransactionStatus.INERROR:
+                    await conn.execute("reset role")

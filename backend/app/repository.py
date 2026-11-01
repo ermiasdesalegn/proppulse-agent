@@ -78,6 +78,14 @@ class Repository:
             cur = await conn.execute(query, params)
             return await cur.fetchall()
 
+    async def _guarded(self, query: str | sql.Composable, params: Sequence[Any] = ()) -> list[dict]:
+        """Like `_fetch`, for statements that may fail on purpose (a duplicate, a rule in a trigger): the failure is undone
+        on its own, so the caller's transaction stays usable."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                cur = await conn.execute(query, params)
+                return await cur.fetchall()
+
     async def _one(self, query: str | sql.Composable, params: Sequence[Any] = ()) -> dict | None:
         rows = await self._fetch(query, params)
         return rows[0] if rows else None
@@ -1041,3 +1049,86 @@ class Repository:
         """Buyers who asked for this project's price and were told: the ones to tell when the price changes."""
         return await self._fetch(
             "select q.id, q.buyer_id from price_requests q where q.project_id = %s and q.status = 'ANSWERED' order by q.id", (str(project_id),))
+
+    # ---- organizations, members and invitations ----
+    # The first group reads and writes the tenancy tables for a given organization or person, which a tenant's own role may not
+    # do; call them on `repo.as_platform()` after the caller's rights have been checked (app/access.py, app/org_api.py).
+
+    async def organization(self, org_id: UUID | str) -> dict | None:
+        return await self._one("select id, slug, name, plan, status from organizations where id = %s", (str(org_id),))
+
+    async def memberships_for_user(self, user_id: UUID | str) -> list[dict]:
+        return await self._fetch(
+            "select m.org_id, m.role, o.slug, o.name, o.plan, o.status from memberships m join organizations o on o.id = m.org_id "
+            "where m.user_id = %s order by m.created_at, o.slug", (str(user_id),))
+
+    async def create_organization(self, name: str, slug: str, owner_id: UUID | str) -> dict:
+        """A new organization, its settings and its first owner, together or not at all. A taken slug raises UniqueViolation."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                org = await (await conn.execute(
+                    "insert into organizations (slug, name) values (%s, %s) returning id, slug, name, plan, status", (slug, name))).fetchone()
+                await conn.execute("insert into org_settings (org_id, display_name) values (%s, %s)", (org["id"], name))
+                await conn.execute("insert into memberships (org_id, user_id, role) values (%s, %s, 'owner')", (org["id"], str(owner_id)))
+                return org
+
+    async def count_owned_organizations(self, user_id: UUID | str) -> int:
+        rows = await self._fetch("select count(*)::int as n from memberships where user_id = %s and role = 'owner'", (str(user_id),))
+        return rows[0]["n"]
+
+    async def list_members(self, org_id: UUID | str) -> list[dict]:
+        return await self._fetch(
+            "select user_id, role, created_at from memberships where org_id = %s order by created_at, user_id", (str(org_id),))
+
+    async def get_member(self, org_id: UUID | str, user_id: UUID | str) -> dict | None:
+        return await self._one("select user_id, role from memberships where org_id = %s and user_id = %s", (str(org_id), str(user_id)))
+
+    async def set_member_role(self, org_id: UUID | str, user_id: UUID | str, role: str) -> dict | None:
+        """Raises RaiseException when this would leave the organization without an owner."""
+        rows = await self._guarded(
+            "update memberships set role = %s where org_id = %s and user_id = %s returning user_id, role", (role, str(org_id), str(user_id)))
+        return rows[0] if rows else None
+
+    async def remove_member(self, org_id: UUID | str, user_id: UUID | str) -> bool:
+        """Raises RaiseException when this would leave the organization without an owner."""
+        return bool(await self._guarded(
+            "delete from memberships where org_id = %s and user_id = %s returning user_id", (str(org_id), str(user_id))))
+
+    # Invitations belong to one organization like any private table, so these run as the caller's organization.
+
+    async def create_invitation(self, email: str, role: str, token_hash: str, invited_by: UUID | str | None) -> dict:
+        rows = await self._guarded(
+            "insert into invitations (org_id, email, role, token_hash, invited_by) values (current_org(), %s, %s, %s, %s) "
+            "returning id, email, role, expires_at", (email, role, token_hash, str(invited_by) if invited_by else None))
+        return rows[0]
+
+    async def open_invitations(self) -> list[dict]:
+        return await self._fetch(
+            "select id, email, role, expires_at, created_at from invitations "
+            "where accepted_at is null and expires_at > now() order by created_at")
+
+    async def revoke_invitation(self, invitation_id: UUID | str) -> bool:
+        return bool(await self._fetch(
+            "delete from invitations where id = %s and accepted_at is null returning id", (str(invitation_id),)))
+
+    async def accept_invitation(self, token_hash: str, user_id: UUID | str, email: str | None) -> dict | None:
+        """Turn an open invitation into a membership for the person holding the link, if it was sent to their address.
+
+        Returns the new membership, or None when the link is unknown, used or expired. Raises PermissionError when it was
+        written for another address. Platform use: the person is not a member yet, so no organization is in scope.
+        """
+        async with self._conn() as conn:
+            inv = await (await conn.execute(
+                "select id, org_id, email, role from invitations where token_hash = %s and accepted_at is null and expires_at > now() "
+                "for update", (token_hash,))).fetchone()
+            if inv is None:
+                return None
+            if not email or email.strip().lower() != inv["email"].strip().lower():
+                raise PermissionError("this invitation was sent to a different address")
+            await conn.execute(
+                "insert into memberships (org_id, user_id, role) values (%s, %s, %s) "
+                "on conflict (org_id, user_id) do nothing", (inv["org_id"], str(user_id), inv["role"]))
+            await conn.execute("update invitations set accepted_at = now() where id = %s", (inv["id"],))
+            return await (await conn.execute(
+                "select m.org_id, m.role, o.slug, o.name from memberships m join organizations o on o.id = m.org_id "
+                "where m.org_id = %s and m.user_id = %s", (inv["org_id"], str(user_id)))).fetchone()

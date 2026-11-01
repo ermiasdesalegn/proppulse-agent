@@ -12,6 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from app.access import console_access, console_admin, console_owner
 from app.ads import AdError
 from app.chat import ChatService, Conflict, Inbound
 from app.events import sse_frames
@@ -29,14 +30,6 @@ router = APIRouter()
 
 def _same(a: str | None, b: str) -> bool:
     return bool(a) and hmac.compare_digest(a.encode(), b.encode())
-
-
-async def require_admin(request: Request, x_admin_key: str | None = Header(default=None)) -> None:
-    key = request.app.state.settings.admin_api_key
-    if not key:
-        raise HTTPException(503, "ADMIN_API_KEY is not configured")
-    if not _same(x_admin_key, key):
-        raise HTTPException(401, "Invalid admin key")
 
 
 async def require_cron_or_admin(
@@ -112,7 +105,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
 
 # ---------------- web chat simulator ----------------
 
-@router.post("/api/chat/web", dependencies=[Depends(require_admin)])
+@router.post("/api/chat/web", dependencies=[Depends(console_access)])
 async def web_chat(body: WebChatIn, chat: ChatService = Depends(chat_of)):
     outcome = await chat.handle_inbound(Inbound(channel="web", external_id=body.session_id, kind="text", text=body.text))
     return {
@@ -125,7 +118,7 @@ async def web_chat(body: WebChatIn, chat: ChatService = Depends(chat_of)):
     }
 
 
-@router.get("/api/chat/web/{session_id}/messages", dependencies=[Depends(require_admin)])
+@router.get("/api/chat/web/{session_id}/messages", dependencies=[Depends(console_access)])
 async def web_chat_messages(session_id: str, after_id: int = 0, repo: Repository = Depends(repo_of)):
     if not (8 <= len(session_id) <= 64 and session_id.replace("-", "").replace("_", "").isalnum()):
         raise HTTPException(422, "Invalid session id")
@@ -167,14 +160,14 @@ async def all_reminders(dry_run: bool = False, proactive=Depends(proactive_of)):
     return {"dry_run": dry_run, "jobs": jobs, **{k: sum(j[k] for j in jobs) for k in ("sent", "skipped", "failed")}}
 
 
-@router.get("/api/proactive/events", dependencies=[Depends(require_admin)])
+@router.get("/api/proactive/events", dependencies=[Depends(console_access)])
 async def proactive_events(audience: str | None = None, limit: int = 100, repo: Repository = Depends(repo_of)):
     if audience not in (None, "buyer", "broker"):
         raise HTTPException(422, "audience must be 'buyer' or 'broker'")
     return await repo.list_events(audience=audience, limit=min(max(limit, 1), 500))
 
 
-@router.post("/api/properties/{property_id}/price", dependencies=[Depends(require_admin)])
+@router.post("/api/properties/{property_id}/price", dependencies=[Depends(console_admin)])
 async def change_price(property_id: UUID, body: PriceIn, repo: Repository = Depends(repo_of)):
     """Record a developer's price change. The next proactive run alerts buyers the unit now suits."""
     try:
@@ -307,12 +300,12 @@ async def announcement_webhook(
     return {"status": "processed", "developer": developer["slug"], "counts": report["counts"], "ads": ads}
 
 
-@router.get("/api/announcements", dependencies=[Depends(require_admin)])
+@router.get("/api/announcements", dependencies=[Depends(console_access)])
 async def list_announcements(repo: Repository = Depends(repo_of)):
     return await repo.list_announcements()
 
 
-@router.post("/api/ingest", dependencies=[Depends(require_admin)])
+@router.post("/api/ingest", dependencies=[Depends(console_admin)])
 async def ingest(body: IngestIn, request: Request, service: IngestionService = Depends(ingest_of)):
     try:
         report = await service.run(developer_slug=body.developer_slug, source=body.source, html=body.html, text=body.text, url=body.url,
@@ -338,7 +331,7 @@ class PortalBatchIn(BaseModel):
     llm_budget: int = Field(default=3, ge=0, le=10)
 
 
-@router.post("/api/ingest/portal", dependencies=[Depends(require_admin)])
+@router.post("/api/ingest/portal", dependencies=[Depends(console_admin)])
 async def ingest_portal(body: PortalBatchIn, service: IngestionService = Depends(ingest_of)):
     return await service.run_portal(portal=body.portal, name=body.name, items=body.items, dry_run=body.dry_run, llm_budget=body.llm_budget)
 
@@ -349,7 +342,7 @@ class PortalSyncIn(BaseModel):
     dry_run: bool = False
 
 
-@router.post("/api/ingest/portal/sync", dependencies=[Depends(require_admin)])
+@router.post("/api/ingest/portal/sync", dependencies=[Depends(console_admin)])
 async def ingest_portal_sync(body: PortalSyncIn, service: IngestionService = Depends(ingest_of)):
     """Sent once at the end of a complete portal crawl: listings that are no longer on the portal stop being offered."""
     try:
@@ -386,12 +379,12 @@ class PortalReportIn(BaseModel):
     error: str | None = Field(default=None, max_length=1000)
 
 
-@router.get("/api/portal/runs", dependencies=[Depends(require_admin)])
+@router.get("/api/portal/runs", dependencies=[Depends(console_access)])
 async def portal_runs(service: PortalRunService = Depends(portal_runs_of)):
     return {"config": service.config(), "runs": await service.runs()}
 
 
-@router.post("/api/portal/runs", dependencies=[Depends(require_admin)])
+@router.post("/api/portal/runs", dependencies=[Depends(console_admin)])
 async def start_portal_crawl(body: PortalRunIn, service: PortalRunService = Depends(portal_runs_of)):
     try:
         return await service.start(site=body.site, limit=body.limit, dry_run=body.dry_run)
@@ -399,7 +392,7 @@ async def start_portal_crawl(body: PortalRunIn, service: PortalRunService = Depe
         raise HTTPException(502 if "GitHub" in str(exc) else 422, str(exc)) from None
 
 
-@router.post("/api/portal/runs/report", dependencies=[Depends(require_admin)])
+@router.post("/api/portal/runs/report", dependencies=[Depends(console_admin)])
 async def portal_run_report(body: PortalReportIn, service: PortalRunService = Depends(portal_runs_of)):
     try:
         if body.phase == "start":
@@ -412,12 +405,12 @@ async def portal_run_report(body: PortalReportIn, service: PortalRunService = De
         raise HTTPException(422, str(exc)) from None
 
 
-@router.get("/api/ingest/runs", dependencies=[Depends(require_admin)])
+@router.get("/api/ingest/runs", dependencies=[Depends(console_access)])
 async def ingest_runs(limit: int = 20, repo: Repository = Depends(repo_of)):
     return await repo.list_ingest_runs(min(max(limit, 1), 100))
 
 
-@router.get("/api/samples/listing", dependencies=[Depends(require_admin)])
+@router.get("/api/samples/listing", dependencies=[Depends(console_access)])
 async def sample_listing_page(variant: int = 1):
     if variant not in (1, 2):
         raise HTTPException(422, "variant must be 1 or 2")
@@ -425,7 +418,7 @@ async def sample_listing_page(variant: int = 1):
     return {"developer_slug": "ayat", "html": html, "profile": profile, "variant": variant}
 
 
-@router.get("/api/developers", dependencies=[Depends(require_admin)])
+@router.get("/api/developers", dependencies=[Depends(console_access)])
 async def list_developers(repo: Repository = Depends(repo_of)):
     return await repo.list_developers()
 
@@ -447,7 +440,7 @@ async def _record_scrape_failure(request: Request, repo: Repository, dev: dict, 
             pass
 
 
-@router.put("/api/developers/{slug}/scrape", dependencies=[Depends(require_admin)])
+@router.put("/api/developers/{slug}/scrape", dependencies=[Depends(console_admin)])
 async def set_scrape_source(slug: str, body: ScrapeConfigIn, repo: Repository = Depends(repo_of)):
     if (body.url is None) != (body.profile is None):
         raise HTTPException(422, "give both the address and the selectors, or neither to clear them")
@@ -462,7 +455,7 @@ class SuggestIn(BaseModel):
     html: str | None = Field(default=None, max_length=500_000)
 
 
-@router.post("/api/developers/{slug}/suggest-profile", dependencies=[Depends(require_admin)])
+@router.post("/api/developers/{slug}/suggest-profile", dependencies=[Depends(console_admin)])
 async def suggest_scrape_profile(slug: str, body: SuggestIn, service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of)):
     """Let the language model propose selectors for a developer's page and test them. Nothing is saved: the broker reviews the preview."""
     from app.ingest.onboard import suggest_profile
@@ -492,7 +485,7 @@ async def suggest_scrape_profile(slug: str, body: SuggestIn, service: IngestionS
         raise HTTPException(502, "The language model could not propose selectors right now") from None
 
 
-@router.get("/api/scrape/health", dependencies=[Depends(require_admin)])
+@router.get("/api/scrape/health", dependencies=[Depends(console_access)])
 async def scrape_health_report(request: Request, repo: Repository = Depends(repo_of)):
     from app.ingest.health import scrape_health
 
@@ -561,7 +554,7 @@ class AdPublishIn(BaseModel):
     dry_run: bool = True  # previewing is the default: a post on the public channel cannot be taken back from here
 
 
-@router.post("/api/ads/publish", dependencies=[Depends(require_admin)])
+@router.post("/api/ads/publish", dependencies=[Depends(console_access)])
 async def publish_ad(body: AdPublishIn, request: Request):
     ads = getattr(request.app.state, "ads", None)
     if ads is None:
@@ -574,7 +567,7 @@ async def publish_ad(body: AdPublishIn, request: Request):
         raise HTTPException(422, str(exc)) from None
 
 
-@router.get("/api/tours/{tour_id}/dossier", dependencies=[Depends(require_admin)])
+@router.get("/api/tours/{tour_id}/dossier", dependencies=[Depends(console_access)])
 async def tour_dossier(tour_id: UUID, request: Request, repo: Repository = Depends(repo_of)):
     from zoneinfo import ZoneInfo
 
@@ -588,7 +581,7 @@ async def tour_dossier(tour_id: UUID, request: Request, repo: Repository = Depen
     return {**data, "text": render_text(data)}
 
 
-@router.post("/api/tours/{tour_id}/dossier/send", dependencies=[Depends(require_admin)])
+@router.post("/api/tours/{tour_id}/dossier/send", dependencies=[Depends(console_access)])
 async def send_tour_dossier(tour_id: UUID, request: Request, repo: Repository = Depends(repo_of)):
     from zoneinfo import ZoneInfo
 
@@ -601,14 +594,14 @@ async def send_tour_dossier(tour_id: UUID, request: Request, repo: Repository = 
         raise HTTPException(404, "Tour not found") from None
 
 
-@router.get("/api/ads", dependencies=[Depends(require_admin)])
+@router.get("/api/ads", dependencies=[Depends(console_access)])
 async def list_ads(limit: int = 20, repo: Repository = Depends(repo_of)):
     return await repo.list_channel_posts(min(max(limit, 1), 100))
 
 
 # ---------------- live activity stream ----------------
 
-@router.get("/api/stream/events", dependencies=[Depends(require_admin)])
+@router.get("/api/stream/events", dependencies=[Depends(console_access)])
 async def stream_events(request: Request, last_event_id: str | None = Header(default=None), after: int = 0):
     """Server-Sent Events: every agent node transition, message, takeover and proactive send, live.
     Reconnecting clients send Last-Event-ID and receive what they missed."""
@@ -626,12 +619,12 @@ class DealMoveIn(BaseModel):
     next_buyer_milestone_date: date | None = None
 
 
-@router.get("/api/board", dependencies=[Depends(require_admin)])
+@router.get("/api/board", dependencies=[Depends(console_access)])
 async def deal_board(repo: Repository = Depends(repo_of)):
     return await repo.board()
 
 
-@router.patch("/api/ledger/{ledger_id}", dependencies=[Depends(require_admin)])
+@router.patch("/api/ledger/{ledger_id}", dependencies=[Depends(console_access)])
 async def move_deal(ledger_id: UUID, body: DealMoveIn, repo: Repository = Depends(repo_of)):
     try:
         return await repo.move_deal(ledger_id, body.status, contract_value_etb=body.contract_value_etb,
@@ -642,7 +635,7 @@ async def move_deal(ledger_id: UUID, body: DealMoveIn, repo: Repository = Depend
         raise HTTPException(422, str(exc)) from None
 
 
-@router.get("/api/properties", dependencies=[Depends(require_admin)])
+@router.get("/api/properties", dependencies=[Depends(console_access)])
 async def list_properties(repo: Repository = Depends(repo_of)):
     return await repo.list_properties_for_map()
 
@@ -688,12 +681,12 @@ def _file_name(unit: dict, extension: str) -> str:
     return f"{stem[:60] or 'unit'}.{extension}"
 
 
-@router.post("/api/layouts/pack", dependencies=[Depends(require_admin)])
+@router.post("/api/layouts/pack", dependencies=[Depends(console_access)])
 async def pack_layout(body: PackIn) -> Layout:
     return pack_rooms([(r.name, r.w, r.d) for r in body.rooms], title=body.title)
 
 
-@router.post("/api/properties/{property_id}/layout/read-plan", dependencies=[Depends(require_admin)])
+@router.post("/api/properties/{property_id}/layout/read-plan", dependencies=[Depends(console_access)])
 async def read_plan(property_id: UUID, body: PlanIn, repo: Repository = Depends(repo_of), service: IngestionService = Depends(ingest_of)) -> Layout:
     """Reads a floor-plan image into rooms for the broker to check. Nothing is saved until the broker saves it."""
     unit = await _unit(repo, property_id)
@@ -710,51 +703,51 @@ async def read_plan(property_id: UUID, body: PlanIn, repo: Repository = Depends(
         raise HTTPException(502, "The plan could not be read right now. Try again in a minute, or enter the rooms by hand.") from None
 
 
-@router.get("/api/properties/{property_id}/layout", dependencies=[Depends(require_admin)])
+@router.get("/api/properties/{property_id}/layout", dependencies=[Depends(console_access)])
 async def get_layout(property_id: UUID, repo: Repository = Depends(repo_of)) -> dict:
     await _unit(repo, property_id)
     return {"layout": await repo.get_layout(property_id)}
 
 
-@router.put("/api/properties/{property_id}/layout", dependencies=[Depends(require_admin)])
+@router.put("/api/properties/{property_id}/layout", dependencies=[Depends(console_access)])
 async def save_layout(property_id: UUID, body: Layout, repo: Repository = Depends(repo_of)) -> Layout:
     await _unit(repo, property_id)
     await repo.set_layout(property_id, body.model_dump(mode="json"))
     return body
 
 
-@router.delete("/api/properties/{property_id}/layout", dependencies=[Depends(require_admin)])
+@router.delete("/api/properties/{property_id}/layout", dependencies=[Depends(console_access)])
 async def delete_layout(property_id: UUID, repo: Repository = Depends(repo_of)) -> dict:
     await _unit(repo, property_id)
     return {"deleted": await repo.delete_layout(property_id)}
 
 
-@router.get("/api/properties/{property_id}/model.glb", dependencies=[Depends(require_admin)])
+@router.get("/api/properties/{property_id}/model.glb", dependencies=[Depends(console_access)])
 async def model_file(property_id: UUID, repo: Repository = Depends(repo_of)) -> Response:
     unit, layout = await _layout_of(repo, property_id)
     return Response(await run_in_threadpool(to_glb, layout), media_type="model/gltf-binary",
                     headers={"Content-Disposition": f'attachment; filename="{_file_name(unit, "glb")}"'})
 
 
-@router.get("/api/properties/{property_id}/preview.png", dependencies=[Depends(require_admin)])
+@router.get("/api/properties/{property_id}/preview.png", dependencies=[Depends(console_access)])
 async def model_picture(property_id: UUID, repo: Repository = Depends(repo_of)) -> Response:
     _, layout = await _layout_of(repo, property_id)
     return Response(await run_in_threadpool(render_png, layout), media_type="image/png")
 
 
-@router.get("/api/tours", dependencies=[Depends(require_admin)])
+@router.get("/api/tours", dependencies=[Depends(console_access)])
 async def list_tours(limit: int = 100, repo: Repository = Depends(repo_of)):
     return await repo.list_tours(min(max(limit, 1), 500))
 
 
-@router.get("/api/stats", dependencies=[Depends(require_admin)])
+@router.get("/api/stats", dependencies=[Depends(console_access)])
 async def stats(request: Request, repo: Repository = Depends(repo_of)):
     s = request.app.state.settings
     since = datetime.now(UTC) - timedelta(hours=24)
     return {**await repo.stats(since), "trends": await repo.trends(30), "high_value_threshold_etb": s.high_value_threshold_etb, "demo_reset_enabled": s.demo_reset_enabled}
 
 
-@router.get("/api/analytics", dependencies=[Depends(require_admin)])
+@router.get("/api/analytics", dependencies=[Depends(console_access)])
 async def analytics(days: int = 30, repo: Repository = Depends(repo_of)):
     from app.analytics import build
 
@@ -765,7 +758,7 @@ class DemoResetIn(BaseModel):
     confirm: str
 
 
-@router.post("/api/demo/reset", dependencies=[Depends(require_admin)])
+@router.post("/api/demo/reset", dependencies=[Depends(console_owner)])
 async def demo_reset(body: DemoResetIn, request: Request, repo: Repository = Depends(repo_of)):
     """Wipe conversations, deals, tours and event history and restore the demo catalogue. Off unless DEMO_RESET_ENABLED is set."""
     from app.demo import reset_demo
@@ -782,7 +775,7 @@ async def demo_reset(body: DemoResetIn, request: Request, repo: Repository = Dep
     return report
 
 
-@router.get("/api/messages/{message_id}/audio", dependencies=[Depends(require_admin)])
+@router.get("/api/messages/{message_id}/audio", dependencies=[Depends(console_access)])
 async def message_audio(message_id: int, request: Request, repo: Repository = Depends(repo_of)):
     """Stream a buyer's voice note so the broker can play it in the console."""
     row = await repo.get_message(message_id)
@@ -797,12 +790,12 @@ async def message_audio(message_id: int, request: Request, repo: Repository = De
 
 # ---------------- broker console ----------------
 
-@router.get("/api/buyers", dependencies=[Depends(require_admin)])
+@router.get("/api/buyers", dependencies=[Depends(console_access)])
 async def list_buyers(limit: int = 100, repo: Repository = Depends(repo_of)):
     return await repo.list_buyers(min(max(limit, 1), 500))
 
 
-@router.get("/api/buyers/{buyer_id}", dependencies=[Depends(require_admin)])
+@router.get("/api/buyers/{buyer_id}", dependencies=[Depends(console_access)])
 async def get_buyer(buyer_id: UUID, repo: Repository = Depends(repo_of)):
     buyer = await repo.get_buyer(buyer_id)
     if buyer is None:
@@ -810,7 +803,7 @@ async def get_buyer(buyer_id: UUID, repo: Repository = Depends(repo_of)):
     return public_buyer(buyer)
 
 
-@router.get("/api/buyers/{buyer_id}/profile", dependencies=[Depends(require_admin)])
+@router.get("/api/buyers/{buyer_id}/profile", dependencies=[Depends(console_access)])
 async def buyer_profile(buyer_id: UUID, repo: Repository = Depends(repo_of)):
     """Everything the CRM shows about one buyer: why the score is what it is, how it grew, what they worry about, what is booked."""
     from app.agent import scoring
@@ -829,14 +822,14 @@ async def buyer_profile(buyer_id: UUID, repo: Repository = Depends(repo_of)):
     }
 
 
-@router.get("/api/buyers/{buyer_id}/messages", dependencies=[Depends(require_admin)])
+@router.get("/api/buyers/{buyer_id}/messages", dependencies=[Depends(console_access)])
 async def buyer_messages(buyer_id: UUID, after_id: int = 0, repo: Repository = Depends(repo_of)):
     if await repo.get_buyer(buyer_id) is None:
         raise HTTPException(404, "Buyer not found")
     return await repo.list_messages(buyer_id, after_id=after_id)
 
 
-@router.post("/api/buyers/{buyer_id}/takeover", dependencies=[Depends(require_admin)])
+@router.post("/api/buyers/{buyer_id}/takeover", dependencies=[Depends(console_access)])
 async def set_takeover(buyer_id: UUID, body: TakeoverIn, chat: ChatService = Depends(chat_of)):
     try:
         return public_buyer(await chat.set_takeover(str(buyer_id), body.on))
@@ -844,7 +837,7 @@ async def set_takeover(buyer_id: UUID, body: TakeoverIn, chat: ChatService = Dep
         raise HTTPException(404, "Buyer not found") from None
 
 
-@router.post("/api/chat/broker-reply", dependencies=[Depends(require_admin)])
+@router.post("/api/chat/broker-reply", dependencies=[Depends(console_access)])
 async def broker_reply(body: BrokerReplyIn, chat: ChatService = Depends(chat_of)):
     try:
         return await chat.broker_reply(str(body.buyer_id), body.text)
@@ -882,17 +875,17 @@ def _project_error(exc: Exception) -> HTTPException:
     return HTTPException(404 if isinstance(exc, LookupError) else 422, str(exc.args[0] if exc.args else exc))
 
 
-@router.get("/api/projects", dependencies=[Depends(require_admin)])
+@router.get("/api/projects", dependencies=[Depends(console_access)])
 async def list_projects(repo: Repository = Depends(repo_of)):
     return await repo.list_projects()
 
 
-@router.get("/api/price-requests", dependencies=[Depends(require_admin)])
+@router.get("/api/price-requests", dependencies=[Depends(console_access)])
 async def list_price_requests(repo: Repository = Depends(repo_of)):
     return await repo.list_price_requests()
 
 
-@router.post("/api/developers/{slug}/crawl-projects", dependencies=[Depends(require_admin)])
+@router.post("/api/developers/{slug}/crawl-projects", dependencies=[Depends(console_admin)])
 async def crawl_projects(slug: str, body: CrawlIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -902,7 +895,7 @@ async def crawl_projects(slug: str, body: CrawlIn, projects=Depends(projects_of)
         raise _project_error(exc) from None
 
 
-@router.put("/api/projects/{project_id}/price", dependencies=[Depends(require_admin)])
+@router.put("/api/projects/{project_id}/price", dependencies=[Depends(console_access)])
 async def set_project_price(project_id: UUID, body: ProjectPriceIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -912,7 +905,7 @@ async def set_project_price(project_id: UUID, body: ProjectPriceIn, projects=Dep
         raise _project_error(exc) from None
 
 
-@router.put("/api/projects/{project_id}/promo", dependencies=[Depends(require_admin)])
+@router.put("/api/projects/{project_id}/promo", dependencies=[Depends(console_access)])
 async def set_project_promo(project_id: UUID, body: ProjectPromoIn, repo: Repository = Depends(repo_of)):
     row = await repo.set_project_promo(project_id, (body.text or "").strip() or None, body.discount_pct if body.text else None, body.until if body.text else None)
     if row is None:
@@ -920,7 +913,7 @@ async def set_project_promo(project_id: UUID, body: ProjectPromoIn, repo: Reposi
     return {"ok": True}
 
 
-@router.post("/api/projects/{project_id}/ad", dependencies=[Depends(require_admin)])
+@router.post("/api/projects/{project_id}/ad", dependencies=[Depends(console_access)])
 async def project_ad(project_id: UUID, body: ProjectAdIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -942,7 +935,7 @@ class DeveloperIn(BaseModel):
     commission_rate_pct: float = Field(default=3.0, ge=0, le=100)
 
 
-@router.post("/api/developers", dependencies=[Depends(require_admin)])
+@router.post("/api/developers", dependencies=[Depends(console_admin)])
 async def create_developer(body: DeveloperIn, repo: Repository = Depends(repo_of)):
     import re as _re
 
@@ -953,7 +946,7 @@ async def create_developer(body: DeveloperIn, repo: Repository = Depends(repo_of
     return row
 
 
-@router.get("/api/market-sweep", dependencies=[Depends(require_admin)])
+@router.get("/api/market-sweep", dependencies=[Depends(console_access)])
 async def market_sweep_status(projects=Depends(projects_of)):
     return {**projects.status(), "sources": [{"developer": slug, "url": url} for slug, url in await projects.sources()]}
 
@@ -968,7 +961,7 @@ class ImageUrlIn(BaseModel):
     url: str | None = Field(default=None, max_length=500, pattern=r"^https?://")
 
 
-@router.post("/api/projects/{project_id}/media", dependencies=[Depends(require_admin)])
+@router.post("/api/projects/{project_id}/media", dependencies=[Depends(console_access)])
 async def add_project_media(project_id: UUID, body: MediaIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -983,12 +976,12 @@ async def add_project_media(project_id: UUID, body: MediaIn, projects=Depends(pr
     return row
 
 
-@router.get("/api/projects/{project_id}/media", dependencies=[Depends(require_admin)])
+@router.get("/api/projects/{project_id}/media", dependencies=[Depends(console_access)])
 async def list_project_media(project_id: UUID, repo: Repository = Depends(repo_of)):
     return await repo.list_project_media(project_id)
 
 
-@router.get("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(require_admin)])
+@router.get("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(console_access)])
 async def project_media_file(project_id: UUID, media_id: int, repo: Repository = Depends(repo_of)):
     row = await repo.get_project_media(media_id)
     if row is None or str(row["project_id"]) != str(project_id):
@@ -996,7 +989,7 @@ async def project_media_file(project_id: UUID, media_id: int, repo: Repository =
     return Response(bytes(row["data"]), media_type=row["mime"], headers={"Cache-Control": "private, max-age=3600"})
 
 
-@router.delete("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(require_admin)])
+@router.delete("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(console_access)])
 async def delete_project_media(project_id: UUID, media_id: int, repo: Repository = Depends(repo_of)):
     row = await repo.get_project_media(media_id)
     if row is None or str(row["project_id"]) != str(project_id) or not await repo.delete_project_media(media_id):
@@ -1004,7 +997,7 @@ async def delete_project_media(project_id: UUID, media_id: int, repo: Repository
     return {"ok": True}
 
 
-@router.put("/api/projects/{project_id}/image", dependencies=[Depends(require_admin)])
+@router.put("/api/projects/{project_id}/image", dependencies=[Depends(console_access)])
 async def set_project_image(project_id: UUID, body: ImageUrlIn, repo: Repository = Depends(repo_of)):
     if await repo.set_project_image(project_id, body.url) is None:
         raise HTTPException(404, "project not found")

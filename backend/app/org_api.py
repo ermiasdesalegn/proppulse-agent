@@ -1,0 +1,169 @@
+"""Organizations, their members and invitations: the endpoints a signed-in person uses to create an agency and run its team."""
+from __future__ import annotations
+
+import hashlib
+import re
+import secrets
+from typing import Literal
+from uuid import UUID
+
+import psycopg
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from app.access import Principal, console_access, console_admin, identify, require_role
+from app.repository import Repository
+
+router = APIRouter()
+
+MAX_OWNED_ORGANIZATIONS = 5
+RESERVED_SLUGS = frozenset({"www", "api", "app", "admin", "console", "portal", "login", "signup", "auth", "static", "platform", "support"})
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+Role = Literal["owner", "admin", "agent", "viewer"]
+
+
+def make_slug(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:39].strip("-")
+    return slug if len(slug) >= 3 else f"{slug or 'agency'}-{secrets.token_hex(2)}"
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def platform_repo(request: Request) -> Repository:
+    """Tenancy tables are written outside any one organization's rights; the handlers below check the caller first."""
+    return request.app.state.repo.as_platform()
+
+
+class OrgIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    slug: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
+
+
+class RoleIn(BaseModel):
+    role: Role
+
+
+class InviteIn(BaseModel):
+    email: str = Field(max_length=254)
+    role: Literal["admin", "agent", "viewer"] = "agent"  # an owner is made by promoting a member, never by link
+
+
+class AcceptIn(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+
+
+def _org_view(m: dict) -> dict:
+    return {"id": str(m["org_id"]), "slug": m["slug"], "name": m["name"], "role": m["role"], "plan": m.get("plan"), "status": m.get("status")}
+
+
+async def _mine(request: Request) -> list[dict]:
+    who = await identify(request, request.headers.get("authorization"))
+    return [_org_view(m) for m in await platform_repo(request).memberships_for_user(who.user_id)]
+
+
+@router.get("/api/orgs/mine")
+async def organizations_mine(request: Request):
+    """The organizations the signed-in person belongs to, with their role in each. Needs a sign-in, not an organization."""
+    return {"organizations": await _mine(request)}
+
+
+@router.post("/api/orgs", status_code=201)
+async def create_organization(body: OrgIn, request: Request):
+    who = await identify(request, request.headers.get("authorization"))
+    repo = platform_repo(request)
+    if await repo.count_owned_organizations(who.user_id) >= MAX_OWNED_ORGANIZATIONS:
+        raise HTTPException(409, f"You can own at most {MAX_OWNED_ORGANIZATIONS} organizations")
+    slug = body.slug or make_slug(body.name)
+    if slug in RESERVED_SLUGS:
+        raise HTTPException(409, "That address is reserved")
+    try:
+        org = await repo.create_organization(body.name.strip(), slug, who.user_id)
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, "That address is already taken") from None
+    return {"id": str(org["id"]), "slug": org["slug"], "name": org["name"], "role": "owner", "plan": org["plan"], "status": org["status"]}
+
+
+@router.get("/api/members")
+async def list_members(request: Request, p: Principal = Depends(console_access)):
+    members = await platform_repo(request).list_members(p.tenant.org_id)
+    return {"members": [{"user_id": str(m["user_id"]), "role": m["role"], "since": m["created_at"]} for m in members]}
+
+
+def _may_change(p: Principal, target_role: str, new_role: str | None = None) -> None:
+    """Only an owner touches an owner (or makes one); an admin manages everyone below."""
+    if (target_role == "owner" or new_role == "owner") and not p.tenant.at_least("owner"):
+        raise HTTPException(403, "Only an owner can change an owner or make one")
+
+
+@router.patch("/api/members/{user_id}")
+async def change_member_role(user_id: UUID, body: RoleIn, request: Request, p: Principal = Depends(console_admin)):
+    repo = platform_repo(request)
+    member = await repo.get_member(p.tenant.org_id, user_id)
+    if member is None:
+        raise HTTPException(404, "No such member")
+    _may_change(p, member["role"], body.role)
+    try:
+        row = await repo.set_member_role(p.tenant.org_id, user_id, body.role)
+    except psycopg.errors.RaiseException:
+        raise HTTPException(409, "An organization must keep at least one owner") from None
+    return {"user_id": str(user_id), "role": row["role"] if row else body.role}
+
+
+@router.delete("/api/members/{user_id}")
+async def remove_member(user_id: UUID, request: Request, p: Principal = Depends(require_role("viewer"))):
+    """Anyone may leave; removing someone else takes an admin (an owner, for an owner)."""
+    repo = platform_repo(request)
+    member = await repo.get_member(p.tenant.org_id, user_id)
+    if member is None:
+        raise HTTPException(404, "No such member")
+    if p.tenant.user_id != user_id:
+        if not p.tenant.at_least("admin"):
+            raise HTTPException(403, "Only an admin can remove other members")
+        _may_change(p, member["role"])
+    try:
+        await repo.remove_member(p.tenant.org_id, user_id)
+    except psycopg.errors.RaiseException:
+        raise HTTPException(409, "An organization must keep at least one owner") from None
+    return {"removed": str(user_id)}
+
+
+@router.post("/api/invitations", status_code=201)
+async def invite(body: InviteIn, request: Request, p: Principal = Depends(console_admin)):
+    email = body.email.strip().lower()
+    if not EMAIL.match(email):
+        raise HTTPException(422, "That does not look like an email address")
+    token = secrets.token_urlsafe(32)
+    try:
+        row = await request.app.state.repo.create_invitation(email, body.role, hash_token(token), p.tenant.user_id)
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, "There is already an open invitation for that address") from None
+    # The link token is shown once and only its hash is kept. Sending it by email is the caller's job for now.
+    return {"id": str(row["id"]), "email": row["email"], "role": row["role"], "expires_at": row["expires_at"], "token": token}
+
+
+@router.get("/api/invitations")
+async def list_invitations(request: Request, p: Principal = Depends(console_admin)):
+    rows = await request.app.state.repo.open_invitations()
+    return {"invitations": [{**r, "id": str(r["id"])} for r in rows]}
+
+
+@router.delete("/api/invitations/{invitation_id}")
+async def revoke_invitation(invitation_id: UUID, request: Request, p: Principal = Depends(console_admin)):
+    if not await request.app.state.repo.revoke_invitation(invitation_id):
+        raise HTTPException(404, "No such open invitation")
+    return {"revoked": str(invitation_id)}
+
+
+@router.post("/api/invitations/accept")
+async def accept_invitation(body: AcceptIn, request: Request):
+    """Join the organization an invitation was written for. Needs a sign-in whose email is the invited address."""
+    who = await identify(request, request.headers.get("authorization"))
+    try:
+        joined = await platform_repo(request).accept_invitation(hash_token(body.token), who.user_id, who.email)
+    except PermissionError:
+        raise HTTPException(403, "This invitation was sent to a different email address") from None
+    if joined is None:
+        raise HTTPException(404, "This invitation is not valid any more")
+    return _org_view(joined)

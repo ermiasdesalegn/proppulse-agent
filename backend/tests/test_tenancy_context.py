@@ -136,3 +136,12 @@ async def test_work_started_inside_a_scope_inherits_it():
     with use_tenant(ORG_A):
         assert await asyncio.create_task(child()) == ORG_A
     assert await asyncio.create_task(child()) == DEFAULT_ORG_ID
+
+
+async def test_the_restricted_role_is_dropped_even_when_the_work_inside_fails(db_conn):
+    pool = SingleConnectionPool(db_conn)
+    with pytest.raises(RuntimeError):
+        async with tenant_connection(pool, ORG_A):
+            raise RuntimeError("handled elsewhere")
+    cur = await db_conn.execute("select current_user as u")
+    assert (await cur.fetchone())["u"] != "app_user", "the next caller must not inherit the restriction"

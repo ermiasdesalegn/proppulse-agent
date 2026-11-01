@@ -23,6 +23,7 @@ from app.ingest.browser import BrowserFetcher, Politeness
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
 from app.observability import GuardMiddleware
+from app.org_api import router as org_router
 from app.portal_api import router as portal_router
 from app.proactive import ProactiveService
 from app.projects import ProjectService
@@ -128,6 +129,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
                        trust_proxy=s.trust_proxy_headers)
     app.include_router(router)
     app.include_router(portal_router)
+    app.include_router(org_router)
 
     @app.get("/health")
     def health() -> dict:
