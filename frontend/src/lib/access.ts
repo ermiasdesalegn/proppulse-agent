@@ -1,5 +1,6 @@
 // Who may open which path. One pure function, so the middleware stays thin and every rule can be tested without a request.
 
+/** "broker" is the console role: a signed-in member of an organization, or the operator's password session. */
 export type Role = "anonymous" | "buyer" | "broker";
 
 export type Decision =
@@ -54,14 +55,15 @@ export function decide(pathname: string, role: Role, search = ""): Decision {
     return { action: "next" };
   }
 
-  // Buyer area: any signed-in person. The broker may look around too.
-  if (under(pathname, "/portal") || under(pathname, "/api/me")) {
+  // Signed-in area: any signed-in person. A member of an organization may look around too. Starting an agency (/start), joining
+  // one by invitation (/join) and the calls behind them are here because the person has no organization yet when they begin.
+  if (under(pathname, "/portal") || under(pathname, "/api/me") || under(pathname, "/start") || under(pathname, "/join") || under(pathname, "/api/orgs") || under(pathname, "/api/invitations")) {
     if (role !== "anonymous") return { action: "next" };
     if (isApi(pathname)) return { action: "deny", status: 401 };
     return { action: "redirect", to: `/login?next=${encodeURIComponent(pathname + search)}` };
   }
 
-  // Everything else (the console, the admin proxy, anything new) is the broker's alone.
+  // Everything else (the console, the console proxy, anything new) is for members of an organization alone.
   if (role === "broker") return { action: "next" };
   if (role === "buyer") return isApi(pathname) ? { action: "deny", status: 403 } : { action: "redirect", to: "/portal" };
   return isApi(pathname) ? { action: "deny", status: 401 } : { action: "redirect", to: "/login" };

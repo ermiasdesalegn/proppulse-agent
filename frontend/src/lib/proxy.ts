@@ -14,13 +14,29 @@ export function backendUrl(segments: string[], search: string, base: string): st
 
 const FORWARDED_REQUEST_HEADERS = ["content-type", "accept", "last-event-id"];
 
-export function forwardedHeaders(incoming: Headers, adminKey: string): Headers {
+export function forwardedHeaders(incoming: Headers, adminKey: string, orgId: string | null = null): Headers {
   const out = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = incoming.get(name);
     if (value) out.set(name, value);
   }
   out.set("x-admin-key", adminKey);
+  if (orgId) out.set("x-org-id", orgId);
+  return out;
+}
+
+/**
+ * A member of an organization reaches the console API with their own sign-in and the organization they chose. The backend checks
+ * both against its memberships table, so nothing here is trusted: this only decides what is sent. The admin key is not among it.
+ */
+export function memberHeaders(incoming: Headers, accessToken: string, orgId: string | null): Headers {
+  const out = new Headers();
+  for (const name of FORWARDED_REQUEST_HEADERS) {
+    const value = incoming.get(name);
+    if (value) out.set(name, value);
+  }
+  out.set("authorization", `Bearer ${accessToken}`);
+  if (orgId) out.set("x-org-id", orgId);
   return out;
 }
 

@@ -6,7 +6,7 @@ What the system protects, how, and what it does not do. Report problems to the r
 
 | Surface | Protection |
 |---|---|
-| Console (`/console`, Next.js) | One password, checked on the server; a signed, expiring session cookie; login attempts are rate limited; or the Supabase account whose confirmed email is `BROKER_EMAIL`. Every page and API route sits behind middleware that denies by default |
+| Console (`/console`, Next.js) | One password, checked on the server; a signed, expiring session cookie; login attempts are rate limited; or a Supabase account that is a member of an organization (the backend's `memberships` table decides, per request, and a role limits what the member may change). Every page and API route sits behind middleware that denies by default |
 | Buyer area (`/portal`, `/api/me/*`) | A Supabase sign-in. The backend verifies the token's signature, audience, issuer and expiry itself and keys every query by the user id inside it; responses use a field allow-list (no developer contacts or commission data); anonymous sign-ins are refused |
 | Public site (`/`, `/api/public/*`) | Open and read-only; six homes with limited fields; rate limited per client |
 | Backend admin API (`/api/*`) | `X-Admin-Key` header compared in constant time; the key never leaves the dashboard's server (the browser talks to a proxy that adds it) |
@@ -39,7 +39,7 @@ Logs pass through a redaction filter before any handler sees them: configured se
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.
 - One admin password and key for the console, no audit trail of who clicked what. Buyer accounts exist, but there is a single broker.
-- The broker role depends on Supabase's "Confirm email" staying on. The middleware also asks the auth server whether the broker's address is confirmed, which covers most of the risk, but keep the setting on: with it off, whoever signs up first with `BROKER_EMAIL` could be taken for the broker.
+- Console access no longer depends on an email address: nobody becomes a member by signing up with a particular address. Membership is created by an owner's invitation (the link works once, for the invited address, and only its hash is stored) or by an operator with `python -m scripts.grant_role`. Keep "Confirm email" on anyway, so an invitation's address belongs to whoever uses it.
 - Buyer sign-up has no CAPTCHA; Supabase's own rate limits apply.
 - The prompt-injection check is a list of patterns. It stops the common attempts and costs nothing, but a determined attacker can phrase around it; the structural protection is that the agent's tools only act on the buyer's own conversation.
 - Telegram messages are not end-to-end encrypted; buyers' phone numbers and emails are stored in the database.

@@ -39,7 +39,7 @@ Import the repository, set **Root Directory** to `frontend`, and add these envir
 | `SESSION_SECRET` | a long random string |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | your public `pk.` token (optional; the map falls back to a drawn one) |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase > Project Settings > API (the public key, safe for browsers). Needed for buyer accounts |
-| `BROKER_EMAIL` | the one account that gets the console instead of the portal (create it in Supabase and confirm its email) |
+| *(none)* | who gets the console is decided by membership, not by an address: sign up, then run `python -m scripts.grant_role --email you@example.com --org proppulse --role owner` once, or start an agency at `/start` |
 
 In Supabase > Authentication: enable the Email provider, keep **Confirm email** on, and add your Vercel address and its `/auth/callback` to the redirect URLs. On the backend, `SUPABASE_URL` is enough for current projects; only an older project that signs tokens with the shared secret also needs `SUPABASE_JWT_SECRET`.
 

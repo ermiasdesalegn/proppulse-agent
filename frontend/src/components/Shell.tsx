@@ -8,7 +8,7 @@ import { LiveProvider, useLive, type LiveStatus } from "@/lib/live";
 import clsx from "./clsx";
 import ControlBar from "./ControlBar";
 import { Icon, Logo, type IconName } from "./icons";
-import { Avatar } from "./ui";
+import OrgSwitcher from "./OrgSwitcher";
 
 const GROUPS: { label: string; items: { href: string; label: string; icon: IconName }[] }[] = [
   { label: "Workspace", items: [
@@ -105,11 +105,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
           <div className="hidden border-t border-[#222] p-3 md:absolute md:bottom-0 md:block md:w-56">
-            <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-              <Avatar name="Broker" className="h-8 w-8" />
-              <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">Broker</p><p className="truncate text-xs text-muted">Addis Ababa</p></div>
-              <button onClick={signOut} aria-label="Sign out" title="Sign out" className="rounded-md p-1.5 text-muted transition hover:bg-[#161616] hover:text-white"><Icon name="signout" /></button>
-            </div>
+            <OrgSwitcher onSignOut={signOut} signOutIcon={<Icon name="signout" />} />
           </div>
         </aside>
 

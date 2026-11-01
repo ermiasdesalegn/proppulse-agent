@@ -122,7 +122,7 @@ The same Next.js app has a public front door for buyers, so the agent is availab
 | Where | What it does |
 |---|---|
 | `/` | Landing page: search, live counts, a hero photo of a chosen home (`HERO_PROPERTY_ID`), featured homes with real photos from different developers, how it works, the assistant with a QR code to the Telegram bot, areas |
-| `/signup`, `/login` | Buyers create an account with email and password (Supabase Auth, confirmed by email). The broker's account is the confirmed one whose email is `BROKER_EMAIL`, and the old password login stays behind **Broker access** |
+| `/signup`, `/login` | Buyers create an account with email and password (Supabase Auth, confirmed by email). A signed-in person who belongs to an organization gets the console for it (their role there decides what they may change); the operator's password login stays behind **Broker access**. `/start` creates an agency, `/join` accepts an invitation |
 | `/portal` | Browse every listing with filters in the address (search, area, bedrooms, price, developer, sort), paging and hearts |
 | `/portal/homes/<id>` | Full details: price per m², payment terms, delivery, construction progress, an interactive 3D view and `.glb` download when the broker built one, link to the original listing, save, ask the assistant |
 | `/portal/map`, `/portal/saved` | The homes on a map, and the buyer's saved homes |
@@ -170,7 +170,7 @@ Start the server with `python -m app`, not `uvicorn`: on Windows the database dr
 
 ```bash
 cd frontend
-cp .env.example .env.local    # backend URL, admin key, dashboard password; add the Supabase URL, public key and BROKER_EMAIL for buyer accounts
+cp .env.example .env.local    # backend URL, admin key, dashboard password; add the Supabase URL and public key for accounts
 npm install && npm run dev    # http://localhost:3000
 ```
 

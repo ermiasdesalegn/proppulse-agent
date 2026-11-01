@@ -10,7 +10,7 @@ Use the session pooler string as `DATABASE_URL`. Migrations are already applied 
 4. Deploy, then open `<url>/health`: `"status":"ok"`. In webhook mode it registers the Telegram webhook at start-up.
 
 ## 3. Dashboard: Vercel (free Hobby plan)
-Import the GitHub repo, root directory `frontend`. Environment variables: `BACKEND_URL` = the Space URL, `ADMIN_API_KEY` (same as the Space), `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `NEXT_PUBLIC_MAPBOX_TOKEN`, and for buyer accounts `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BROKER_EMAIL` (the Supabase Auth settings are in section 3 of `docs/DEPLOYMENT.md`; keep Confirm email on). The browser only talks to Vercel; Vercel's server calls the Space, so CORS is not even needed (it is set anyway).
+Import the GitHub repo, root directory `frontend`. Environment variables: `BACKEND_URL` = the Space URL, `ADMIN_API_KEY` (same as the Space), `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `NEXT_PUBLIC_MAPBOX_TOKEN`, and for buyer accounts `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the Supabase Auth settings are in section 3 of `docs/DEPLOYMENT.md`; keep Confirm email on). The browser only talks to Vercel; Vercel's server calls the Space, so CORS is not even needed (it is set anyway).
 
 ## 4. Scheduled jobs: GitHub Actions (replaces Cloud Scheduler)
 Repo → Settings → Secrets and variables → Actions → add `BACKEND_URL` (the Space URL) and `CRON_SECRET`. `.github/workflows/cron.yml` then runs hourly (reminders, and it wakes the Space), 06:00 Addis (market sweep) and 08:00 Addis (follow-ups and offer ads). Run it once by hand from the Actions tab to test.

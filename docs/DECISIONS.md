@@ -163,7 +163,7 @@ if it is on the list for that kind of key). Every query is keyed by the user id 
 and chat. Listing responses are built from an allow-list: no developer email, commission rate, reliability score, content hash or embedding. A test fails if
 one of those names ever appears. The admin key is not a buyer's sign-in, and a buyer's token does not open the broker API.
 
-## The broker is the confirmed account with BROKER_EMAIL
+## The broker is the confirmed account with BROKER_EMAIL (superseded by organization membership, below)
 
 A role is worked out from the sign-in: the old password cookie means broker; otherwise a Supabase account whose email equals `BROKER_EMAIL` **and which the
 auth server says is confirmed** is the broker; any other account is a buyer. Anyone can type the broker's address into the sign-up form, so the address alone
@@ -208,3 +208,19 @@ and the drawn fallback shows one pin per spot ("16 homes"). The fix at the sourc
 
 Fraunces and Inter (SIL OFL, latin only) are kept in `frontend/src/fonts`. The build once failed because Google's font host timed out; self-hosting removes that,
 and visitors' browsers never contact Google.
+
+## Who may use the console is a membership, not an email address
+
+Multi-tenancy replaced the single `BROKER_EMAIL`. A person belongs to organizations through the `memberships` table with a role (viewer, agent, admin, owner).
+The backend decides on every console request (`app/access.py`): it verifies the person's token, finds their membership for the organization named in
+`X-Org-Id` (or their only one), refuses a stranger with the same answer whether the organization exists or not, and checks the role. Reads need viewer, writes
+need agent, setting up shared market data needs admin, and wiping the demo needs owner. The request then runs inside `use_tenant(...)`, so row-level security
+confines every query to that organization.
+
+Why: an address anyone can type into a sign-up form is a weak identity, and one address cannot describe several agencies with several teams. Membership is created
+only by an owner's invitation (a link that works once, for the invited address, with only its hash stored) or by an operator (`scripts/grant_role.py`), so there is
+nothing to guess or squat. An organization always keeps at least one owner (a database trigger, not application code). The admin key stays as the platform secret
+for the cron jobs and the operator's password session; it acts as owner of the organization it names, or of the original one.
+
+Known limits: invitations are returned to the inviter instead of being emailed; roles are checked by route (read/write by HTTP method, a few routes stricter), not
+per field; the organization a buyer talks to on the public site is still the original one until buyers choose an agency by address.
