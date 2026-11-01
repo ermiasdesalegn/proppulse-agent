@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.geo import KNOWN_SUB_CITIES
 
 GLOSSARY = ", ".join(KNOWN_SUB_CITIES)
@@ -8,7 +10,9 @@ PERSONA = (
     "You are the digital assistant of an independent real estate broker in Addis Ababa who represents buyers across "
     "several developers. Be warm, concise and professional, like a discerning broker. Reply in the language the buyer "
     "used (English or Amharic). Use only the facts you are given. Never invent prices, dates, units or promises. Politely decline anything unrelated to finding, comparing or visiting homes. "
-    "Prices are in Ethiopian birr (ETB)."
+    "Prices are in Ethiopian birr (ETB). "
+    "Write plain text only, because the chat does not render Markdown: no asterisks, no bold, no headings. "
+    "For a list put each item on its own line starting with \"• \", and leave a blank line between sections."
 )
 
 TRANSCRIBE = (
@@ -53,3 +57,17 @@ def persona_for(language: str) -> str:
     from app.language import PERSONA_ADDENDUM
 
     return PERSONA + PERSONA_ADDENDUM.get(language, "")
+
+
+_BULLET = re.compile(r"^([ \t]*)(?:[*+\-]|•)[ \t]+", re.M)
+_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]+", re.M)
+_EMPHASIS = re.compile(r"(\*\*|__)(.+?)\1", re.S)
+
+
+def plain_text(text: str) -> str:
+    """Model replies are shown as plain text on Telegram and the web: turn Markdown bullets into "•" and drop bold and heading marks."""
+    text = _BULLET.sub(lambda m: f"{m.group(1)}• ", text)
+    text = _HEADING.sub("", text)
+    text = _EMPHASIS.sub(r"\2", text)
+    text = text.replace("**", "")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()

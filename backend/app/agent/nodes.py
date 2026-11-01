@@ -21,6 +21,7 @@ from app.agent.prompts import (
     UNINTELLIGIBLE,
     extraction_prompt,
     persona_for,
+    plain_text,
 )
 from app.agent.schemas import Extraction, Recommendation
 from app.agent.state import EMPTY_PREFS, BrokerAgentState
@@ -227,7 +228,7 @@ class AgentNodes:
     async def _write(self, prompt: str, fallback: str, lang: str = "en", facts: Any = None) -> str:
         """Model-written text. If it states a figure that is not in `facts`, the plain fallback built from the facts is used instead."""
         try:
-            text = (await self.d.gateway.generate_text(prompt, system=persona_for(lang))).strip()
+            text = plain_text(await self.d.gateway.generate_text(prompt, system=persona_for(lang)))
         except Exception:
             log.exception("text generation failed; using deterministic fallback")
             return fallback
