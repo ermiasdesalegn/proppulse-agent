@@ -307,7 +307,7 @@ class Repository:
         """Reserve the right to announce this event once. None if this exact announcement was already made."""
         return await self._one(
             "insert into channel_posts (property_id, kind, price_etb, chat_id, text) values (%s,%s,%s,%s,%s) "
-            "on conflict (property_id, kind, price_etb) where kind <> 'MANUAL' do nothing returning *",
+            "on conflict (org_id, property_id, kind, price_etb) where kind <> 'MANUAL' do nothing returning *",
             (str(property_id), kind, price_etb, chat_id, text))
 
     async def set_channel_post_message(self, post_id: int, message_id: int) -> None:
@@ -370,7 +370,7 @@ class Repository:
         return await self._one(
             "insert into proactive_events (kind, audience, buyer_id, property_id, tour_id, ledger_id, dedupe_key) "
             "values (%s, %s, %s, %s, %s, %s, %s) "
-            "on conflict (dedupe_key) do update set created_at = now() "
+            "on conflict (org_id, dedupe_key) do update set created_at = now() "
             "where proactive_events.status = 'pending' and proactive_events.created_at < now() - interval '10 minutes' "
             "returning *",
             (kind, audience, None if buyer_id is None else str(buyer_id), None if property_id is None else str(property_id),
@@ -443,7 +443,7 @@ class Repository:
         """True the first time a message id is seen; False for a redelivery, so each email is processed once."""
         rows = await self._fetch(
             "insert into inbound_announcements (message_id, sender, subject, status) values (%s, %s, %s, 'FAILED') "
-            "on conflict (message_id) do nothing returning message_id",
+            "on conflict (org_id, message_id) do nothing returning message_id",
             (message_id, sender, subject),
         )
         return bool(rows)
@@ -468,7 +468,7 @@ class Repository:
     async def get_or_create_buyer(self, thread_id: str, telegram_id: int | None = None) -> dict:
         row = await self._one(
             "insert into buyers_crm (thread_id, telegram_id) values (%s, %s) "
-            "on conflict (thread_id) do update set thread_id = excluded.thread_id returning *",
+            "on conflict (org_id, thread_id) do update set thread_id = excluded.thread_id returning *",
             (thread_id, telegram_id),
         )
         assert row is not None
@@ -978,7 +978,7 @@ class Repository:
     async def claim_project_post(self, *, project_id: UUID | str, kind: str, promo_key: str, chat_id: str, text: str) -> dict | None:
         return await self._one(
             "insert into project_posts (project_id, kind, promo_key, chat_id, text) values (%s, %s, %s, %s, %s) "
-            "on conflict (project_id, promo_key) where kind = 'PROMO' do nothing returning *", (str(project_id), kind, promo_key, chat_id, text))
+            "on conflict (org_id, project_id, promo_key) where kind = 'PROMO' do nothing returning *", (str(project_id), kind, promo_key, chat_id, text))
 
     async def set_project_post_message(self, post_id: int, message_id: int) -> None:
         await self._fetch("update project_posts set telegram_message_id = %s where id = %s returning id", (message_id, post_id))
@@ -1028,7 +1028,7 @@ class Repository:
 
         await self._fetch(
             "insert into unit_layouts (property_id, layout) values (%s, %s) "
-            "on conflict (property_id) do update set layout = excluded.layout, updated_at = now() returning property_id",
+            "on conflict (org_id, property_id) do update set layout = excluded.layout, updated_at = now() returning property_id",
             (str(property_id), Jsonb(layout)))
 
     async def delete_layout(self, property_id: UUID | str) -> bool:

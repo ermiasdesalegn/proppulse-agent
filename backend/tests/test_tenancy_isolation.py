@@ -214,3 +214,46 @@ async def test_no_function_runs_with_its_owners_rights(db_conn):
         "select proname from pg_proc where pronamespace = 'public'::regnamespace and prosecdef"
     )
     assert [r["proname"] for r in await cur.fetchall()] == []
+
+
+# ---- keys and links that stop at the organization ----
+
+async def test_the_same_chat_can_exist_at_two_agencies(db_conn, two_orgs):
+    a, b, *_ = two_orgs
+    repo = Repository(SingleConnectionPool(db_conn))
+    with use_tenant(a):
+        in_a = await repo.get_or_create_buyer("tg:424242", 424242)
+        assert (await repo.get_or_create_buyer("tg:424242", 424242))["id"] == in_a["id"], "same agency: the same buyer"
+    with use_tenant(b):
+        in_b = await repo.get_or_create_buyer("tg:424242", 424242)
+    assert in_a["id"] != in_b["id"] and (in_a["org_id"], in_b["org_id"]) == (a, b)
+    with use_tenant(b):
+        assert (await repo.get_buyer_by_thread("tg:424242"))["id"] == in_b["id"], "each agency finds only its own"
+
+
+async def test_a_link_to_another_organizations_row_is_refused_by_the_database(db_conn, two_orgs):
+    a, b, buyer_a, buyer_b = two_orgs
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        async with db_conn.transaction():  # organization A's tour that points at organization B's buyer
+            await db_conn.execute(
+                "insert into tours_and_appointments (org_id, buyer_id, scheduled_start) values (%s, %s, now())", (a, buyer_b)
+            )
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        async with db_conn.transaction():
+            await db_conn.execute("insert into chat_messages (org_id, buyer_id, role, content) values (%s, %s, 'buyer', 'hi')", (b, buyer_a))
+    # the same link inside one organization is fine
+    await db_conn.execute("insert into tours_and_appointments (org_id, buyer_id, scheduled_start) values (%s, %s, now())", (a, buyer_a))
+
+
+async def test_deleting_a_tour_clears_the_link_but_keeps_the_row_in_its_organization(db_conn, two_orgs):
+    a, _, buyer_a, _ = two_orgs
+    tour = (await (await db_conn.execute(
+        "insert into tours_and_appointments (org_id, buyer_id, scheduled_start) values (%s, %s, now()) returning id", (a, buyer_a)
+    )).fetchone())["id"]
+    event = (await (await db_conn.execute(
+        "insert into proactive_events (org_id, kind, audience, buyer_id, tour_id, dedupe_key) "
+        "values (%s, 'TOUR_REMINDER', 'buyer', %s, %s, %s) returning id", (a, buyer_a, tour, f"k-{uuid4().hex}")
+    )).fetchone())["id"]
+    await db_conn.execute("delete from tours_and_appointments where id = %s", (tour,))
+    row = await (await db_conn.execute("select org_id, tour_id from proactive_events where id = %s", (event,))).fetchone()
+    assert row["org_id"] == a and row["tour_id"] is None
