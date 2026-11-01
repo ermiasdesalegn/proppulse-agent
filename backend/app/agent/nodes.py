@@ -73,17 +73,23 @@ def slim(m: PropertyMatch) -> dict:
     }
 
 
+def area_is_firm(prefs: dict) -> bool:
+    return bool(prefs.get("area_firm") and prefs.get("preferred_sub_cities"))
+
+
 def can_relax(prefs: dict) -> bool:
+    if area_is_firm(prefs):
+        return prefs.get("max_budget_etb") is not None  # a stated area is a limit: only the budget may stretch
     return prefs.get("max_budget_etb") is not None or bool(prefs.get("preferred_sub_cities"))
 
 
 def relaxed_scope(prefs: dict, next_step: int, step_pct: float, max_steps: int) -> dict:
-    """Deterministic widening. Step 1: more budget plus neighbouring areas. Step 2: even more budget, any area."""
+    """Deterministic widening. Step 1: more budget plus neighbouring areas. Step 2: even more budget, any area. A firm area never widens."""
     budget = prefs.get("max_budget_etb")
     cities = list(prefs.get("preferred_sub_cities") or [])
     return {
         "effective_max_budget_etb": None if budget is None else budget * (1 + next_step * step_pct / 100),
-        "effective_sub_cities": expand_with_adjacent(cities) if next_step == 1 else [],
+        "effective_sub_cities": cities if area_is_firm(prefs) else expand_with_adjacent(cities) if next_step == 1 else [],
         "relaxation_step": next_step,
         "max_relaxation_steps": max_steps,
     }
@@ -355,6 +361,10 @@ class AgentNodes:
             new_prefs["min_bedrooms"] = ex.min_bedrooms
         if ex.preferred_sub_cities is not None:
             new_prefs["preferred_sub_cities"] = normalize_sub_cities(ex.preferred_sub_cities)
+        if ex.area_is_firm is not None:
+            new_prefs["area_firm"] = ex.area_is_firm
+        elif ex.preferred_sub_cities is not None and ex.preferred_sub_cities != prefs["preferred_sub_cities"]:
+            new_prefs["area_firm"] = False  # a different area is a new preference, not yet an insistence
         new_profile = dict(profile)
         for key in ("full_name", "phone", "email"):
             if value := (getattr(ex, key) or "").strip():
@@ -531,7 +541,9 @@ class AgentNodes:
             await self.d.repo.update_buyer(state["buyer_id"], deal_stage="INVENTORY_PENDING")
             out["deal_stage"] = "INVENTORY_PENDING"
         lang = self._lang(state)
-        if scope["relaxation_step"] > 0 and prefs.get("max_budget_etb"):
+        if area_is_firm(prefs):
+            text = msg("waitlist_area", lang, area=" or ".join(prefs["preferred_sub_cities"]))
+        elif scope["relaxation_step"] > 0 and prefs.get("max_budget_etb"):
             text = msg("waitlist_buffer", lang, pct=round(scope["relaxation_step"] * self.d.settings.relax_budget_step_pct))
         else:
             text = msg("waitlist", lang)

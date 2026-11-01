@@ -26,6 +26,9 @@ class Extraction(BaseModel):
     preferred_sub_cities: list[str] | None = Field(
         default=None, description="The complete updated list of areas, or null if areas were not discussed"
     )
+    area_is_firm: bool | None = Field(
+        default=None,
+        description="True when the buyer insists on the area ('only in X', 'not in Y', 'I need X'); false when they say other areas are fine; null if not said")
     search_query: str | None = Field(default=None, description="English description of the home the buyer wants")
     referenced_options: list[int] = Field(default_factory=list, description="1-based numbers of listed options the buyer refers to")
     tour_start_iso: str | None = Field(default=None, description="Requested visit time as ISO 8601 with UTC offset")

@@ -64,6 +64,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     "waitlist": {
         "en": "We don't have a unit matching those criteria right now. I've added you to the Priority Watchlist and I'll message you the moment a match appears.",
         "am": "እነዚህን መስፈርቶች የሚያሟላ ቤት አሁን የለንም። በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ የሚመጥን ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ።"},
+    "waitlist_area": {
+        "en": "I don't have anything in {area} right now, and I won't offer other areas unless you ask. I've added you to the Priority Watchlist for {area} and I'll message you the moment one appears. If you'd consider somewhere else, just tell me.",
+        "am": "በ{area} አሁን ምንም ቤት የለኝም፤ እርስዎ ካልጠየቁ ሌላ አካባቢ አላቀርብም። ለ{area} በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ። ሌላ አካባቢ ቢያስቡ ብቻ ይንገሩኝ።"},
     "waitlist_buffer": {
         "en": "We don't have units matching those constraints even with a {pct}% buffer. I've added you to the Priority Watchlist and I'll message you the moment a match appears.",
         "am": "እስከ {pct}% ተጨማሪ በጀት ቢኖርም እነዚህን መስፈርቶች የሚያሟላ ቤት የለንም። በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ የሚመጥን ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ።"},

@@ -77,3 +77,23 @@ def test_lead_score_grows_with_information_and_is_capped():
 
 def test_money_formatting():
     assert fmt_etb(14_500_000) == "14.5M ETB" and fmt_etb(14_000_000) == "14M ETB" and fmt_etb(850_000) == "850,000 ETB"
+
+
+FIRM = {"max_budget_etb": 14_000_000.0, "min_bedrooms": 3, "preferred_sub_cities": ["Debre Markos"], "area_firm": True}
+
+
+def test_a_firm_area_never_widens_to_neighbours_or_any_area():
+    for step in (1, 2):
+        s = relaxed_scope(FIRM, step, 12.0, 2)
+        assert s["effective_sub_cities"] == ["Debre Markos"]
+    assert relaxed_scope(FIRM, 1, 12.0, 2)["effective_max_budget_etb"] == pytest.approx(14_000_000 * 1.12)
+
+
+def test_a_firm_area_without_a_budget_goes_straight_to_the_waitlist():
+    prefs = {**FIRM, "max_budget_etb": None}
+    assert not can_relax(prefs)
+    assert should_relax_constraints(_state([], 0, prefs=prefs)) == "waitlist"
+
+
+def test_an_area_that_is_not_firm_still_widens():
+    assert relaxed_scope({**FIRM, "area_firm": False}, 2, 12.0, 2)["effective_sub_cities"] == []

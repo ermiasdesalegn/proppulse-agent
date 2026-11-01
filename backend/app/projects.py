@@ -125,7 +125,9 @@ async def suggest_projects(repo: Repository, prefs: dict, lang: str = "en", limi
     """Projects that fit the buyer by area, size and meaning: the text to append and the buttons for it."""
     from app.geo import expand_with_adjacent
 
-    cities = expand_with_adjacent(list(prefs.get("preferred_sub_cities") or []))
+    cities = list(prefs.get("preferred_sub_cities") or [])
+    if not (prefs.get("area_firm") and cities):
+        cities = expand_with_adjacent(cities)
     found = await repo.search_projects(sub_cities=cities, min_bedrooms=prefs.get("min_bedrooms"), limit=limit, embedding=embedding, threshold=threshold)
     if not found:
         return "", []
