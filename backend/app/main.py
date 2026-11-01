@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     checkpointer = await open_checkpointer(s)
     gateway = get_gateway()
     real_services = build_services(s)
-    repo = Repository(pool)
+    repo = Repository(pool, strict=s.tenancy_strict)
     events = DurableEventBus(pool, retention_days=30)
     await events.start()
     calls = ModelCallLog(pool, events)

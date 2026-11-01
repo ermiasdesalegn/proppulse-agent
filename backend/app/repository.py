@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -13,6 +14,7 @@ from psycopg import sql
 from pydantic import BaseModel
 
 from app.finance import rank_by_reliability
+from app.tenancy import resolve_org_id, tenant_connection
 
 LEDGER_STATUSES = (
     "LEAD_REGISTERED", "TOUR_COMPLETED", "CONTRACT_SIGNED", "COMMISSION_PENDING", "COMMISSION_PAID", "CLOSED_LOST",
@@ -51,11 +53,19 @@ def vector_literal(values: Sequence[float]) -> str:
 
 
 class Repository:
-    def __init__(self, pool: Any):
+    def __init__(self, pool: Any, org_id: UUID | str | None = None, *, strict: bool = False):
         self._pool = pool
+        self._org_id = org_id  # pins this repository to one organization (a job working for one agency); else the one in scope
+        self._strict = strict
+
+    @asynccontextmanager
+    async def _conn(self) -> AsyncIterator[Any]:
+        """A connection whose transaction is labelled with the organization this work belongs to."""
+        async with tenant_connection(self._pool, resolve_org_id(self._org_id, strict=self._strict)) as conn:
+            yield conn
 
     async def _fetch(self, query: str | sql.Composable, params: Sequence[Any] = ()) -> list[dict]:
-        async with self._pool.connection() as conn:
+        async with self._conn() as conn:
             cur = await conn.execute(query, params)
             return await cur.fetchall()
 
@@ -123,7 +133,7 @@ class Repository:
 
     async def update_property_price(self, property_id: UUID | str, new_price_etb: float) -> dict:
         """Change a unit's price and log it, so the next proactive run can see the drop."""
-        async with self._pool.connection() as conn:
+        async with self._conn() as conn:
             async with conn.transaction():
                 cur = await conn.execute("select price_etb from properties where id = %s for update", (str(property_id),))
                 row = await cur.fetchone()
@@ -551,7 +561,7 @@ class Repository:
         """Create the tour and its ordered stops atomically. `stops` is already in visiting order."""
         from psycopg.types.json import Jsonb
 
-        async with self._pool.connection() as conn:
+        async with self._conn() as conn:
             async with conn.transaction():
                 cur = await conn.execute(
                     "insert into tours_and_appointments (buyer_id, scheduled_start, calendar_event_id, mapbox_route_json, kind, project_id) "
@@ -614,7 +624,7 @@ class Repository:
     async def create_ledger_rows(self, *, buyer_id: UUID | str, tour_id: UUID | str | None, entries: Sequence[LedgerEntry]) -> list[dict]:
         """One row per entry. Developer and expected commission are derived from the property."""
         rows: list[dict] = []
-        async with self._pool.connection() as conn:
+        async with self._conn() as conn:
             async with conn.transaction():
                 for e in entries:
                     cur = await conn.execute(
@@ -666,7 +676,7 @@ class Repository:
         because the reminder job runs on it."""
         if status not in LEDGER_STATUSES:
             raise ValueError(f"unknown status {status!r}")
-        async with self._pool.connection() as conn:
+        async with self._conn() as conn:
             async with conn.transaction():
                 cur = await conn.execute("select * from commission_ledger where id = %s for update", (str(ledger_id),))
                 row = await cur.fetchone()
