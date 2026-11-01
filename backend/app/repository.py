@@ -1,6 +1,7 @@
 """All SQL used by the agent and API lives here. Rows come back as plain dicts."""
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from psycopg import sql
 from pydantic import BaseModel
 
 from app.finance import rank_by_reliability
-from app.tenancy import resolve_org_id, tenant_connection
+from app.tenancy import APP_ROLE, resolve_org_id, tenant_connection
 
 LEDGER_STATUSES = (
     "LEAD_REGISTERED", "TOUR_COMPLETED", "CONTRACT_SIGNED", "COMMISSION_PENDING", "COMMISSION_PAID", "CLOSED_LOST",
@@ -53,15 +54,23 @@ def vector_literal(values: Sequence[float]) -> str:
 
 
 class Repository:
-    def __init__(self, pool: Any, org_id: UUID | str | None = None, *, strict: bool = False):
+    def __init__(self, pool: Any, org_id: UUID | str | None = None, *, strict: bool = False, role: str | None = APP_ROLE):
         self._pool = pool
         self._org_id = org_id  # pins this repository to one organization (a job working for one agency); else the one in scope
         self._strict = strict
+        self._role = role  # the database role the work runs as; None means the connection's own (owner) role
+
+    def as_platform(self) -> Repository:
+        """The same repository running as the table owner, outside row-level security. For operator tools only (the demo
+        reset, migrations-style maintenance), never for work done on behalf of an organization."""
+        clone = copy.copy(self)  # a copy, not a new instance, so subclasses with their own constructors keep working
+        clone._role = None
+        return clone
 
     @asynccontextmanager
     async def _conn(self) -> AsyncIterator[Any]:
         """A connection whose transaction is labelled with the organization this work belongs to."""
-        async with tenant_connection(self._pool, resolve_org_id(self._org_id, strict=self._strict)) as conn:
+        async with tenant_connection(self._pool, resolve_org_id(self._org_id, strict=self._strict), self._role) as conn:
             yield conn
 
     async def _fetch(self, query: str | sql.Composable, params: Sequence[Any] = ()) -> list[dict]:

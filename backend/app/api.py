@@ -774,7 +774,10 @@ async def demo_reset(body: DemoResetIn, request: Request, repo: Repository = Dep
         raise HTTPException(403, "Resetting the demo is switched off (set DEMO_RESET_ENABLED=true to allow it)")
     if body.confirm != "RESET":
         raise HTTPException(422, 'Type RESET to confirm')
-    report = await reset_demo(repo, request.app.state.chat.services.calendar, getattr(getattr(request.app.state, "projects", None), "embed", None))
+    platform = repo.as_platform()  # it clears shared market tables and every conversation, which no organization may do
+    if (await platform._fetch("select count(*)::int as n from organizations"))[0]["n"] > 1:
+        raise HTTPException(409, "The demo reset is for a single-organization demo; it would erase other organizations' shared data")
+    report = await reset_demo(platform, request.app.state.chat.services.calendar, getattr(getattr(request.app.state, "projects", None), "embed", None))
     request.app.state.events.publish("demo_reset", deleted=sum(report["deleted"].values()))
     return report
 

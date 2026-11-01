@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from psycopg import sql
+
 # The organization that existed before multi-tenancy. While `tenancy_strict` is off, work with no organization falls back to it.
 DEFAULT_ORG_ID = UUID("00000000-0000-4000-8000-000000000001")
 
@@ -68,10 +70,20 @@ def resolve_org_id(pinned: UUID | str | None = None, *, strict: bool = False) ->
     return DEFAULT_ORG_ID
 
 
+APP_ROLE = "app_user"  # owns nothing and cannot bypass row-level security; see migration 022
+
+
+async def _enter(conn: Any, org_id: UUID | str, role: str | None) -> None:
+    await conn.execute("select set_config('app.org_id', %s, true)", (str(org_id),))
+    if role:
+        await conn.execute(sql.SQL("set local role {}").format(sql.Identifier(role)))
+
+
 @asynccontextmanager
-async def tenant_connection(pool: Any, org_id: UUID | str) -> AsyncIterator[Any]:
+async def tenant_connection(pool: Any, org_id: UUID | str, role: str | None = APP_ROLE) -> AsyncIterator[Any]:
     """A pooled connection whose current transaction is labelled with `org_id`.
 
+    Unless `role` is None the transaction also runs as that role, which is what makes row-level security apply.
     The label lives exactly as long as the transaction it was set in. On a normal pooled connection that is the implicit
     transaction the pool commits (or rolls back on error) when the block ends, so this adds no commit of its own and a caller
     that manages its own transaction (the tests roll theirs back) stays in control. A connection in autocommit mode has no
@@ -80,8 +92,10 @@ async def tenant_connection(pool: Any, org_id: UUID | str) -> AsyncIterator[Any]
     async with pool.connection() as conn:
         if getattr(conn, "autocommit", False):
             async with conn.transaction():
-                await conn.execute("select set_config('app.org_id', %s, true)", (str(org_id),))
+                await _enter(conn, org_id, role)
                 yield conn
         else:
-            await conn.execute("select set_config('app.org_id', %s, true)", (str(org_id),))
+            await _enter(conn, org_id, role)
             yield conn
+            if role:  # back to the connection's own role so a caller that keeps the transaction open is not left restricted
+                await conn.execute("reset role")

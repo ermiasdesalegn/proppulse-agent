@@ -76,7 +76,7 @@ async def test_label_is_visible_inside_and_gone_after(real_pool):
 
 async def test_rollback_on_error_undoes_the_work(real_pool):
     with pytest.raises(RuntimeError):
-        async with tenant_connection(real_pool, ORG_A) as conn:
+        async with tenant_connection(real_pool, ORG_A, role=None) as conn:
             await conn.execute("insert into organizations (slug, name) values ('rolled-back', 'x')")
             raise RuntimeError("boom")
     async with real_pool.connection() as conn:
@@ -86,7 +86,7 @@ async def test_rollback_on_error_undoes_the_work(real_pool):
 
 async def test_a_caller_that_owns_its_transaction_stays_in_control(db_conn):
     """The tenant connection adds no commit of its own: this is what lets the other tests roll their data back."""
-    async with tenant_connection(SingleConnectionPool(db_conn), ORG_A) as conn:
+    async with tenant_connection(SingleConnectionPool(db_conn), ORG_A, role=None) as conn:
         await conn.execute("insert into organizations (slug, name) values ('kept-until-rollback', 'x')")
     await db_conn.rollback()
     cur = await db_conn.execute("select 1 from organizations where slug = 'kept-until-rollback'")
