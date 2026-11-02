@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +24,9 @@ from app.gemini import get_gateway
 from app.ingest.browser import BrowserFetcher, Politeness
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
-from app.observability import GuardMiddleware
+from app.jobs import JobQueue, JobWorker
+from app.jobs_api import router as jobs_router
+from app.observability import GuardMiddleware, secrets_from
 from app.org_api import router as org_router
 from app.portal_api import router as portal_router
 from app.proactive import ProactiveService
@@ -112,9 +115,15 @@ async def lifespan(app: FastAPI):
     app.state.telegram_handler, app.state.checkpointer_kind = handler, checkpointer.kind
     app.state.runtime = runtime
     app.state.telegram_mode = telegram_status
+    app.state.jobs = JobQueue(pool, per_org_limit=s.job_per_org_limit, lease=timedelta(seconds=s.job_lease_seconds), secrets=secrets_from(s))
+    worker = JobWorker(app.state.jobs, app.state, concurrency=s.job_workers) if s.job_workers > 0 else None
+    if worker:
+        await worker.start()
     try:
         yield
     finally:
+        if worker:
+            await worker.stop()
         if poller:
             await poller.stop()
         await handler.drain()
@@ -140,6 +149,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(org_router)
     app.include_router(channels_router)
     app.include_router(quota_router)
+    app.include_router(jobs_router)
 
     @app.get("/health")
     def health() -> dict:

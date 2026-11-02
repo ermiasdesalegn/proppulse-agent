@@ -6,6 +6,7 @@ import pytest_asyncio
 from app.main import create_app
 from app.projects import ProjectService
 from tests.agent_helpers import FakeGateway, make_chat, make_proactive
+from tests.jobs_helpers import run_queued, total
 from tests.test_proactive import NOAH, make_buyer, pid
 
 pytestmark = pytest.mark.usefixtures("quiet_world")
@@ -65,7 +66,8 @@ async def test_the_daily_run_reports_every_job(api):
     body = (await client.post("/api/cron/daily-proactive-run", params={"dry_run": "true"}, headers=CRON)).json()
     assert body["dry_run"] is True and [j["job"] for j in body["jobs"]] == ["reverse_rag_alerts", "tour_reminders", "milestone_reminders", "promotion_ads"]
     combined = (await client.post("/api/cron/reminders", headers=ADMIN)).json()
-    assert [j["job"] for j in combined["jobs"]] == ["tour_reminders", "milestone_reminders"]
+    assert combined["queued"] and [j["kind"] for j in combined["jobs"]] == ["proactive.tour_reminders", "proactive.milestone_reminders"]
+    assert [r["result"]["job"] for r in await run_queued(client)] == ["tour_reminders", "milestone_reminders"]
 
 
 async def test_demo_flow_a_price_change_leads_to_an_alert_and_a_feed_entry(api, spy_repo, db_conn):
@@ -79,8 +81,8 @@ async def test_demo_flow_a_price_change_leads_to_an_alert_and_a_feed_entry(api, 
     preview = (await client.post("/api/cron/reverse-rag-alerts", params={"dry_run": "true"}, headers=ADMIN)).json()
     assert preview["sent"] == 0 and services.telegram.messages == []
 
-    run = (await client.post("/api/cron/reverse-rag-alerts", headers=CRON)).json()
-    assert run["sent"] == 1 and [m["chat_id"] for m in services.telegram.messages] == [abel["telegram_id"]]
+    await client.post("/api/cron/reverse-rag-alerts", headers=CRON)
+    assert total(await run_queued(client)) == 1 and [m["chat_id"] for m in services.telegram.messages] == [abel["telegram_id"]]
 
     feed = (await client.get("/api/proactive/events", headers=ADMIN)).json()
     assert [(e["kind"], e["audience"], e["status"]) for e in feed] == [("PRICE_DROP", "buyer", "sent")]

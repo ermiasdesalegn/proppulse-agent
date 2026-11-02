@@ -20,6 +20,7 @@ from app.ingest.fetch import FetchError
 from app.ingest.models import PortalItem, ScrapeProfile
 from app.ingest.sample import sample_listing
 from app.ingest.service import ExtractionError, IngestionService
+from app.jobs import SCHEDULED, JobQueue, period_key, queue_of
 from app.model3d import MAX_ROOMS, PLAN_PROMPT, Layout, PlanRead, layout_from_plan, pack_rooms, render_png, to_glb
 from app.portal_runs import PortalRunError, PortalRunService
 from app.repository import Repository
@@ -132,42 +133,57 @@ async def web_chat_messages(session_id: str, after_id: int = 0, repo: Repository
 
 # ---------------- proactive jobs ----------------
 
-@router.post("/api/cron/daily-proactive-run")
-async def daily_proactive_run(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of), projects=Depends(projects_of)):
-    async def one() -> dict:
-        result = await proactive.run_all(dry_run)
-        result["jobs"].append(await projects.run_promotion_ads(dry_run))  # developers' current offers, advertised once each
-        for key in ("sent", "skipped", "failed"):
-            result[key] = sum(j[key] for j in result["jobs"])
-        return result
+def jobs_of(request: Request) -> JobQueue:
+    return queue_of(request.app.state)
 
-    return await run_for_orgs(request, orgs, one)
+
+async def scheduled(request: Request, orgs: list[UUID], kinds: list[str], dry_run: bool) -> dict:
+    """A scheduled job, asked for over HTTP. A preview (`dry_run`) runs at once, in each agency's scope, and answers with what would
+    happen. Otherwise one job per agency and kind is queued for the workers, and the answer is the queued jobs' ids."""
+    state = request.app.state
+    if dry_run:
+        async def preview() -> dict:
+            results = [await SCHEDULED[k][0](state, True) for k in kinds]
+            if len(results) == 1:
+                return results[0]
+            jobs = [j for r in results for j in (r.get("jobs") or [r])]
+            return {"dry_run": True, "jobs": jobs, **{k: sum(int(j.get(k, 0)) for j in jobs) for k in ("sent", "skipped", "failed")}}
+
+        return await run_for_orgs(request, orgs, preview)
+    queue, trigger = jobs_of(request), getattr(request.state, "job_trigger", "console")
+    slugs = {r["id"]: r["slug"] for r in await state.repo.as_platform().organizations_by_id(orgs)}
+    queued = [await queue.enqueue(org, kind, dedupe_key=f"{kind}:{period_key(kind, trigger)}") for org in orgs for kind in kinds]
+    return {
+        "dry_run": False, "queued": True, "job_ids": [q.id for q in queued],
+        "jobs": [{"id": q.id, "kind": q.kind, "organization": slugs.get(q.org_id, str(q.org_id)), "created": q.created} for q in queued],
+    }
+
+
+@router.post("/api/cron/daily-proactive-run")
+async def daily_proactive_run(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
+    return await scheduled(request, orgs, ["proactive.daily"], dry_run)
 
 
 @router.post("/api/cron/reverse-rag-alerts")
-async def reverse_rag_alerts(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
+async def reverse_rag_alerts(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
     """A price drop on a shared listing is matched, agency by agency, against each agency's own buyers and messaged through its own bot."""
-    return await run_for_orgs(request, orgs, lambda: proactive.reverse_rag_alerts(dry_run))
+    return await scheduled(request, orgs, ["proactive.reverse_rag"], dry_run)
 
 
 @router.post("/api/cron/tour-reminders")
-async def tour_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
-    return await run_for_orgs(request, orgs, lambda: proactive.tour_reminders(dry_run))
+async def tour_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
+    return await scheduled(request, orgs, ["proactive.tour_reminders"], dry_run)
 
 
 @router.post("/api/cron/milestone-reminders")
-async def milestone_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
-    return await run_for_orgs(request, orgs, lambda: proactive.milestone_reminders(dry_run))
+async def milestone_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
+    return await scheduled(request, orgs, ["proactive.milestone_reminders"], dry_run)
 
 
 @router.post("/api/cron/reminders")
-async def all_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), proactive=Depends(proactive_of)):
+async def all_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
     """Tour and milestone reminders together: the dashboard's 'Send 24h Tour & Milestone Reminders' button."""
-    async def one() -> dict:
-        jobs = [await proactive.tour_reminders(dry_run), await proactive.milestone_reminders(dry_run)]
-        return {"dry_run": dry_run, "jobs": jobs, **{k: sum(j[k] for j in jobs) for k in ("sent", "skipped", "failed")}}
-
-    return await run_for_orgs(request, orgs, one)
+    return await scheduled(request, orgs, ["proactive.tour_reminders", "proactive.milestone_reminders"], dry_run)
 
 
 @router.get("/api/proactive/events", dependencies=[Depends(console_access)])
@@ -934,8 +950,8 @@ async def project_ad(project_id: UUID, body: ProjectAdIn, projects=Depends(proje
 
 
 @router.post("/api/cron/promotion-ads")
-async def promotion_ads(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access()), projects=Depends(projects_of)):
-    return await run_for_orgs(request, orgs, lambda: projects.run_promotion_ads(dry_run))
+async def promotion_ads(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
+    return await scheduled(request, orgs, ["projects.promotion_ads"], dry_run)
 
 
 class DeveloperIn(BaseModel):

@@ -66,6 +66,7 @@ const ACTION_LABEL: Record<string, string> = {
   "channel.calendar_connect": "Connected a calendar",
   "channel.calendar_disconnect": "Disconnected the calendar",
   "settings.change": "Changed settings",
+  "job.retry": "Retried a background job",
 };
 
 export function actionLabel(action: string): string {
@@ -86,4 +87,65 @@ export function actorLabel(entry: AuditEntry): string {
   if (entry.actor_kind === "platform") return "Platform operator";
   if (entry.actor_kind === "system") return "System";
   return entry.actor_id ? `Member ${entry.actor_id.slice(0, 8)}` : "A member";
+}
+
+// ---- background jobs (the queue in backend/app/jobs.py) ----
+
+export type JobStatus = "queued" | "running" | "done" | "failed" | "dead";
+
+export interface Job {
+  id: number;
+  org_id: string;
+  organization: string;
+  kind: string;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  run_after: string;
+  last_error: string | null;
+  result: { sent?: number; skipped?: number; failed?: number } | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface JobList {
+  operator: boolean;
+  counts: Record<JobStatus, number>;
+  jobs: Job[];
+}
+
+export const JOB_STATUSES: JobStatus[] = ["queued", "running", "done", "failed", "dead"];
+
+const JOB_LABEL: Record<string, string> = {
+  "proactive.daily": "Daily proactive run",
+  "proactive.reverse_rag": "Price-drop and new-listing alerts",
+  "proactive.tour_reminders": "24-hour tour reminders",
+  "proactive.milestone_reminders": "Payment milestones and commission",
+  "projects.promotion_ads": "Developers' offers",
+};
+
+export function jobLabel(kind: string): string {
+  return JOB_LABEL[kind] ?? kind;
+}
+
+export function jobTone(status: JobStatus): "good" | "warn" | "bad" | "neutral" {
+  return status === "done" ? "good" : status === "dead" ? "bad" : status === "failed" ? "warn" : "neutral";
+}
+
+/** Only the operator may retry, and only a job that has stopped trying (dead) or is waiting for its next try (failed). */
+export function canRetry(job: Job, operator: boolean): boolean {
+  return operator && (job.status === "dead" || job.status === "failed");
+}
+
+/** One line about the outcome: what was sent, or why it is waiting. */
+export function jobOutcome(job: Job): string {
+  if (job.status === "done") {
+    const r = job.result ?? {};
+    return `${r.sent ?? 0} sent, ${r.skipped ?? 0} skipped${r.failed ? `, ${r.failed} failed` : ""}`;
+  }
+  if (job.status === "failed") return `attempt ${job.attempts} of ${job.max_attempts} failed; retrying`;
+  if (job.status === "dead") return `gave up after ${job.attempts} attempts`;
+  if (job.status === "running") return `running (attempt ${job.attempts})`;
+  return "waiting for a worker";
 }

@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+from tests.jobs_helpers import run_queued, total
 from tests.test_channels_api import TOKEN_A, TOKEN_B, agency, bearer, connect, world  # noqa: F401  (world is a fixture)
 
 NOAH = "Noah Bole Towers 3BR%"
@@ -45,13 +46,17 @@ async def test_a_price_drop_reaches_each_agencys_own_buyers_through_that_agencys
     r = await world.client.post("/api/cron/reverse-rag-alerts", headers=CRON)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert {slug_a, slug_b} <= set(body["organizations"]) and body["failed"] == 0 and body["sent"] == 2
+    assert body["queued"] and {slug_a, slug_b} <= {j["organization"] for j in body["jobs"]}, "one job per agency"
+    assert world.sent_by(TOKEN_A) == [], "the request only queues; the workers send"
+    done = await run_queued(world.client)
+    assert {r["status"] for r in done} == {"done"} and total(done) == 2 and total(done, "failed") == 0
     assert [m["chat_id"] for m in world.sent_by(TOKEN_A)] == [chat_a], "agency A's bot messaged only A's buyer"
     assert [m["chat_id"] for m in world.sent_by(TOKEN_B)] == [chat_b], "agency B's bot messaged only B's buyer"
     assert world.base.telegram.messages == [], "the platform's own bot sent nothing for either agency"
 
     again = await world.client.post("/api/cron/reverse-rag-alerts", headers=CRON)
-    assert again.json()["sent"] == 0, "each agency announces the same drop once"
+    assert not any(j["created"] for j in again.json()["jobs"]), "the same cron hour is queued once per agency"
+    assert await run_queued(world.client) == []
     assert len(world.sent_by(TOKEN_A)) == 1 and len(world.sent_by(TOKEN_B)) == 1
 
 
@@ -69,8 +74,10 @@ async def test_a_failing_agency_is_reported_and_the_others_still_run(world, db_c
         return await real(org_id)
 
     world.runtime.activate = broken_for_a
-    body = (await world.client.post("/api/cron/reverse-rag-alerts", headers=CRON)).json()
-    assert body["per_organization"][slug_a]["failed"] == 1 and body["failed"] >= 1
+    await world.client.post("/api/cron/reverse-rag-alerts", headers=CRON)
+    done = {r["org_id"]: r for r in await run_queued(world.client)}
+    assert done[a]["status"] == "failed" and "RuntimeError" in done[a]["last_error"], "A's job waits for its retry"
+    assert done[b]["status"] == "done"
     assert [m["chat_id"] for m in world.sent_by(TOKEN_B)] == [chat_b], "B was not held up by A"
     assert world.sent_by(TOKEN_A) == []
 
@@ -87,7 +94,8 @@ async def test_a_member_runs_a_job_for_their_own_agency_only(world, db_conn):
     chat_a, _ = await buyer_in(db_conn, a, "abel"), await buyer_in(db_conn, b, "bekele")
     await drop_the_price(world, db_conn)
     r = await world.client.post("/api/cron/reverse-rag-alerts", headers=bearer(a_admin))
-    assert r.status_code == 200 and r.json()["sent"] == 1
+    assert r.status_code == 200 and [j["organization"] for j in r.json()["jobs"]] == [(await (await db_conn.execute("select slug from organizations where id = %s", (a,))).fetchone())["slug"]]
+    assert total(await run_queued(world.client)) == 1
     assert [m["chat_id"] for m in world.sent_by(TOKEN_A)] == [chat_a] and world.sent_by(TOKEN_B) == []
 
 

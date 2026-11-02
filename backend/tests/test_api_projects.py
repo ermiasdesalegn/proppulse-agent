@@ -8,6 +8,7 @@ import pytest_asyncio
 from app.main import create_app
 from app.projects import ProjectService
 from tests.agent_helpers import FakeGateway, make_chat, make_proactive
+from tests.jobs_helpers import run_queued, total
 from tests.test_projects import Ads, Site, add_project, info, project_page
 
 ADMIN = {"X-Admin-Key": "test-admin-key"}
@@ -79,8 +80,8 @@ async def test_the_daily_run_includes_the_promotion_ads(api, spy_repo, db_conn):
     await add_project(spy_repo, db_conn, promotion="10% off", promotion_until=(date.today() + timedelta(days=3)).isoformat())
     body = (await client.post("/api/cron/daily-proactive-run", params={"dry_run": "true"}, headers=CRON)).json()
     assert [j["job"] for j in body["jobs"]][-1] == "promotion_ads" and body["jobs"][-1]["details"][0]["would_post"] == "10% off"
-    sent = (await client.post("/api/cron/promotion-ads", headers=CRON)).json()
-    assert sent["sent"] == 1
+    await client.post("/api/cron/promotion-ads", headers=CRON)
+    assert total(await run_queued(client)) == 1
 
 
 async def test_a_developer_can_be_added_from_the_dashboard(api):

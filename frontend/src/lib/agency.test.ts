@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actorLabel, describeEntry, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone, type AuditEntry, type Usage } from "./agency";
+import { actionLabel, actorLabel, canRetry, describeEntry, jobLabel, jobOutcome, jobTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone, type AuditEntry, type Job, type Usage } from "./agency";
 
 const entry = (over: Partial<AuditEntry>): AuditEntry => ({
   id: 1, actor_kind: "member", actor_id: "11111111-2222-4333-8444-555555555555", action: "settings.change", target: null, detail: {}, created_at: "2026-11-02T10:00:00Z", ...over,
@@ -44,5 +44,31 @@ describe("audit trail wording", () => {
   it("says who did it without showing a whole id", () => {
     expect(actorLabel(entry({}))).toBe("Member 11111111");
     expect(actorLabel(entry({ actor_kind: "platform", actor_id: null }))).toBe("Platform operator");
+  });
+});
+
+const job = (over: Partial<Job>): Job => ({
+  id: 7, org_id: "o", organization: "alpha", kind: "proactive.reverse_rag", status: "queued", attempts: 0, max_attempts: 5,
+  run_after: "2026-11-02T10:00:00Z", last_error: null, result: null, created_at: "2026-11-02T10:00:00Z", started_at: null, finished_at: null, ...over,
+});
+
+describe("background jobs", () => {
+  it("names the known kinds and leaves an unknown one as it is", () => {
+    expect(jobLabel("proactive.reverse_rag")).toBe("Price-drop and new-listing alerts");
+    expect(jobLabel("future.kind")).toBe("future.kind");
+  });
+  it("lets only the operator retry, and only a dead or failed job", () => {
+    expect(canRetry(job({ status: "dead" }), true)).toBe(true);
+    expect(canRetry(job({ status: "failed" }), true)).toBe(true);
+    expect(canRetry(job({ status: "dead" }), false)).toBe(false);
+    expect(canRetry(job({ status: "done" }), true)).toBe(false);
+    expect(canRetry(job({ status: "running" }), true)).toBe(false);
+  });
+  it("says what happened in one line", () => {
+    expect(jobOutcome(job({ status: "done", result: { sent: 2, skipped: 1 } }))).toBe("2 sent, 1 skipped");
+    expect(jobOutcome(job({ status: "failed", attempts: 2 }))).toBe("attempt 2 of 5 failed; retrying");
+    expect(jobOutcome(job({ status: "dead", attempts: 5 }))).toBe("gave up after 5 attempts");
+    expect(jobTone("dead")).toBe("bad");
+    expect(jobTone("done")).toBe("good");
   });
 });

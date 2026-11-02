@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     tenancy_strict: bool = False  # True: database work with no organization in scope is an error instead of using the legacy one
     enforce_quotas: bool = True  # each agency's plan caps how many buyer messages the assistant answers per day (app/quota.py)
     cron_secret: str = ""
+    job_workers: int = 2  # background job tasks in this process (app/jobs.py); 0 turns the worker off (the tests do)
+    job_per_org_limit: int = 1  # jobs of one agency that may run at the same time, so one agency cannot take every worker
+    job_lease_seconds: int = 120  # a running job whose worker stops extending this is handed to another worker
     frontend_origin: str = "http://localhost:3000"
 
     demo_fallback_email: str = ""

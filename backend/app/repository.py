@@ -60,6 +60,11 @@ class Repository:
         self._strict = strict
         self._role = role  # the database role the work runs as; None means the connection's own (owner) role
 
+    @property
+    def pool(self) -> Any:
+        """The connections this repository uses; the job queue (platform tables, app/jobs.py) shares them."""
+        return self._pool
+
     def as_platform(self) -> Repository:
         """The same repository running as the table owner, outside row-level security. For operator tools only (the demo
         reset, migrations-style maintenance), never for work done on behalf of an organization."""
@@ -1058,6 +1063,9 @@ class Repository:
     # ---- organizations, members and invitations ----
     # The first group reads and writes the tenancy tables for a given organization or person, which a tenant's own role may not
     # do; call them on `repo.as_platform()` after the caller's rights have been checked (app/access.py, app/org_api.py).
+
+    async def organizations_by_id(self, org_ids: Sequence[UUID | str]) -> list[dict]:
+        return await self._fetch("select id, slug, name, status from organizations where id = any(%s::uuid[])", ([str(o) for o in org_ids],))
 
     async def organization(self, org_id: UUID | str) -> dict | None:
         return await self._one("select id, slug, name, plan, status from organizations where id = %s", (str(org_id),))

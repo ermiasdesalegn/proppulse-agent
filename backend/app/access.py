@@ -180,8 +180,10 @@ def job_access(minimum: str = "agent", *, operator_only: bool = False):
                 raise HTTPException(404, "No such organization")
             return [org]  # type: ignore[list-item]
 
+        request.state.job_trigger = "cron"  # who started it decides how a queued job is deduplicated (app/jobs.py, period_key)
         if s.cron_secret and _same(x_cron_secret, s.cron_secret):
             return await named() if org else await platform.active_org_ids()
+        request.state.job_trigger = "console"
         if x_cron_secret is None and x_admin_key is None and _bearer(authorization):
             member = await _member_principal(request, authorization, org, minimum)
             if operator_only and member.tenant.org_id != OPERATOR_ORG_ID:
@@ -197,7 +199,8 @@ def job_access(minimum: str = "agent", *, operator_only: bool = False):
 
 
 async def run_for_orgs(request: Request, orgs: list[UUID], job) -> dict:
-    """Run one job once for each organization, each inside its own scope, and combine the answers.
+    """Run one job once for each organization, each inside its own scope, and combine the answers. Used for the cron endpoints'
+    previews (`dry_run`), which answer at once; real runs are queued for the workers instead (app/jobs.py).
 
     One agency's failure (a revoked bot, a broken calendar key) is reported and never stops the others. With a single
     organization the job's own answer is returned unchanged.

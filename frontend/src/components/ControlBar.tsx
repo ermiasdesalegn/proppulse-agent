@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { errorMessage, post } from "@/lib/api";
 import type { JobSummary, Stats } from "@/lib/types";
@@ -8,6 +9,12 @@ import { Icon, type IconName } from "./icons";
 import { Button, ErrorNote } from "./ui";
 
 type JobKey = "scraper" | "alerts" | "reminders";
+
+/** What a scheduled job answers when it was queued for the background workers instead of run (anything but a preview). */
+interface QueuedJobs {
+  queued: true;
+  job_ids: number[];
+}
 
 const JOBS: { key: JobKey; label: string; path: string; icon: IconName }[] = [
   { key: "scraper", label: "Run Market Scraper", path: "cron/scrape-market", icon: "refresh" },
@@ -26,13 +33,21 @@ export default function ControlBar() {
   const [dryRun, setDryRun] = useState(true);
   const [running, setRunning] = useState<JobKey | null>(null);
   const [result, setResult] = useState<{ label: string; summary: JobSummary } | null>(null);
+  const [queued, setQueued] = useState<{ label: string; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(job: (typeof JOBS)[number]) {
     setRunning(job.key);
     setError(null);
     try {
-      const summary = await post<JobSummary | (JobSummary["jobs"][number])>(`${job.path}?dry_run=${dryRun}`);
+      const summary = await post<JobSummary | (JobSummary["jobs"][number]) | QueuedJobs>(`${job.path}?dry_run=${dryRun}`);
+      if ("queued" in summary) {
+        // A real run is handed to the background workers; the Agency page lists the jobs and how they went.
+        setResult(null);
+        setQueued({ label: job.label, count: summary.job_ids.length });
+        return;
+      }
+      setQueued(null);
       // A single job answers with its own result; the combined endpoints wrap several.
       setResult({ label: job.label, summary: "jobs" in summary ? summary : { dry_run: summary.dry_run, sent: summary.sent, skipped: summary.skipped, failed: summary.failed, jobs: [summary] } });
     } catch (e) {
@@ -58,9 +73,18 @@ export default function ControlBar() {
         </label>
       </div>
 
-      {(result || error) && (
+      {(result || queued || error) && (
         <div className="border-t border-line bg-raised px-4 py-3 text-sm md:px-6">
           {error && <ErrorNote>{error}</ErrorNote>}
+          {queued && (
+            <div className="flex items-start justify-between gap-3">
+              <p role="status" className="font-medium">
+                {queued.label}: queued as <span className="tnum">{queued.count}</span> background {queued.count === 1 ? "job" : "jobs"}. Follow them on the{" "}
+                <Link href="/console/agency" className="underline">Agency page</Link>.
+              </p>
+              <button onClick={() => setQueued(null)} className="text-muted hover:text-ink" aria-label="Dismiss result">Dismiss</button>
+            </div>
+          )}
           {result && (
             <div>
               <div className="flex items-start justify-between gap-3">

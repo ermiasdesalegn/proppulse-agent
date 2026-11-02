@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import { Button, Card, Empty, ErrorNote, PageHeader, Pill } from "@/components/ui";
-import { actorLabel, describeEntry, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone, type AuditEntry, type ChannelStatus, type Usage } from "@/lib/agency";
-import { api, errorMessage, patch, put } from "@/lib/api";
+import {
+  actorLabel, canRetry, describeEntry, JOB_STATUSES, jobLabel, jobOutcome, jobTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone,
+  type AuditEntry, type ChannelStatus, type JobList, type Usage,
+} from "@/lib/agency";
+import { api, errorMessage, patch, post, put } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 
@@ -18,7 +21,7 @@ export default function AgencyPage() {
     <div className="space-y-6">
       <PageHeader
         title="Agency"
-        description="Connect this agency's own Telegram bot and calendar, set how the assistant introduces you, see today's use against your plan, and read who changed what."
+        description="Connect this agency's own Telegram bot and calendar, set how the assistant introduces you, see today's use against your plan and the background jobs, and read who changed what."
       />
       {channels.error && <ErrorNote>{channels.error}</ErrorNote>}
       <UsageCard usage={usage.data} error={usage.error} />
@@ -27,6 +30,7 @@ export default function AgencyPage() {
         <CalendarCard status={channels.data?.calendar} onChanged={() => { void channels.reload(); void audit.reload(); }} />
       </div>
       <SettingsCard settings={channels.data?.settings} onSaved={() => { void channels.reload(); void audit.reload(); }} />
+      <JobsCard onRetried={() => void audit.reload()} />
       <Card title="Change history" subtitle="Roles, invitations, channels and settings. Only admins can read this.">
         {audit.error ? <ErrorNote>{audit.error}</ErrorNote> : !audit.data ? <Empty>Loading...</Empty> : audit.data.entries.length === 0 ? <Empty>Nothing has been changed yet.</Empty> : (
           <ul>
@@ -40,6 +44,47 @@ export default function AgencyPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+function JobsCard({ onRetried }: { onRetried: () => void }) {
+  const jobs = useApi<JobList>("jobs?limit=30", 10_000);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function retry(id: number) {
+    setBusy(id); setError(null);
+    try { await post(`jobs/${id}/retry`); await jobs.reload(); onRetried(); } catch (e) { setError(errorMessage(e)); }
+    setBusy(null);
+  }
+
+  const data = jobs.data;
+  return (
+    <Card
+      title="Background jobs"
+      subtitle={data?.operator ? "Every agency's alerts, reminders and offers, as the workers run them." : "This agency's alerts, reminders and offers, as the workers run them. Admins only."}
+      action={data ? <span className="flex flex-wrap gap-1">{JOB_STATUSES.filter((s) => data.counts[s] > 0).map((s) => <Pill key={s} tone={jobTone(s)}>{data.counts[s]} {s}</Pill>)}</span> : undefined}
+    >
+      {jobs.error ? <div className="px-5 pb-5"><ErrorNote>{jobs.error}</ErrorNote></div> : !data ? <Empty>Loading...</Empty> : data.jobs.length === 0 ? <Empty>No job has been queued yet.</Empty> : (
+        <ul>
+          {data.jobs.map((j) => (
+            <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[#222] px-5 py-2.5 text-sm">
+              <span className="min-w-0 break-words">
+                <span className="font-medium">{jobLabel(j.kind)}</span>
+                {data.operator && <span className="text-muted"> · {j.organization}</span>}
+                <span className="block text-xs text-muted">{jobOutcome(j)}{j.last_error && j.status !== "done" ? `: ${j.last_error}` : ""}</span>
+              </span>
+              <span className="flex items-center gap-2 text-xs text-muted">
+                <Pill tone={jobTone(j.status)}>{j.status}</Pill>
+                {timeAgo(j.finished_at ?? j.started_at ?? j.created_at)}
+                {canRetry(j, data.operator) && <Button disabled={busy !== null} onClick={() => void retry(j.id)}>{busy === j.id ? "Retrying..." : "Retry"}</Button>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <div className="px-5 pb-5"><ErrorNote>{error}</ErrorNote></div>}
+    </Card>
   );
 }
 

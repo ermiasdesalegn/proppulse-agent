@@ -24,6 +24,7 @@ def pytest_configure(config):
 
     # Must happen before anything reads settings: environment variables win over backend/.env.
     os.environ["DATABASE_URL"] = local_database_url()
+    os.environ["JOB_WORKERS"] = "0"  # no background job worker in an app a test starts; a test that wants one runs it itself
     os.environ["GEMINI_MODE"] = "live"  # tests inject their own fake gateways; this only keeps a stray settings read from replaying
 
 

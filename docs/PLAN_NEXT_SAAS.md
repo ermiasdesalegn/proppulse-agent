@@ -1,6 +1,6 @@
 # Plan: the next three multi-tenant features
 
-Status: planned 2026-11-02, nothing built yet. Everything stays on the local `saas` branch: no merge to `main`, no push, no hosted database.
+Status: planned 2026-11-02. Feature 1 (the job queue) is built; 2 and 3 are not. Everything stays on the local `saas` branch: no merge to `main`, no push, no hosted database.
 
 Order and why:
 

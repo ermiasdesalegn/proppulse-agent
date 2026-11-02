@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 ACTIONS = frozenset({
     "org.create", "member.role_change", "member.remove", "member.leave", "invitation.create", "invitation.revoke", "invitation.accept",
     "channel.telegram_connect", "channel.telegram_disconnect", "channel.calendar_connect", "channel.calendar_disconnect", "settings.change",
+    "job.retry",
 })
 
 

@@ -41,3 +41,40 @@ Question: does keeping every agency in the same tables, separated by row-level s
 - Concurrency. One connection ran the queries one after another; pool contention and lock behaviour under parallel load are untested.
 - Writes (inserting messages, updating buyers) under RLS.
 - A hosted database: network latency and the connection pooler (transaction mode, which is why the label is set with `set_config(..., true)` inside each transaction) were not in the loop.
+
+---
+
+# Benchmark: a job queue that is fair between agencies
+
+`python -m scripts.bench_jobs` (backend), on the embedded Postgres, database `proppulse_bench` (migrated, not seeded). One run, 2026-11-02, Windows laptop.
+
+## Setup
+
+- One **noisy** agency queues 1,000 slow jobs (20 ms each) **first**; then nine **quiet** agencies queue 10 fast jobs (2 ms) each.
+- Four workers (asyncio tasks in one process, each claim and finish on pooled connections), at most two running jobs per agency.
+- `fair` is the queue as built. `fifo` is the same workers taking jobs in the order they were queued, as a plain queue does. `inline` is the cron path before this change (`run_for_orgs`: one agency after another inside the request), computed from the job durations with the noisy agency first.
+- Times are from when the quiet agencies started queueing.
+
+## Results
+
+| Queue | Noisy jobs | Quiet jobs p50 | Quiet jobs p95 | Last quiet job done | Noisy agency done |
+|---|---:|---:|---:|---:|---:|
+| fair | 1000 | 0.24 s | 0.34 s | 0.36 s | 19.45 s |
+| fair, 3x noisy | 3000 | 0.22 s | 0.30 s | 0.31 s | 53.27 s |
+| fifo | 1000 | 10.07 s | 10.11 s | 10.12 s | 9.96 s |
+| inline (before, computed) | 1000 | - | - | 20.18 s | 20.00 s |
+
+Claim rate: 594 jobs/s (2,000 jobs that do nothing, 20 agencies, 4 workers).
+
+## What it shows
+
+1. **The quiet agencies no longer wait for the noisy one.** Their last job is done in about a third of a second, against 10 s with a plain queue and 20 s with the old inline loop, and the time does not grow when the noisy agency queues three times as much (0.36 s with 1,000 noisy jobs, 0.31 s with 3,000).
+2. **The price is paid by the noisy agency.** It is held to two of the four workers, so its 1,000 jobs take about twice as long as with a plain queue, even after the quiet agencies are finished and two workers sit idle. That is what `JOB_PER_ORG_LIMIT` is for; with few agencies it can be raised.
+3. **A claim must not look at every queued job.** The first version chose with one statement that sorted every due row and counted each one's agency: at 1,000 queued jobs a claim took about 20 ms, and the quiet agencies' wait grew with the noisy agency's backlog (0.52 s, then 1.52 s at 3,000). The claim now finds the agencies with work by skipping through an index one agency at a time, then takes that agency's next job from its own index, so its cost follows the number of waiting agencies, not jobs.
+4. Each 20 ms job costs about 39 ms of a worker's time here: Windows' timer granularity rounds the sleeps up, and each job is two short transactions (claim, finish). The comparison between the rows is the point, not the absolute numbers.
+
+## Not measured
+
+- Several processes or machines (the concurrency test runs four workers with their own pools in one process; the claim's correctness does not depend on that, its throughput might).
+- A hosted database: every claim is a few round trips, so network latency would lower the claim rate.
+- Real jobs. The proactive jobs call Telegram and the calendar; their time is the work itself, not the queue.
