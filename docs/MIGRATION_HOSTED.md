@@ -1,6 +1,6 @@
 # Plan: moving the hosted database and live app to multi-tenancy
 
-Status: **a plan, not yet carried out.** Nothing here has been run against the hosted Supabase database. The local and test databases already run migrations 020 to 024; the hosted one does not. This page says what changes, in what order, how to check each step, and how to go back.
+Status: **rehearsed on a local copy (section 7), not yet carried out.** Nothing here has been run against the hosted Supabase database. The local and test databases already run migrations 020 to 024; the hosted one does not. This page says what changes, in what order, how to check each step, and how to go back.
 
 Everything below is done from a branch that is merged on purpose. Until then `main` and the hosted system stay exactly as they are.
 
@@ -11,7 +11,7 @@ Everything below is done from a branch that is merged on purpose. Until then `ma
 | 020 | Creates `organizations`, `memberships`, `invitations`, `org_settings`; seeds agency #1 (`proppulse`) | Yes, only adds tables |
 | 021 | Adds `org_id` to 15 tables, fills it with agency #1, default = agency #1, indexes | Yes: old inserts omit `org_id` and get the default. Briefly locks each table while rows are updated |
 | 022 | Creates role `app_user`, turns on row-level security (RLS) with policies | Yes, **if the old code connects as the table owner** (Supabase's `postgres`): owners are not forced through RLS, so nothing changes for them |
-| 023 | Replaces global unique keys with per-agency ones; composite foreign keys | **No.** The live code runs `on conflict (thread_id)` and `on conflict (dedupe_key)`. After 023 those constraints no longer exist and the insert fails with "no unique or exclusion constraint matching the ON CONFLICT specification". Buyers could not start a chat |
+| 023 | Replaces global unique keys with per-agency ones; composite foreign keys | **No.** The live code runs `on conflict` on `thread_id`, `dedupe_key`, `message_id`, `property_id` (layouts) and `(property_id, kind, price_etb)` (channel posts). After 023 those constraints no longer exist and the insert fails with "no unique or exclusion constraint matching the ON CONFLICT specification". Buyers could not start a chat |
 | 024 | `org_keys`, `org_secrets` (encrypted credentials), more `org_settings` columns | Yes, only adds |
 
 So the migration is **expand, then switch**: 020 to 022 can go first, with the old code running. 023 and the new code must change together, in one short window, and 024 can go with them.
@@ -126,3 +126,22 @@ Restoring the dump is the only supported way back from 023, so the rehearsal in 
 - [ ] Step B: 023, 024, new backend, new frontend, owner granted, webhook checked
 - [ ] Step C verification done, throw-away agency deleted
 - [ ] `docs/FREE_DEPLOYMENT.md` updated to the new migration range and variables
+
+## 7. Rehearsal result (2026-11-02, local)
+
+`python -m scripts.rehearse_hosted_migration` (from `backend/`) builds a scratch database at migration 019 with the demo seed plus 300 buyers and 1,500 chat messages, then applies Step A and Step B and runs, after each stage, the exact write statements the live (`main`) code uses. It can be re-run any time.
+
+| Stage | Old-code writes (6 probes) | Notes |
+|---|---|---|
+| On 019 (control) | all 6 succeed | |
+| After 020 to 022 | **all 6 succeed** | 1 organization; 0 buyers without `org_id`; all 1,500 messages in agency #1; RLS on; applying took about 1 s |
+| After 023 and 024 | **5 of 6 fail**: `there is no unique or exclusion constraint matching the ON CONFLICT specification` (buyer upsert, announcement claim, layout upsert, channel-post claim, proactive reservation). Only a plain insert still works | applying took about 0.5 s; all 300 buyers and 1,500 messages intact |
+
+So the plan's central claim holds: 020 to 022 are safe with the old code running, and 023 must be switched together with the new code.
+
+What this rehearsal does **not** show:
+
+- It ran as a superuser (the embedded server's `postgres`), so it cannot prove that Supabase's `postgres` may `create role` (section 2, step 3) or that the old code is unaffected by RLS there. Tables are not `FORCE`d, so an owner is exempt; confirm on the real project.
+- The data is tiny (hundreds of rows). Timings say nothing about the hosted database; 021 rewrites every row of 15 tables, so measure it on the restored dump.
+- It did not use a dump of the real data, the transaction pooler, or Supabase's extensions schema.
+
