@@ -457,6 +457,12 @@ async def promotion_ads(state: Any, dry_run: bool = False) -> dict:
     return await state.projects.run_promotion_ads(dry_run)
 
 
+async def audit_export(state: Any, dry_run: bool = False) -> dict:
+    from app.auditchain import audit_export as run
+
+    return await run(state, dry_run)
+
+
 SCHEDULED: dict[str, tuple[Callable[[Any, bool], Awaitable[dict]], str]] = {
     # kind: (the work, how often it is meant to run: one queued job per agency per day or per hour)
     "proactive.daily": (daily_run, "day"),
@@ -464,6 +470,7 @@ SCHEDULED: dict[str, tuple[Callable[[Any, bool], Awaitable[dict]], str]] = {
     "proactive.tour_reminders": (tour_reminders, "hour"),
     "proactive.milestone_reminders": (milestone_reminders, "hour"),
     "projects.promotion_ads": (promotion_ads, "hour"),
+    "audit.export": (audit_export, "day"),
 }
 
 

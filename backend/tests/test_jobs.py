@@ -347,7 +347,7 @@ async def test_many_workers_on_their_own_connections_run_each_of_500_jobs_exactl
 def test_every_scheduled_job_is_registered():
     assert set(SCHEDULED) <= set(REGISTRY)
     assert set(SCHEDULED) == {"proactive.daily", "proactive.reverse_rag", "proactive.tour_reminders", "proactive.milestone_reminders",
-                              "projects.promotion_ads"}
+                              "projects.promotion_ads", "audit.export"}
 
 
 def test_the_cron_queues_once_per_period_and_a_button_once_per_minute():
@@ -377,7 +377,8 @@ async def something_to_send(repo, db_conn):
     await add_project(repo, db_conn, promotion="10% off", promotion_until=(date.today() + timedelta(days=3)).isoformat())
 
 
-@pytest.mark.parametrize("kind", sorted(SCHEDULED))
+# audit.export messages nobody; tests/test_audit_chain.py runs it twice
+@pytest.mark.parametrize("kind", sorted(k for k in SCHEDULED if k != "audit.export"))
 async def test_each_scheduled_job_run_twice_messages_once(kind, scheduled_world, queue, repo, db_conn):
     state, services = scheduled_world
     await something_to_send(repo, db_conn)

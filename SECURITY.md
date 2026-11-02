@@ -71,10 +71,28 @@ the same moment waits and ends up sealed with the new key. The job does not retr
 A copy of the database taken before the rotation still holds the old key and the old ciphertexts, so they stay readable with the master
 key until such backups expire.
 
+## The audit trail
+
+Each agency's entries are chained: an entry stores the hash of the one before it and a hash of its own fields (migration 030). Removing,
+editing or reordering an entry breaks the chain at that entry. `python -m scripts.verify_audit` recomputes every chain and prints the
+agency and the first broken entry (exit status 1). A chain only proves that something changed. It cannot show that the newest entries
+were cut off, or that someone rewrote every hash after an edit. For that, set one sink and the daily job `audit.export`
+(`POST /api/cron/audit-export`, scheduled by `deploy/scheduler.sh`) copies each agency's new entries there, in batches that are never
+changed afterwards, and `verify_audit` then also compares the database with the copy:
+
+- `AUDIT_EXPORT_DIR`: a directory, for development.
+- `AUDIT_EXPORT_BUCKET` (with `AUDIT_EXPORT_PREFIX`, and `AUDIT_EXPORT_ENDPOINT_URL` for a service other than AWS): an S3-compatible bucket.
+  Create it with object lock and a default retention (for example 400 days, compliance mode) so a stored batch cannot be replaced or
+  deleted, give the server a credential that can only list, read and write new objects, and install `boto3` on the host.
+
+With neither set the export is off and only the chain is checked. Run `verify_audit` on a schedule you control, from a machine that
+holds no write access to the bucket. The export remembers how far it got (`audit_export_state`); it refuses to copy past a broken
+chain, and the job then fails visibly in the Jobs card.
+
 ## Known limits
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.
-- One admin password and key for the console. Changes to roles, invitations, channels and settings are recorded per agency with the actor (`audit_log`, `GET /api/audit`), but reads and other clicks are not, and the table owner could still delete rows.
+- One admin password and key for the console. Changes to roles, invitations, channels and settings are recorded per agency with the actor (`audit_log`, `GET /api/audit`), but reads and other clicks are not. The table owner can still delete or rewrite rows, but not unnoticed: see "The audit trail" below.
 - Console access no longer depends on an email address: nobody becomes a member by signing up with a particular address. Membership is created by an owner's invitation (the link works once, for the invited address, and only its hash is stored) or by an operator with `python -m scripts.grant_role`. Keep "Confirm email" on anyway, so an invitation's address belongs to whoever uses it.
 - Buyer sign-up has no CAPTCHA; Supabase's own rate limits apply.
 - The prompt-injection check is a list of patterns. It stops the common attempts and costs nothing, but a determined attacker can phrase around it; the structural protection is that the agent's tools only act on the buyer's own conversation.

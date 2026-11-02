@@ -180,6 +180,12 @@ async def milestone_reminders(request: Request, dry_run: bool = False, orgs: lis
     return await scheduled(request, orgs, ["proactive.milestone_reminders"], dry_run)
 
 
+@router.post("/api/cron/audit-export")
+async def audit_export(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
+    """Copy each agency's new audit entries to the configured sink (off when none is set)."""
+    return await scheduled(request, orgs, ["audit.export"], dry_run)
+
+
 @router.post("/api/cron/reminders")
 async def all_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
     """Tour and milestone reminders together: the dashboard's 'Send 24h Tour & Milestone Reminders' button."""

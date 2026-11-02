@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     ads_auto_publish: bool = False  # post new listings and price drops to the channel without being asked
     telegram_channel_id: str = ""
 
+    audit_export_dir: str = ""  # copy each agency's audit trail here (development); see app/auditchain.py. Off when both this and the bucket are empty
+    audit_export_bucket: str = ""  # or to this S3-compatible bucket, which should have object lock with a default retention (production)
+    audit_export_prefix: str = ""
+    audit_export_endpoint_url: str = ""  # for an S3-compatible service other than AWS
+
     demo_reset_enabled: bool = False  # lets the dashboard's Reset Demo button wipe conversations and restore the demo catalogue
     history_compact_after: int = 40  # a conversation longer than this many messages has its older part summarised
     history_keep_recent: int = 12
