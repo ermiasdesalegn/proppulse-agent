@@ -13,7 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from app.config import get_settings
 from app.jobs import REGISTRY, JobQueue, JobWorker
-from app.keys import REWRAP, check_keys, key_status, rewrap_org, start_rotation
+from app.keys import REWRAP, check_keys, key_status, rewrap_org, rotate_data_key, start_rotation
 from app.runtime import TenantRuntime
 from app.vault import UnknownKey, Vault, VaultError, _parse, generate_master_key, key_id, stored_key_id
 from tests.agent_helpers import make_services
@@ -205,9 +205,12 @@ async def test_a_bot_connected_during_its_agencys_rewrap_ends_up_working_under_t
         rewrap = asyncio.create_task(rewrap_org(pool, both.vault, org))
         await asyncio.sleep(0.2)
         assert not rewrap.done(), "the re-wrap waits for the row"
-        await both.store_secret(org, "google_service_account_json", '{"client_email": "a@b", "private_key": "k"}')  # the bot is connected now
+        store = asyncio.create_task(both.store_secret(org, "google_service_account_json", '{"client_email": "a@b", "private_key": "k"}'))  # the bot is connected now
+        await asyncio.sleep(0.2)
+        assert not store.done(), "storing a secret reads the key row under a shared lock, so it waits for the holder too"
         await holder.rollback()
         await holder.close()
+        await asyncio.wait_for(store, 10)
         assert (await asyncio.wait_for(rewrap, 10))["status"] == "rewrapped"
 
         new_only = TenantRuntime(repo, get_settings(), make_services(), Vault(NEW))
@@ -233,3 +236,132 @@ async def test_only_the_operator_sees_the_key_status_and_it_holds_ids_only(world
     assert r.status_code == 200 and r.json()["configured"] and r.json()["current"] == world.runtime.vault.current_key_id
     assert len(r.json()["current"]) == 8 and "private" not in r.text
 
+
+
+# ---------------- one agency's own data key ----------------
+
+
+async def test_rotating_one_agencys_data_key_reseals_its_secrets_and_leaves_the_others(spy_repo, db_conn, agencies):
+    runtime, _ = rotating(spy_repo, NEW, OLD)
+    org, other = agencies[1], agencies[2]
+    keys_before, secrets_before = await snapshot(db_conn)
+    old_data_key = runtime.vault.open_data_key(org, keys_before[org])
+    plain = await runtime.secrets(org)
+
+    done = await rotate_data_key(spy_repo.pool, runtime.vault, org, by="member", user_id=uuid.uuid4())
+    assert done == {"org_id": str(org), "status": "rotated", "secrets": 2}
+    keys_after, secrets_after = await snapshot(db_conn)
+
+    assert keys_after[org] != keys_before[org] and await runtime.secrets(org) == plain, "every secret opens, with the same content"
+    mine = [k for k in secrets_after if k[0] == org]
+    assert len(mine) == 2 and all(secrets_after[k] != secrets_before[k] for k in mine), "every ciphertext changed"
+    for k in mine:
+        with pytest.raises(VaultError):
+            runtime.vault.open(old_data_key, org, k[1], secrets_after[k])  # the old data key opens none of them
+    assert keys_after[other] == keys_before[other] and {k: v for k, v in secrets_after.items() if k[0] == other} == {k: v for k, v in secrets_before.items() if k[0] == other}
+    row = await (await db_conn.execute("select actor_kind, detail from audit_log where org_id = %s and action = 'key.rotate'", (org,))).fetchone()
+    assert row["actor_kind"] == "member" and row["detail"] == {"secrets": 2} and "token" not in str(row)
+
+    assert (await rotate_data_key(spy_repo.pool, runtime.vault, uuid.uuid4()))["status"] == "no key"
+
+
+async def test_a_rotation_that_fails_before_commit_leaves_the_agency_on_its_old_key(spy_repo, db_conn, agencies, monkeypatch):
+    runtime, _ = rotating(spy_repo, NEW, OLD)
+    org = agencies[1]
+    before = await snapshot(db_conn)
+    plain = await runtime.secrets(org)
+    real = runtime.vault.seal
+    calls = []
+
+    def dies_on_the_second(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            raise VaultError("the process died")
+        return real(*a, **k)
+
+    monkeypatch.setattr(runtime.vault, "seal", dies_on_the_second)
+    with pytest.raises(VaultError):
+        await rotate_data_key(spy_repo.pool, runtime.vault, org)
+    assert await snapshot(db_conn) == before, "not even the first secret was kept"
+    monkeypatch.undo()
+    assert await runtime.secrets(org) == plain
+    assert (await (await db_conn.execute("select count(*) as n from audit_log where action = 'key.rotate'")).fetchone())["n"] == 0
+
+
+@pytest.mark.parametrize("store_first", [False, True])
+async def test_a_secret_stored_during_a_rotation_ends_up_under_the_new_key(store_first):
+    url = get_settings().database_url
+    setup = await AsyncConnection.connect(url, autocommit=True, row_factory=dict_row, prepare_threshold=None)
+    org = (await (await setup.execute("insert into organizations (slug, name) values (%s, 'Race') returning id", (f"rot-race-{uuid.uuid4().hex[:6]}",))).fetchone())["id"]
+    pool = AsyncConnectionPool(url, min_size=1, max_size=4, open=False, kwargs={"row_factory": dict_row, "prepare_threshold": None})
+    await pool.open(wait=True)
+    try:
+        from app.repository import Repository
+
+        repo = Repository(pool)
+        runtime = TenantRuntime(repo, get_settings(), make_services(), Vault(NEW))
+        await runtime.store_secret(org, "telegram_bot_token", "111:first")
+        before = (await (await setup.execute("select wrapped_key from org_keys where org_id = %s", (org,))).fetchone())["wrapped_key"]
+
+        holder = await AsyncConnection.connect(url, row_factory=dict_row, prepare_threshold=None)
+        await holder.execute("select 1 from org_keys where org_id = %s for update", (org,))
+        def start_store():
+            return asyncio.create_task(runtime.store_secret(org, "google_service_account_json", '{"client_email": "a@b", "private_key": "k"}'))
+
+        # both queue behind the holder, one after the other; the test runs each order
+        if store_first:
+            store = start_store()
+            await asyncio.sleep(0.1)
+            rotate = asyncio.create_task(rotate_data_key(pool, runtime.vault, org))
+        else:
+            rotate = asyncio.create_task(rotate_data_key(pool, runtime.vault, org))
+            await asyncio.sleep(0.1)
+            store = start_store()
+        await asyncio.sleep(0.3)
+        assert not rotate.done() and not store.done(), "both wait for the row"
+        await holder.rollback()
+        await holder.close()
+        await asyncio.wait_for(asyncio.gather(rotate, store), 10)
+
+        after = (await (await setup.execute("select wrapped_key from org_keys where org_id = %s", (org,))).fetchone())["wrapped_key"]
+        assert after != before
+        assert await runtime.secrets(org) == {"telegram_bot_token": "111:first", "google_service_account_json": '{"client_email": "a@b", "private_key": "k"}'}
+    finally:
+        await setup.execute("delete from organizations where id = %s", (org,))
+        await setup.close()
+        await pool.close()
+
+
+async def test_who_may_rotate_a_data_key_and_what_it_does(world, db_conn):
+    from tests.jobs_helpers import run_queued
+    from tests.test_channels_api import TOKEN_A, TOKEN_B, agency, connect
+
+    a_owner, a_admin, b_owner = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    a, _ = await agency(db_conn, "rot-a", (a_owner, "owner"), (a_admin, "admin"))
+    b, _ = await agency(db_conn, "rot-b", (b_owner, "owner"))
+    empty, _ = await agency(db_conn, "rot-empty", (uuid.uuid4(), "owner"))
+    await connect(world, a_owner, TOKEN_A)
+    await connect(world, b_owner, TOKEN_B)
+    key_of = lambda org: world.repo.as_platform().org_key(org)  # noqa: E731
+    a0, b0 = await key_of(a), await key_of(b)
+
+    mine = {**bearer(a_owner), "X-Org-Id": str(a)}
+    assert (await world.client.post("/api/org/keys/rotate", headers={**bearer(a_admin), "X-Org-Id": str(a)})).status_code == 403, "an admin may not"
+    assert (await world.client.post("/api/org/keys/rotate")).status_code == 401
+    r = await world.client.post("/api/org/keys/rotate", headers={**mine, "X-Org-Id": str(b)})  # naming B changes nothing: the caller is not B's
+    assert r.status_code == 403
+    r = await world.client.post("/api/org/keys/rotate", headers=mine)
+    assert r.status_code == 202 and r.json()["org_id"] == str(a), r.text
+    done = await run_queued(world.client)
+    assert [(d["org_id"], d["result"]["status"]) for d in done] == [(a, "rotated")] and done[0]["result"]["secrets"] >= 1
+    assert await key_of(a) != a0 and await key_of(b) == b0
+    assert (await world.runtime.secrets(a))["telegram_bot_token"] == TOKEN_A
+
+    op = {"X-Admin-Key": "test-admin-key"}
+    assert (await world.client.post(f"/api/keys/agency/{b}/rotate", headers=mine)).status_code == 403, "an agency may not rotate by the operator's route"
+    assert (await world.client.post(f"/api/keys/agency/{empty}/rotate", headers=op)).status_code == 404
+    assert (await world.client.post(f"/api/keys/agency/{b}/rotate", headers=op)).status_code == 202
+    await run_queued(world.client)
+    assert await key_of(b) != b0 and (await world.runtime.secrets(b))["telegram_bot_token"] == TOKEN_B
+    who = await (await db_conn.execute("select actor_kind from audit_log where org_id = %s and action = 'key.rotate'", (b,))).fetchone()
+    assert who["actor_kind"] == "platform"

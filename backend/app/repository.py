@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -1235,6 +1235,21 @@ class Repository:
             "insert into org_secrets (org_id, name, ciphertext) values (%s, %s, %s) "
             "on conflict (org_id, name) do update set ciphertext = excluded.ciphertext, updated_at = now() returning name",
             (str(org_id), name, ciphertext))
+
+    async def seal_org_secret(self, org_id: UUID | str, name: str, seal: Callable[[str], str]) -> None:
+        """Store a secret sealed with the agency's data key as it is now: `seal` gets the stored data key and returns the ciphertext. The key
+        row is read under a shared lock in the same transaction as the write, so a data-key rotation (which locks it for update) cannot
+        commit in between and leave the secret sealed with a key that was just retired."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("select wrapped_key from org_keys where org_id = %s for share", (str(org_id),))
+                row = await cur.fetchone()
+                if row is None:
+                    raise LookupError("the agency has no data key")
+                await conn.execute(
+                    "insert into org_secrets (org_id, name, ciphertext) values (%s, %s, %s) "
+                    "on conflict (org_id, name) do update set ciphertext = excluded.ciphertext, updated_at = now()",
+                    (str(org_id), name, seal(row["wrapped_key"])))
 
     async def delete_org_secret(self, org_id: UUID | str, name: str) -> bool:
         return bool(await self._fetch("delete from org_secrets where org_id = %s and name = %s returning name", (str(org_id), name)))

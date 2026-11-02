@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app import audit
 from app.access import OPERATOR_ORG_ID, Principal, market_editor, require_role
 from app.api import jobs_of
-from app.keys import key_status
+from app.keys import ROTATE, key_status
 
 router = APIRouter()
 
@@ -46,6 +46,26 @@ async def list_jobs(request: Request, status: Status | None = None, org_id: UUID
 async def master_key_status(request: Request):
     """Which master key seals how many agencies' data keys: ids and counts only, never a key."""
     return await key_status(request.app.state.repo.pool, request.app.state.runtime.vault)
+
+
+async def _queue_rotation(request: Request, p: Principal, org_id: UUID) -> dict:
+    if await request.app.state.repo.as_platform().org_key(org_id) is None:
+        raise HTTPException(404, "This agency has no stored credentials, so it has no data key to replace")
+    who = {"by": "platform" if p.platform else "member", "user_id": None if p.platform else str(p.tenant.user_id)}
+    queued = await jobs_of(request).enqueue(org_id, ROTATE, who, max_attempts=1)  # a new job each time; a failed one is not retried by itself
+    return {"job_id": queued.id, "org_id": str(org_id), "kind": queued.kind}
+
+
+@router.post("/api/keys/agency/{org_id}/rotate", status_code=202)
+async def rotate_agency_key(request: Request, org_id: UUID, p: Principal = Depends(operator_admin)):
+    """The operator replaces one agency's data key (the agency asked, or its key may have leaked) and re-seals its secrets."""
+    return await _queue_rotation(request, p, org_id)
+
+
+@router.post("/api/org/keys/rotate", status_code=202)
+async def rotate_own_key(request: Request, p: Principal = Depends(require_role("owner"))):
+    """An agency's owner replaces its own data key. Only its own agency, whatever the request names."""
+    return await _queue_rotation(request, p, p.tenant.org_id)
 
 
 @router.post("/api/jobs/{job_id}/retry")

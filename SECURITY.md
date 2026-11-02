@@ -59,6 +59,18 @@ its master key (`v2.<key id>.`; the id is a fingerprint, safe to log). Keys seal
 
 The old key should be destroyed only after backups made before the rotation have expired: a restored old backup needs it.
 
+## Replacing one agency's own data key
+
+When an agency asks, or its data key may have leaked, only that agency's secrets need re-sealing under a new data key (the master key
+stays). The agency's owner calls `POST /api/org/keys/rotate`; the operator calls `POST /api/keys/agency/{org_id}/rotate`. Either queues
+the job `keys.rotate_data_key` (shown in the Jobs card) and returns its id. The job locks the agency's key row, opens every secret with
+the old data key, seals each with a new random one, checks that each opens again, and commits the new wrapped key, the secrets and an
+audit entry (`key.rotate`) together; if anything fails, nothing is kept and the agency stays on its old key. The old data key opens none
+of the new ciphertexts. Storing a secret reads the key row under a shared lock in the same transaction as the write, so a bot connected at
+the same moment waits and ends up sealed with the new key. The job does not retry by itself: look at the Jobs card and run it again.
+A copy of the database taken before the rotation still holds the old key and the old ciphertexts, so they stay readable with the master
+key until such backups expire.
+
 ## Known limits
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.

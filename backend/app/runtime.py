@@ -202,8 +202,8 @@ class TenantRuntime:
         if wrapped is None:
             _, fresh = self._vault.new_data_key(org)
             wrapped = await self._repo.ensure_org_key(org, fresh)  # if two requests race, both end up with the stored one
-        key = self._vault.open_data_key(org, wrapped)
-        await self._repo.put_org_secret(org, name, self._vault.seal(key, org, name, value))
+        vault = self._vault
+        await self._repo.seal_org_secret(org, name, lambda current: vault.seal(vault.open_data_key(org, current), org, name, value))
         self.invalidate(org)
 
     async def remove_secret(self, org_id: UUID | str, name: str) -> bool:

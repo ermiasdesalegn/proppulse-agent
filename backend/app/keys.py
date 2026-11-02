@@ -7,6 +7,9 @@ The runbook is in docs/SECURITY.md. In short: add the new key in front (SECRETS_
 Every step is safe to repeat and to interrupt. A re-wrap job locks the agency's key row, opens it with whichever key it names, seals it
 with the newest, checks that a stored secret still opens, and commits; a crash leaves that agency on its old key, which still works
 because both keys are loaded. Only `org_keys.wrapped_key` changes: the secrets themselves are sealed with the data key, which stays.
+
+Rotating one agency's own data key is the other rotation: the agency's secrets are opened with the old data key and sealed with a new one,
+all in one transaction (`rotate_data_key`). A secret being stored at the same moment waits for the key row (see Repository.seal_org_secret).
 """
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ from app.vault import UnknownKey, Vault, VaultError, stored_key_id
 log = logging.getLogger(__name__)
 
 REWRAP = "keys.rewrap"
+ROTATE = "keys.rotate_data_key"
 UNKNOWN = "unknown"
 
 
@@ -101,6 +105,41 @@ async def rewrap_org(pool: Any, vault: Vault, org_id: UUID | str) -> dict:
     return {"org_id": org, "status": "rewrapped", "from": before, "to": vault.current_key_id}
 
 
+async def rotate_data_key(pool: Any, vault: Vault, org_id: UUID | str, *, by: str = "platform", user_id: UUID | str | None = None) -> dict:
+    """Give one agency a new data key and re-seal every one of its secrets under it, in one transaction. Nothing is kept unless every
+    secret opens again through the new key; a failure leaves the agency on its old key, working. The old data key opens none of the new
+    ciphertexts afterwards (a fresh random key; AES-GCM refuses the wrong one)."""
+    org = str(org_id)
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute("select wrapped_key from org_keys where org_id = %(org)s for update", {"org": org})
+                row = await cur.fetchone()
+                if row is None:
+                    return {"org_id": org, "status": "no key"}
+                old_key = vault.open_data_key(org, row["wrapped_key"])
+                new_key, wrapped = vault.new_data_key(org)
+                await cur.execute("select name, ciphertext from org_secrets where org_id = %(org)s order by name", {"org": org})
+                resealed = []
+                for s in await cur.fetchall():
+                    plain = vault.open(old_key, org, s["name"], s["ciphertext"])
+                    fresh = vault.seal(new_key, org, s["name"], plain)
+                    if vault.open(vault.open_data_key(org, wrapped), org, s["name"], fresh) != plain:
+                        raise VaultError(f"secret {s['name']} did not survive the new data key")
+                    resealed.append((s["name"], fresh))
+                for name, fresh in resealed:
+                    await cur.execute("update org_secrets set ciphertext = %(c)s, updated_at = now() where org_id = %(org)s and name = %(n)s",
+                                      {"c": fresh, "org": org, "n": name})
+                await cur.execute("update org_keys set wrapped_key = %(w)s where org_id = %(org)s", {"w": wrapped, "org": org})
+                await cur.execute(
+                    "insert into audit_log (org_id, actor_kind, actor_id, action, target, detail) "
+                    "values (%(org)s, %(kind)s, %(who)s, 'key.rotate', 'data key', %(d)s)",
+                    {"org": org, "kind": "platform" if by == "platform" else "member", "who": str(user_id) if user_id else None,
+                     "d": Jsonb({"secrets": len(resealed)})})
+    log.info("data key of organization %s replaced; %d secrets re-sealed", org, len(resealed))
+    return {"org_id": org, "status": "rotated", "secrets": len(resealed)}
+
+
 async def start_rotation(pool: Any, vault: Vault, queue: JobQueue) -> list[Enqueued]:
     """Queue a re-wrap for every agency whose data key is not on the newest master key. Running it again queues only the rest."""
     rows = await _rows(pool, "select org_id, wrapped_key from org_keys order by org_id")
@@ -117,3 +156,12 @@ async def _rewrap_job(ctx: JobContext) -> dict:
     if vault is None:
         raise VaultError("this server has no master key")
     return await rewrap_org(ctx.state.repo.pool, vault, ctx.org_id)
+
+
+@job(ROTATE)
+async def _rotate_data_key_job(ctx: JobContext) -> dict:
+    vault = ctx.state.runtime.vault
+    if vault is None:
+        raise VaultError("this server has no master key")
+    p = ctx.payload
+    return await rotate_data_key(ctx.state.repo.pool, vault, ctx.org_id, by=p.get("by", "platform"), user_id=p.get("user_id"))
