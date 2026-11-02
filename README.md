@@ -16,7 +16,8 @@ An AI sales assistant for an independent real-estate broker in Addis Ababa. Buye
 | Proof that it works | [Evaluation](#evaluation-replayed-from-a-recording-27-seconds-no-network) and [backend/evals](backend/evals/README.md) |
 | How it is deployed and operated | [docs/FREE_DEPLOYMENT.md](docs/FREE_DEPLOYMENT.md) (Render + Vercel + GitHub Actions) or [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Cloud Run) |
 | The public website and Client Portal | [The public site and Client Portal](#the-public-site-and-client-portal) and [section 10 of the architecture](docs/ARCHITECTURE.md#10-the-public-site-and-the-client-portal) |
-| Security posture | [SECURITY.md](SECURITY.md) |
+| Security posture | [SECURITY.md](SECURITY.md) and, for several agencies on one platform, [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) |
+| How many agencies share one database safely | [Many agencies, one platform](#many-agencies-one-platform), [ADR 0001](docs/adr/0001-shared-database-with-row-level-security.md) and the [benchmark](docs/BENCHMARKS.md) |
 
 ## How it fits together
 
@@ -184,13 +185,25 @@ scrapy crawl portals -a site=guzohomes -a limit=20 -O out.jsonl   # writes a fil
 ```
 Starting it from the dashboard needs a GitHub token; see [backend/scraper/README.md](backend/scraper/README.md).
 
+## Many agencies, one platform
+Each agency is an organization with its own team (roles viewer < agent < admin < owner, joined by one-time invitation), its own Telegram bot and calendar (credentials encrypted per agency), and its own buyers, chats, tours and deals. All of it lives in the same tables: every private row carries `org_id`, and the database itself refuses cross-agency reads and writes (row-level security under a restricted role, plus foreign keys that cannot cross agencies). The scraped market is shared and crawled once.
+
+| Question | Answer |
+|---|---|
+| Why not a schema or database per agency? | [ADR 0001](docs/adr/0001-shared-database-with-row-level-security.md) |
+| What does isolation cost? | About 0.1 ms per request at 50 agencies and 20,000 buyers; and why there is no vector index on private data: [docs/BENCHMARKS.md](docs/BENCHMARKS.md) (`python -m scripts.bench_tenants`) |
+| What could still go wrong? | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) lists each threat, the test that covers it and the risk left |
+| Where is the code? | [Architecture section 11](docs/ARCHITECTURE.md#11-many-agencies-on-one-platform) |
+
+Not done yet: a web page for an agency to connect its own bot or calendar (the API exists), a public page to choose an agency, key rotation, and the hosted database is still at migration 019 (020 to 024 run on the local and test databases).
+
 ## Several Gemini keys
 Set `GEMINI_API_KEYS` in `backend/.env` to a comma-separated list (the first key is `GEMINI_API_KEY`). Each key runs the whole model chain; when every model on a key is out of quota or rate-limited, the next key takes over, the same request is retried, and the first key is tried again after six hours. Text, structured output, voice, images and embeddings all rotate, so the agent and the market sweep share it. `/health` shows how many keys are loaded. Keys are redacted from logs.
 
 ## Checks
 ```bash
 cd backend
-.venv/Scripts/python -m pytest              # ~860 tests, offline, on an embedded Postgres + pgvector
+.venv/Scripts/python -m pytest              # ~1,100 tests, offline, on an embedded Postgres + pgvector
 .venv/Scripts/python -m pytest --live       # also the tests that call the real Gemini API
 .venv/Scripts/python -m evals --check       # quality guard from the recording
 .venv/Scripts/python -m ruff check . && .venv/Scripts/python -m mypy
@@ -209,14 +222,14 @@ The live setup is free: Supabase (database), a Render web service (backend), Ver
 | `backend/app/agent` | LangGraph graph, nodes, state, checkpointer, prompts, lead scoring |
 | `backend/app/ingest` | Fetching, parsing, the portal page reader, the ingestion service, project crawling |
 | `backend/scraper` | The Scrapy portal crawler: spider, per-site configuration, pipeline to the backend |
-| `backend/migrations` | SQL schema 001–019 |
+| `backend/migrations` | SQL schema 001–024 (020–024 are multi-tenancy) |
 | `backend/evals` | Evaluation suite, recordings and reports |
-| `backend/scripts` | `migrate`, `seed`, live checks, `post_deploy_check` |
+| `backend/scripts` | `migrate`, `seed`, live checks, `post_deploy_check`, `grant_role`, `make_master_key`, `bench_tenants` |
 | `backend/tests` | pytest suite |
 | `frontend` | Next.js app: public site, Client Portal (`/portal`), Command Center (`/console`), vitest and Playwright tests |
 | `deploy` | Cloud Run and Scheduler scripts |
 | `.github/workflows` | CI, scheduled jobs, the portal crawl |
-| `docs` | Architecture, decisions, deployment, demo script, manual test lists (`MANUAL_TESTS_PUBLIC.md` for the website) |
+| `docs` | Architecture, decisions, `adr/`, threat model, benchmarks, deployment, demo script, manual test lists (`MANUAL_TESTS_PUBLIC.md` for the website) |
 
 ## Live integrations
 Google Calendar (service account shared on the calendar with "Make changes to events") and Mapbox switch on automatically once their keys are set (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID`, `MAPBOX_TOKEN`); force with `CALENDAR_BACKEND` / `ROUTING_BACKEND`. `NEXT_PUBLIC_MAPBOX_TOKEN` (a public `pk.` token) enables the live map. `GITHUB_TOKEN` and `GITHUB_REPO` let the dashboard start the portal crawl. `DEMO_RESET_ENABLED=true` shows the Reset demo button on a demo instance. Never commit `.env` or the service-account file.

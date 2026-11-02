@@ -1,6 +1,6 @@
 # Security notes
 
-What the system protects, how, and what it does not do. Report problems to the repository owner privately.
+What the system protects, how, and what it does not do. Report problems to the repository owner privately. For several agencies on one platform, [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) goes through each threat and its test.
 
 ## Who can do what
 

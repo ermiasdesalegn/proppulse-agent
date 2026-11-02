@@ -287,3 +287,4 @@ Besides the broker's console, the Next.js app has a public front door and a sign
 - **Private:** buyers, chats, tours, deals, saved homes, events and model calls carry `org_id`, enforced by row-level security and by composite foreign keys that refuse a link across agencies.
 - **Where to read:** `app/tenancy.py` (scope and `thread_key`), `app/access.py` (members, roles, job scope), `app/runtime.py` (per-agency settings and services), `app/vault.py` (credential encryption), `app/channels_api.py` (connect a bot or calendar), `app/org_api.py` (team and invitations), `tests/test_tenancy_*.py` and `tests/test_channels_api.py` (the isolation guarantees).
 
+- **Why this design, what it costs, what is left:** [ADR 0001](adr/0001-shared-database-with-row-level-security.md) (shared tables with row-level security rather than a schema or database per agency), [BENCHMARKS.md](BENCHMARKS.md) (50 agencies, 20,000 buyers) and [THREAT_MODEL.md](THREAT_MODEL.md).
