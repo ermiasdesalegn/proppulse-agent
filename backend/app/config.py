@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     secrets_master_key: str = ""  # 32 random bytes, base64: encrypts each agency's bot token and calendar key (python -m scripts.make_master_key)
     secrets_master_keys: str = ""  # during a rotation: several keys, comma separated, newest first (docs/SECURITY.md); wins over the single one
     tenancy_strict: bool = False  # True: database work with no organization in scope is an error instead of using the legacy one
+    # US dollars per million tokens, "model=input/output", comma separated; `default` prices any model not listed. These are ESTIMATES the
+    # operator must check against the provider's price list and update (with the date) when it changes: spend is only as good as this line.
+    model_prices: str = ("default=0.30/2.50,gemini-2.5-flash=0.30/2.50,gemini-3.5-flash-lite=0.10/0.40,"
+                         "gemini-3.1-flash-lite=0.10/0.40,gemini-embedding-001=0.15/0")
+    model_prices_as_of: str = "2026-11-02 (estimate, not checked against the provider's list)"
     enforce_quotas: bool = True  # each agency's plan caps how many buyer messages the assistant answers per day (app/quota.py)
     cron_secret: str = ""
     job_workers: int = 2  # background job tasks in this process (app/jobs.py); 0 turns the worker off (the tests do)

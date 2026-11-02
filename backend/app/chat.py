@@ -130,9 +130,9 @@ class ChatService:
                        channel=inbound.channel, text=excerpt(shown))
             if buyer["human_takeover"]:
                 return await self._while_broker_has_the_chat(buyer, inbound, shown)
-            if await self._over_quota():
-                self._emit("quota_reached", buyer_id=str(buyer["id"]))
-                return await self._say(buyer, inbound, msg("quota_reached", detect_language(inbound.text)))
+            if reason := await self._over_quota():
+                self._emit("quota_reached", buyer_id=str(buyer["id"]), reason=reason)
+                return await self._say(buyer, inbound, msg("quota_reached" if reason == "messages" else "budget_reached", detect_language(inbound.text)))
             if self.projects is not None:
                 about_a_project = await self._project_turn(buyer, inbound)
                 if about_a_project is not None:
@@ -160,11 +160,16 @@ class ChatService:
             return None
         return await self._say(buyer, inbound, answer[0], answer[1] or None)
 
-    async def _over_quota(self) -> bool:
-        """True when the agency has used its plan's conversations for today. The buyer's message is already saved for the broker."""
+    async def _over_quota(self) -> str | None:
+        """Why the assistant must not answer: "messages" when the agency has used its plan's conversations for today, "budget" when it has
+        spent its plan's money for the month, else None. The buyer's message is already saved for the broker."""
         if not self.settings.enforce_quotas:
-            return False
-        return quota.exceeded(await self.repo.usage_today())
+            return None
+        used = await self.repo.usage_today()
+        if quota.exceeded(used):
+            return "messages"
+        spent = quota.spend_usd(await self.repo.model_usage_month(), quota.parse_prices(self.settings.model_prices))
+        return "budget" if quota.over_budget(used["plan"], spent) else None
 
     async def _say(self, buyer: dict, inbound: Inbound, text: str, quick_replies: list | None = None) -> Outcome:
         buyer_id = str(buyer["id"])

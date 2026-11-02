@@ -34,6 +34,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     "quota_reached": {
         "en": "This agency's assistant has reached its daily limit of conversations. Your message has been saved and the broker will reply personally.",
         "am": "የዚህ ኤጀንሲ ረዳት የዕለቱን የውይይት ገደብ አልፏል። መልዕክትዎ ተቀምጧል፤ ደላላው በግል ይመልስልዎታል።"},
+    "budget_reached": {
+        "en": "This agency's assistant has reached its budget for this month. Your message has been saved and the broker will reply personally.",
+        "am": "የዚህ ኤጀንሲ ረዳት የወሩን በጀት አልፏል። መልዕክትዎ ተቀምጧል፤ ደላላው በግል ይመልስልዎታል።"},
     "calendar_down": {
         "en": "I can't reach the broker's calendar right now, so I haven't booked anything. Please try again in a few minutes.",
         "am": "የደላላውን የቀን መቁጠሪያ አሁን ማግኘት አልቻልኩም፣ ስለዚህ ምንም አልያዝኩም። እባክዎ ከጥቂት ደቂቃዎች በኋላ ይሞክሩ።"},

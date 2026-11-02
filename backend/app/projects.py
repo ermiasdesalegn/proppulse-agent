@@ -482,9 +482,15 @@ class ProjectService:
             raise LookupError("project not found")
         orgs = await self.repo.as_platform().orgs_with_price_requests(project_id)
         version = time.time_ns()  # each save is its own announcement; a retry of the same save's job reuses that job, it is never queued twice
-        queued = [await self._queue().enqueue(org, PRICE_JOB, {"project_id": str(project_id), "old": _num(old), "source": "shared"},
-                                              dedupe_key=f"shared:{project_id}:{version}") for org in orgs]
-        return {"project": before["name"], "price_from_etb": price_from_etb, "agencies": len(orgs), "job_ids": [q.id for q in queued]}
+        queued, refused = [], []
+        for org in orgs:
+            try:
+                queued.append(await self._queue().enqueue(org, PRICE_JOB, {"project_id": str(project_id), "old": _num(old), "source": "shared"},
+                                                          dedupe_key=f"shared:{project_id}:{version}"))
+            except JobQuotaExceeded:  # that agency is at its plan's daily number of jobs: its buyers are not told, the others are
+                refused.append(str(org))
+        return {"project": before["name"], "price_from_etb": price_from_etb, "agencies": len(orgs), "job_ids": [q.id for q in queued],
+                "refused_agencies": refused}
 
     async def set_agency_price(self, project_id: UUID | str, price_etb: float | None, note: str | None = None, valid_until: date | None = None,
                                *, by: UUID | None = None) -> dict:
@@ -501,10 +507,14 @@ class ProjectService:
         after = await self.repo.get_project(project_id)
         assert after is not None
         org = resolve_org_id()
-        job = await self._queue().enqueue(org, PRICE_JOB, {"project_id": str(project_id), "old": _num(before["price_from_etb"]), "source": "agency"},
-                                          dedupe_key=f"agency:{project_id}:{time.time_ns()}")
-        return {"project": after["name"], "shared_price_from_etb": _num(after["shared_price_from_etb"]), "agency_price_etb": _num(after["agency_price_etb"]),
-                "price_from_etb": _num(after["price_from_etb"]), "job_id": job.id}
+        try:
+            job = await self._queue().enqueue(org, PRICE_JOB, {"project_id": str(project_id), "old": _num(before["price_from_etb"]), "source": "agency"},
+                                              dedupe_key=f"agency:{project_id}:{time.time_ns()}")
+        except JobQuotaExceeded as over:  # the price is saved; telling the buyers has to wait for tomorrow's allowance
+            log.warning("price saved but the announcement was not queued: %s", over)
+            job = None
+        return {"announcement_queued": job is not None, "project": after["name"], "shared_price_from_etb": _num(after["shared_price_from_etb"]), "agency_price_etb": _num(after["agency_price_etb"]),
+                "price_from_etb": _num(after["price_from_etb"]), "job_id": job.id if job else None}
 
     async def announce_price(self, project_id: UUID | str, old: float | None, *, source: str = "shared") -> dict:
         """Tell the agency in scope's buyers about the project's price as this agency shows it now. Run as a job, once per agency; safe to
@@ -681,7 +691,7 @@ class ProjectService:
 
 # ---------------- the price job ----------------
 
-from app.jobs import JobContext, job  # noqa: E402  (registered here, next to the code it runs)
+from app.jobs import JobContext, JobQuotaExceeded, job  # noqa: E402  (registered here, next to the code it runs)
 
 
 @job(PRICE_JOB)

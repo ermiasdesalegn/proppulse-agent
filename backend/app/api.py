@@ -20,7 +20,7 @@ from app.ingest.fetch import FetchError
 from app.ingest.models import PortalItem, ScrapeProfile
 from app.ingest.sample import sample_listing
 from app.ingest.service import ExtractionError, IngestionService
-from app.jobs import SCHEDULED, JobQueue, period_key, queue_of
+from app.jobs import SCHEDULED, JobQueue, JobQuotaExceeded, period_key, queue_of
 from app.model3d import MAX_ROOMS, PLAN_PROMPT, Layout, PlanRead, layout_from_plan, pack_rooms, render_png, to_glb
 from app.portal_runs import PortalRunError, PortalRunService
 from app.repository import Repository
@@ -152,10 +152,17 @@ async def scheduled(request: Request, orgs: list[UUID], kinds: list[str], dry_ru
         return await run_for_orgs(request, orgs, preview)
     queue, trigger = jobs_of(request), getattr(request.state, "job_trigger", "console")
     slugs = {r["id"]: r["slug"] for r in await state.repo.as_platform().organizations_by_id(orgs)}
-    queued = [await queue.enqueue(org, kind, dedupe_key=f"{kind}:{period_key(kind, trigger)}") for org in orgs for kind in kinds]
+    queued, refused = [], []
+    for org in orgs:
+        for kind in kinds:
+            try:
+                queued.append(await queue.enqueue(org, kind, dedupe_key=f"{kind}:{period_key(kind, trigger)}"))
+            except JobQuotaExceeded as over:  # one agency at its plan's number is skipped, and named; the others are queued as usual
+                refused.append({"organization": slugs.get(org, str(org)), "kind": kind, "reason": str(over)})
     return {
         "dry_run": False, "queued": True, "job_ids": [q.id for q in queued],
         "jobs": [{"id": q.id, "kind": q.kind, "organization": slugs.get(q.org_id, str(q.org_id)), "created": q.created} for q in queued],
+        "refused": refused,
     }
 
 

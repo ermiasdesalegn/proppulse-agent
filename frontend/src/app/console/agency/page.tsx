@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button, Card, Empty, ErrorNote, PageHeader, Pill } from "@/components/ui";
 import {
-  actorLabel, canRetry, describeEntry, JOB_STATUSES, jobLabel, jobOutcome, jobTone, keySummary, keyTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone,
+  actorLabel, canRetry, describeEntry, dollars, JOB_STATUSES, jobLabel, jobOutcome, jobTone, keySummary, keyTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone,
   type AuditEntry, type ChannelStatus, type JobList, type KeyStatus, type Usage,
 } from "@/lib/agency";
 import { api, errorMessage, patch, post, put } from "@/lib/api";
@@ -111,6 +111,7 @@ function UsageCard({ usage, error }: { usage: Usage | null; error: string | null
   if (!usage) return <Card title="Today's use"><Empty>Loading...</Empty></Card>;
   const tone = usageTone(usage);
   const percent = usagePercent(usage.buyer_messages_today, usage.daily_message_limit);
+  const budgetPercent = usagePercent(usage.month_spend_usd, usage.monthly_budget_usd);
   return (
     <Card title="Today's use" subtitle="Counted from midnight UTC" action={<Pill tone={tone}>{usage.plan} plan</Pill>}>
       <div className="space-y-2 px-5 pb-5">
@@ -122,6 +123,15 @@ function UsageCard({ usage, error }: { usage: Usage | null; error: string | null
           <div className={`h-full ${BAR[tone]}`} style={{ width: `${percent}%` }} />
         </div>
         {usage.over_limit && <p role="status" className="text-sm text-bad">The limit is reached. Buyers are told the broker will reply, and their messages wait in the CRM.</p>}
+        <p className="pt-2 text-sm">
+          <span className="text-lg font-semibold">{dollars(usage.month_spend_usd)}</span>
+          <span className="text-muted"> of {dollars(usage.monthly_budget_usd)} model budget this month · {usage.jobs_today} of {usage.daily_job_limit} background jobs today</span>
+        </p>
+        <div className="h-2 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={budgetPercent} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly model budget used">
+          <div className={`h-full ${BAR[usage.over_budget ? "bad" : budgetPercent >= 80 ? "warn" : "good"]}`} style={{ width: `${budgetPercent}%` }} />
+        </div>
+        <p className="text-xs text-muted">Spend is the tokens recorded for each call times prices set by the operator ({usage.prices_as_of}).</p>
+        {usage.over_budget && <p role="status" className="text-sm text-bad">The monthly budget is reached. Buyers are told the broker will reply, and their messages wait in the CRM.</p>}
       </div>
     </Card>
   );

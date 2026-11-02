@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actorLabel, canRetry, describeEntry, jobLabel, jobOutcome, jobTone, keySummary, keyTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone, type AuditEntry, type Job, type KeyStatus, type Usage } from "./agency";
+import { actionLabel, actorLabel, canRetry, describeEntry, jobLabel, jobOutcome, jobTone, keySummary, keyTone, looksLikeBotToken, looksLikeServiceAccount, dollars, usagePercent, usageTone, type AuditEntry, type Job, type KeyStatus, type Usage } from "./agency";
 
 const entry = (over: Partial<AuditEntry>): AuditEntry => ({
   id: 1, actor_kind: "member", actor_id: "11111111-2222-4333-8444-555555555555", action: "settings.change", target: null, detail: {}, created_at: "2026-11-02T10:00:00Z", ...over,
 });
-const usage = (over: Partial<Usage>): Usage => ({ plan: "free", daily_message_limit: 100, buyer_messages_today: 10, model_calls_today: 0, remaining: 90, over_limit: false, ...over });
+const usage = (over: Partial<Usage>): Usage => ({ plan: "free", daily_message_limit: 100, buyer_messages_today: 10, model_calls_today: 0, remaining: 90, over_limit: false, month_spend_usd: 0.5, monthly_budget_usd: 2, over_budget: false, model_calls_month: 10, model_calls_without_tokens: 0, prices_as_of: "2026-11-02", jobs_today: 5, daily_job_limit: 300, ...over });
 
 describe("bot token and key file checks", () => {
   it("accepts the shape BotFather gives and rejects typos", () => {
@@ -29,6 +29,13 @@ describe("usage", () => {
     expect(usageTone(usage({ buyer_messages_today: 79 }))).toBe("good");
     expect(usageTone(usage({ buyer_messages_today: 80 }))).toBe("warn");
     expect(usageTone(usage({ buyer_messages_today: 101, over_limit: true }))).toBe("bad");
+    expect(usageTone(usage({ month_spend_usd: 1.7 }))).toBe("warn");
+    expect(usageTone(usage({ month_spend_usd: 2, over_budget: true }))).toBe("bad");
+  });
+  it("shows money in dollars and small amounts as small, not zero", () => {
+    expect(dollars(0)).toBe("$0.00");
+    expect(dollars(0.004)).toBe("under $0.01");
+    expect(dollars(12.345)).toBe("$12.35");
   });
 });
 

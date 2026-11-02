@@ -89,6 +89,19 @@ With neither set the export is off and only the chain is checked. Run `verify_au
 holds no write access to the bucket. The export remembers how far it got (`audit_export_state`); it refuses to copy past a broken
 chain, and the job then fails visibly in the Jobs card.
 
+## Quotas
+
+Each plan caps three things per agency, each counted from that agency's own rows so one agency reaching a cap changes nothing for another:
+buyer messages answered per day, a monthly model budget in dollars, and background jobs queued per day (`app/quota.py`). Over the message
+cap or the budget the assistant stops answering with the model: the buyer is told the broker will reply, and the message waits in the
+broker's inbox. Over the job number `enqueue` refuses, and a cron call skips that agency and names it in its answer. The operator's agency
+and the platform's own upkeep jobs (`keys.*`, `audit.export`) are not counted.
+
+Spend is the tokens recorded for each model call times the prices in `MODEL_PRICES` (US dollars per million tokens,
+`model=input/output`, `default` for any other model). The defaults are estimates written on 2026-11-02 and not checked against the
+provider's list: check them, change the line and `MODEL_PRICES_AS_OF` when the provider changes its prices. A call that reported no
+tokens adds nothing and is counted separately on `GET /api/usage`.
+
 ## Known limits
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.

@@ -13,6 +13,14 @@ export interface Usage {
   model_calls_today: number;
   remaining: number;
   over_limit: boolean;
+  month_spend_usd: number;
+  monthly_budget_usd: number;
+  over_budget: boolean;
+  model_calls_month: number;
+  model_calls_without_tokens: number;
+  prices_as_of: string;
+  jobs_today: number;
+  daily_job_limit: number;
 }
 
 export interface AuditEntry {
@@ -49,8 +57,15 @@ export function usagePercent(used: number, limit: number): number {
 }
 
 export function usageTone(usage: Usage): "good" | "warn" | "bad" {
-  if (usage.over_limit) return "bad";
-  return usagePercent(usage.buyer_messages_today, usage.daily_message_limit) >= 80 ? "warn" : "good";
+  if (usage.over_limit || usage.over_budget) return "bad";
+  const worst = Math.max(usagePercent(usage.buyer_messages_today, usage.daily_message_limit), usagePercent(usage.month_spend_usd, usage.monthly_budget_usd));
+  return worst >= 80 ? "warn" : "good";
+}
+
+/** Dollars for the spend line: cents are enough, and a very small amount is shown as such rather than as zero. */
+export function dollars(amount: number): string {
+  if (amount > 0 && amount < 0.01) return "under $0.01";
+  return `$${amount.toFixed(2)}`;
 }
 
 const ACTION_LABEL: Record<string, string> = {

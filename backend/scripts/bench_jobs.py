@@ -54,8 +54,8 @@ def fresh_db() -> str:
 def make_orgs(url: str, quiet: int) -> tuple[str, list[str]]:
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute("delete from organizations where slug like 'jobbench-%%'")
-        noisy = conn.execute("insert into organizations (slug, name) values ('jobbench-noisy', 'Noisy') returning id::text").fetchone()[0]  # type: ignore[index]
-        quiet_ids = [conn.execute("insert into organizations (slug, name) values (%s, %s) returning id::text", (f"jobbench-quiet-{i}", f"Quiet {i}")).fetchone()[0]  # type: ignore[index]
+        noisy = conn.execute("insert into organizations (slug, name, plan) values ('jobbench-noisy', 'Noisy', 'business') returning id::text").fetchone()[0]  # type: ignore[index]
+        quiet_ids = [conn.execute("insert into organizations (slug, name, plan) values (%s, %s, 'business') returning id::text", (f"jobbench-quiet-{i}", f"Quiet {i}")).fetchone()[0]  # type: ignore[index]
                      for i in range(quiet)]
     return noisy, quiet_ids
 

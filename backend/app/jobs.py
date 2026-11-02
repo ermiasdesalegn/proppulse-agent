@@ -35,7 +35,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.observability import redact
-from app.tenancy import use_tenant
+from app.quota import daily_jobs
+from app.tenancy import DEFAULT_ORG_ID, use_tenant
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,18 @@ class Enqueued:
     org_id: UUID
     kind: str
     created: bool  # False: the same job (agency, kind, dedupe key) was already queued, and this is that one
+
+
+# Jobs the platform queues for its own upkeep: never counted against an agency's daily number, never refused.
+UNCAPPED_KINDS = frozenset({"keys.rewrap", "keys.rotate_data_key", "audit.export"})
+
+
+class JobQuotaExceeded(Exception):
+    """The agency has queued as many jobs today as its plan allows."""
+
+    def __init__(self, org_id: Any, limit: int):
+        super().__init__(f"this agency has queued {limit} background jobs today, the most its plan allows")
+        self.org_id, self.limit = org_id, limit
 
 
 class _OverLimit(Exception):
@@ -106,6 +119,19 @@ class JobQueue:
         key = dedupe_key or uuid4().hex
         params = self._p(org=str(org_id), kind=kind, payload=Jsonb(payload or {}), key=key, priority=priority, delay=delay, max=max_attempts)
         async with self._cursor() as cur:
+            if kind not in UNCAPPED_KINDS and UUID(str(org_id)) != DEFAULT_ORG_ID:
+                await cur.execute(
+                    "select o.plan, (select count(*)::int from jobs j where j.org_id = o.id and j.kind <> all(%(free)s) and j.created_at >= "
+                    f"date_trunc('day', {NOW} at time zone 'utc') at time zone 'utc') as today from organizations o where o.id = %(org)s",
+                    {**params, "free": sorted(UNCAPPED_KINDS)})
+                usage = await cur.fetchone()
+                limit = daily_jobs(usage["plan"] if usage else None)
+                if usage is not None and usage["today"] >= limit:  # the same job again is not a new one, so it is still answered
+                    await cur.execute("select id from jobs where org_id = %(org)s and kind = %(kind)s and dedupe_key = %(key)s", params)
+                    seen = await cur.fetchone()
+                    if seen is None:
+                        raise JobQuotaExceeded(UUID(str(org_id)), limit)
+                    return Enqueued(int(seen["id"]), UUID(str(org_id)), kind, False)
             await cur.execute(
                 "insert into jobs (org_id, kind, payload, dedupe_key, priority, run_after, max_attempts) "
                 f"values (%(org)s, %(kind)s, %(payload)s, %(key)s, %(priority)s, {NOW} + %(delay)s, %(max)s) "

@@ -1157,6 +1157,26 @@ class Repository:
             "(select count(*)::int from model_calls, day where created_at >= day.since) as model_calls")
         return rows[0]
 
+    async def jobs_today(self) -> int:
+        """Background jobs this agency has queued since midnight UTC, the platform's own upkeep excluded. The queue is the platform's table,
+        which an agency's role cannot read, so this runs as the platform and names the agency."""
+        from app.jobs import UNCAPPED_KINDS
+        from app.tenancy import resolve_org_id
+
+        rows = await self.as_platform()._fetch(
+            "select count(*)::int as n from jobs where org_id = %s and kind <> all(%s) "
+            "and created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'", (str(resolve_org_id()), sorted(UNCAPPED_KINDS)))
+        return int(rows[0]["n"])
+
+    async def model_usage_month(self) -> list[dict]:
+        """This agency's model calls since the first of the month (UTC), added up per model: calls, tokens, and calls that reported none."""
+        return await self._fetch(
+            "with m as (select date_trunc('month', now() at time zone 'utc') at time zone 'utc' as since) "
+            "select model, count(*)::int as calls, coalesce(sum(input_tokens), 0)::bigint as input_tokens, "
+            "coalesce(sum(output_tokens), 0)::bigint as output_tokens, "
+            "(count(*) filter (where input_tokens is null and output_tokens is null))::int as unmetered "
+            "from model_calls, m where created_at >= m.since group by model")
+
     async def add_audit(self, org_id: UUID | str, actor_kind: str, actor_id: UUID | str | None, action: str, target: str | None, detail: dict) -> None:
         """Platform use: tenants may read their audit trail but not write it (migration 026)."""
         from psycopg.types.json import Jsonb
