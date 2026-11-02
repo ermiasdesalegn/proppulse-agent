@@ -468,5 +468,5 @@ def test_the_key_list_is_read_from_the_environment_and_every_key_is_redacted():
     assert s.gemini_key_list == ["AQ.first-key-0000000000000000000000000000000", "AQ.second-key-000000000000000000000000000000", "AQ.third-key-0000000000000000000000000000000"]
     text = redact("keys: " + " ".join(s.gemini_key_list), secrets_from(s))
     assert "AQ." not in text and text.count("[redacted]") == 3
-    assert redact("a stray AQ.Ab8RN6JWddG9GfzHt186BsDKyvOQ8naigqWLQm9gOb6cQmCfAA in a log") == "a stray [redacted] in a log", "the newer key format is recognised even when it is not configured"
+    assert redact("a stray AQ.FakeKeyForRedactionTest0000000000000000000000000000 in a log") == "a stray [redacted] in a log", "the newer key format is recognised even when it is not configured"
     assert Settings(gemini_api_key="", gemini_api_keys="").gemini_key_list == []
