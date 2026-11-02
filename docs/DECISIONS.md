@@ -21,6 +21,15 @@ something a pooled database promises to keep alive. Polling `event_log` by id ev
 writes) costs one indexed query per instance and needs no special connection. The trade-off is up to 0.5 s of delay for events written
 by another instance.
 
+**Events are delivered strictly in id order, waiting out gaps (found and fixed 2026-11-02).** Reading "every id after the last one
+seen" lost events: ids are taken at insert but rows appear at commit, so when two instances wrote at once, id 8 could be read before
+id 7 committed, and 7 was never read. The test with two instances failed about 2 runs in 5 because of it, and in use a dashboard tab
+would silently miss an event. The stream to the browser, a tab resuming with Last-Event-ID and the dashboard's own "newer than" check
+all assume ids arrive in order, so the fix is in the bus: a missing id holds back the later events until it appears, or for at most
+3 seconds (`gap_grace`), after which it is taken to be an insert that was rolled back. A tab opening during a gap gets a backlog that
+stops before it. Each instance starts after the last id handed out, so ids used before it started are not waited for. Tests reproduce
+the loss with an insert held open, and the two-instance test passed 50 runs in a row after the fix.
+
 ## Tests run on an embedded Postgres, not Docker and not the hosted database
 
 The suite used to run against the hosted Supabase database: 23 minutes, flaky when the network was slow, and sharing data with real
