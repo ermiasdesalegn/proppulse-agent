@@ -346,26 +346,30 @@ class Repository:
         "d.name as developer_name"
     )
 
-    async def recent_price_drops(self, since: datetime) -> list[dict]:
-        return await self._fetch(
-            f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
+    async def _recent_price_moves(self, since: datetime, sign: str) -> list[dict]:
+        # Two sources: the shared history (a move still in effect for this agency) and this agency's own, from agency_price_history.
+        # The own ids carry an "a" so a dedupe key built from one never equals one built from the other.
+        shared = (
+            f"select ph.id::text as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
             f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join agency_properties p on p.id = ph.property_id "
             f"join developers d on d.id = p.developer_id "
-            # Only drops still in effect: if the price moved again since, the drop is no longer true and is not news.
-            f"where ph.detected_at >= %s and ph.change_pct < 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb "
-            f"order by ph.detected_at",
-            (since,),
+            # Only moves still in effect: if the price moved again since, it is no longer true and is not news.
+            f"where ph.detected_at >= %s and ph.change_pct {sign} 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb"
         )
+        own = (
+            f"select 'a' || ah.id::text as price_history_id, ah.old_price_etb, ah.new_price_etb, ah.change_pct, ah.detected_at, "
+            f"{self._PROPERTY_EVENT_COLUMNS} from agency_price_history ah join agency_properties p on p.id = ah.property_id "
+            f"join developers d on d.id = p.developer_id "
+            f"where ah.org_id = current_org() and ah.detected_at >= %s and ah.change_pct {sign} 0 and p.status = 'AVAILABLE' "
+            f"and p.price_etb = ah.new_price_etb"
+        )
+        return await self._fetch(f"{shared} union all {own} order by detected_at", (since, since))
+
+    async def recent_price_drops(self, since: datetime) -> list[dict]:
+        return await self._recent_price_moves(since, "<")
 
     async def recent_price_increases(self, since: datetime) -> list[dict]:
-        return await self._fetch(
-            f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
-            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join agency_properties p on p.id = ph.property_id "
-            f"join developers d on d.id = p.developer_id "
-            f"where ph.detected_at >= %s and ph.change_pct > 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb "
-            f"order by ph.detected_at",
-            (since,),
-        )
+        return await self._recent_price_moves(since, ">")
 
     async def recent_new_listings(self, since: datetime) -> list[dict]:
         # Seed rows are demo inventory, not market events, so they never trigger "new launch" messages.

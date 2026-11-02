@@ -249,6 +249,9 @@ async def test_an_agency_role_cannot_write_another_agencys_price(world, db_conn,
 SHARED_PRICE_READS = {
     "update_property_price", "get_property_by_hash", "insert_property", "upsert_project", "set_project_price", "list_agency_prices", "list_channel_posts",
 }
+# SQL functions that read a shared price on purpose: the trigger that records an agency's price change compares its override with the
+# shared price it replaces.
+SHARED_PRICE_FUNCTIONS = {"record_agency_price_change"}
 PRICE = re.compile(r"\bprice_(etb|from_etb)\b")
 BASE_TABLE = re.compile(r"\b(from|join)\s+(properties|projects)\b")
 
@@ -283,5 +286,103 @@ async def test_every_sql_function_that_reads_a_price_uses_the_agency_views(db_co
     rows = await (await db_conn.execute(
         "select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' "
         "and p.prolang in (select oid from pg_language where lanname in ('sql', 'plpgsql'))")).fetchall()
-    offenders = [r["proname"] for r in rows if BASE_TABLE.search(r["prosrc"]) and PRICE.search(r["prosrc"])]
+    offenders = [r["proname"] for r in rows if r["proname"] not in SHARED_PRICE_FUNCTIONS and BASE_TABLE.search(r["prosrc"]) and PRICE.search(r["prosrc"])]
     assert offenders == []
+
+
+# ---------------- an agency's own unit price is announced (migration 029) ----------------
+
+
+async def _set_price(world, two, who, pid, price):
+    r = await world.client.put(f"/api/agency-prices/property/{pid}", json={"price_etb": price}, headers=as_member(two[f"{who}_owner"], two[who]))
+    assert r.status_code == 200, r.text
+
+
+async def _clear_price(world, two, who, pid):
+    r = await world.client.delete(f"/api/agency-prices/property/{pid}", headers=as_member(two[f"{who}_owner"], two[who]))
+    assert r.status_code == 200, r.text
+
+
+async def _alert(world, org):
+    async with world.runtime.scope(org):
+        return await app_of(world.client).state.proactive.reverse_rag_alerts()
+
+
+async def _broker_notices(db_conn, org, kind="PRICE_INCREASE"):
+    return (await (await db_conn.execute("select id from proactive_events where org_id = %s and kind = %s", (org, kind))).fetchall())
+
+
+async def test_an_agency_lowering_a_unit_price_alerts_its_own_matching_buyer_once(world, db_conn, two):
+    pid, shared = await noah(db_conn)
+    budget = shared - 1_000_000
+    abel = await buyer_of(world, two["a"], "abel", budget=budget)
+    bekele = await buyer_of(world, two["b"], "bekele", budget=budget)
+    assert (await _alert(world, two["a"]))["sent"] == 0, "the shared price is out of reach, nothing to say"
+
+    await _set_price(world, two, "a", pid, shared - 2_000_000)
+    first = await _alert(world, two["a"])
+    assert first["sent"] == 1
+    assert any("dropped from" in t for t in told(world, TOKEN_A, abel))
+    assert (await _alert(world, two["a"]))["sent"] == 0, "the same drop is not announced twice"
+    assert len(told(world, TOKEN_A, abel)) == 1
+
+    assert (await _alert(world, two["b"]))["sent"] == 0
+    assert told(world, TOKEN_B, bekele) == [] and told(world, TOKEN_A, bekele) == []
+    own_b = await (await db_conn.execute("select count(*) as n from agency_price_history where org_id = %s", (two["b"],))).fetchone()
+    assert own_b["n"] == 0
+
+
+async def test_an_agency_raising_a_unit_price_tells_only_its_own_broker(world, db_conn, two):
+    pid, shared = await noah(db_conn)
+    await _set_price(world, two, "a", pid, shared - 2_000_000)
+    await _alert(world, two["a"])
+    before = len(await _broker_notices(db_conn, two["a"]))
+    await _set_price(world, two, "a", pid, shared - 1_000_000)
+    await _alert(world, two["a"])
+    await _alert(world, two["b"])
+    await _alert(world, two["a"])
+    assert len(await _broker_notices(db_conn, two["a"])) == before + 1
+    assert await _broker_notices(db_conn, two["b"]) == []
+
+
+async def test_clearing_an_agency_price_back_to_a_higher_shared_price_is_an_increase(world, db_conn, two):
+    pid, shared = await noah(db_conn)
+    abel = await buyer_of(world, two["a"], "abel", budget=shared)
+    await _set_price(world, two, "a", pid, shared - 3_000_000)
+    await _clear_price(world, two, "a", pid)
+    rows = await (await db_conn.execute(
+        "select old_price_etb, new_price_etb, change_pct from agency_price_history where org_id = %s order by detected_at, new_price_etb", (two["a"],))).fetchall()
+    assert [(float(r["old_price_etb"]), float(r["new_price_etb"])) for r in rows] == [(shared, shared - 3_000_000), (shared - 3_000_000, shared)]
+    assert rows[0]["change_pct"] < 0 < rows[1]["change_pct"]
+    await _alert(world, two["a"])
+    assert len(await _broker_notices(db_conn, two["a"])) == 1, "the broker hears of the increase"
+    assert told(world, TOKEN_A, abel) == [], "the drop is no longer in effect, so it is not news"
+
+
+async def test_only_a_change_of_what_the_agency_shows_is_recorded(world, db_conn, two):
+    pid, shared = await noah(db_conn)
+    count = lambda: db_conn.execute("select count(*) as n from agency_price_history where org_id = %s", (two["a"],))  # noqa: E731
+    await _set_price(world, two, "a", pid, shared)  # the same number as the shared one
+    assert (await (await count()).fetchone())["n"] == 0
+    await _set_price(world, two, "a", pid, shared - 500_000)
+    await _set_price(world, two, "a", pid, shared - 500_000)  # no change
+    assert (await (await count()).fetchone())["n"] == 1
+
+    # an override that had already expired is not what the agency showed: replacing it is measured from the shared price
+    await _clear_price(world, two, "a", pid)
+    await db_conn.execute("insert into agency_prices (org_id, target_kind, target_id, price_etb, valid_until) values (%s, 'property', %s, 1000000, %s)",
+                          (two["a"], pid, date.today() - timedelta(days=1)))
+    n = (await (await count()).fetchone())["n"]
+    await _set_price(world, two, "a", pid, shared - 700_000)
+    moved = await (await db_conn.execute("select 1 from agency_price_history where org_id = %s and old_price_etb = %s and new_price_etb = %s",
+                                         (two["a"], shared, shared - 700_000))).fetchall()
+    assert (await (await count()).fetchone())["n"] == n + 1 and len(moved) == 1
+
+
+async def test_an_agency_cannot_read_another_agencys_price_history(world, db_conn, two):
+    pid, shared = await noah(db_conn)
+    await _set_price(world, two, "a", pid, shared - 1_000_000)
+    async with world.runtime.scope(two["b"]):
+        async with world.repo._conn() as conn:
+            rows = await (await conn.execute("select 1 from agency_price_history")).fetchall()
+    assert rows == []
