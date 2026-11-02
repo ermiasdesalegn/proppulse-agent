@@ -8,16 +8,17 @@ import { LiveProvider, useLive, type LiveStatus } from "@/lib/live";
 import clsx from "./clsx";
 import ControlBar from "./ControlBar";
 import { Icon, Logo, type IconName } from "./icons";
+import { useMarketAccess } from "@/lib/useMarketAccess";
 import OrgSwitcher from "./OrgSwitcher";
 
-const GROUPS: { label: string; items: { href: string; label: string; icon: IconName }[] }[] = [
+const GROUPS: { label: string; items: { href: string; label: string; icon: IconName; market?: boolean }[] }[] = [  // market: edits the shared market data
   { label: "Workspace", items: [
     { href: "/console", icon: "overview", label: "Overview" },
     { href: "/console/crm", icon: "crm", label: "CRM & Takeover" },
     { href: "/console/board", icon: "board", label: "Deal Board" },
     { href: "/console/map", icon: "map", label: "Map & Tours" },
     { href: "/console/projects", icon: "listing", label: "Projects" },
-    { href: "/console/portals", icon: "deals", label: "Portals" },
+    { href: "/console/portals", icon: "deals", label: "Portals", market: true },
   ] },
   { label: "Intelligence", items: [
     { href: "/console/brain", icon: "brain", label: "Agent Brain" },
@@ -49,6 +50,7 @@ function LiveBadge() {
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const marketAccess = useMarketAccess();
   // The clicked link lights up at once; the page follows when it is ready. useTransition keeps the sidebar responsive while the next page loads.
   const [target, setTarget] = useState<string | null>(null);
   const [navigating, startNavigation] = useTransition();
@@ -82,7 +84,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             {GROUPS.map((group) => (
               <div key={group.label} className="flex gap-1 md:mb-4 md:flex-col">
                 <p className="hidden px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted/70 md:block">{group.label}</p>
-                {group.items.map((item) => {
+                {group.items.filter((item) => marketAccess || !item.market).map((item) => {
                   const active = item.href === "/console" ? current === "/console" : current.startsWith(item.href);
                   return (
                     <Link

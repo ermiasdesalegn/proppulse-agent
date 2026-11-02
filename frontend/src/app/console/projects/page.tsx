@@ -6,6 +6,7 @@ import { Button, Card, Empty, ErrorNote, PageHeader, Pill, Stat, StatusDot } fro
 import { api, errorMessage, post, put } from "@/lib/api";
 import { fmtDate, fmtEtb, timeAgo } from "@/lib/format";
 import { useLive } from "@/lib/live";
+import { useMarketAccess } from "@/lib/useMarketAccess";
 import type { AdResult, CrawlReport, Developer, PriceRequest, Project, SweepStatus } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
@@ -20,6 +21,7 @@ type Dialog = { kind: "price" | "offer" | "ad" | "media"; project: Project } | n
 
 export default function ProjectsPage() {
   const { dataVersion } = useLive();
+  const canEdit = useMarketAccess(); // prices, offers, pictures and crawls change the shared catalogue, so only the operator's console shows them
   const projects = useApi<Project[]>("projects", 30_000);
   const requests = useApi<PriceRequest[]>("price-requests", 30_000);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -45,9 +47,15 @@ export default function ProjectsPage() {
         <Stat label="Priced" icon="money" value={list.filter((p) => p.price_from_etb != null).length} hint="Price entered by you" />
       </div>
 
-      <SweepCard onDone={reload} />
+      {canEdit ? (
+        <>
+          <SweepCard onDone={reload} />
 
-      <CrawlCard onDone={reload} />
+          <CrawlCard onDone={reload} />
+        </>
+      ) : (
+        <p role="note" className="rounded-lg border border-[#222] px-4 py-3 text-sm text-muted">The project catalogue is shared by every agency and is kept up to date by the platform. You can advertise any project in your own channel.</p>
+      )}
 
       <Card title="All projects" subtitle="Read from the developers' own sites, or the demo projects">
         {projects.loading ? <Empty>Loading...</Empty> : list.length === 0 ? (
@@ -79,9 +87,9 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant={Number(p.open_requests) > 0 ? "primary" : "default"} onClick={() => setDialog({ kind: "price", project: p })}>{p.price_from_etb != null ? "Change price" : "Set price"}</Button>
-                  <Button onClick={() => setDialog({ kind: "offer", project: p })}>{p.promo_text ? "Change offer" : "Add offer"}</Button>
-                  <Button onClick={() => setDialog({ kind: "media", project: p })}>{p.cover_media_id || p.image_url ? "Photo or video" : "Add photo or video"}</Button>
+                  {canEdit && <Button variant={Number(p.open_requests) > 0 ? "primary" : "default"} onClick={() => setDialog({ kind: "price", project: p })}>{p.price_from_etb != null ? "Change price" : "Set price"}</Button>}
+                  {canEdit && <Button onClick={() => setDialog({ kind: "offer", project: p })}>{p.promo_text ? "Change offer" : "Add offer"}</Button>}
+                  {canEdit && <Button onClick={() => setDialog({ kind: "media", project: p })}>{p.cover_media_id || p.image_url ? "Photo or video" : "Add photo or video"}</Button>}
                   <Button variant="glow" disabled={p.status === "SOLD_OUT"} onClick={() => setDialog({ kind: "ad", project: p })}>Advertise in channel</Button>
                 </div>
               </li>

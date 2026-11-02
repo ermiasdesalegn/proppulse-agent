@@ -8,6 +8,7 @@ import { timeAgo } from "@/lib/format";
 import { latestPerPortal, MODE_LABEL, needAttention, runSummary, STATUS_LABEL } from "@/lib/portals";
 import type { CrawlRun, PortalRuns } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
+import { useMarketAccess } from "@/lib/useMarketAccess";
 
 const SIZES = [
   { value: "50", label: "A quick look (50 pages per portal)" },
@@ -16,6 +17,7 @@ const SIZES = [
 ];
 
 export default function PortalsPage() {
+  const canEdit = useMarketAccess();
   const runs = useApi<PortalRuns>("portal/runs", 10_000);
   const portals = runs.data?.config.portals ?? [];
   const list = runs.data?.runs ?? [];
@@ -39,7 +41,8 @@ export default function PortalsPage() {
       </div>
 
       {runs.error && <ErrorNote>{runs.error}</ErrorNote>}
-      <StartCard config={runs.data?.config} onStarted={() => void runs.reload()} />
+      {canEdit && <StartCard config={runs.data?.config} onStarted={() => void runs.reload()} />}
+      {!canEdit && <p role="note" className="rounded-lg border border-[#222] px-4 py-3 text-sm text-muted">Portal crawls feed the listings every agency shares, so the platform runs them. You can see their results here.</p>}
 
       <Card title="Each portal" subtitle="The latest run of every portal">
         {runs.loading ? <Empty>Loading...</Empty> : latest.size === 0 ? <Empty>No crawl has run yet. Start a preview above.</Empty> : (

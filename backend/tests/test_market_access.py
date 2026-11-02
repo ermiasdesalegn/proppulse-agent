@@ -74,3 +74,12 @@ async def test_an_agency_still_reads_the_market_it_cannot_edit(api, db_conn):  #
     owner = uuid.uuid4()
     await org_with(db_conn, "reader", [(owner, "owner")])
     assert (await api.get("/api/projects", headers=bearer(owner))).status_code == 200
+
+
+async def test_the_organization_list_says_which_agency_is_the_operators(api, db_conn):  # noqa: F811
+    user = uuid.uuid4()
+    await org_with(db_conn, "mine-ordinary", [(user, "owner")])
+    await db_conn.execute("insert into memberships (org_id, user_id, role) values (%s, %s, 'admin')", (DEFAULT_ORG_ID, str(user)))
+    listed = (await api.get("/api/orgs/mine", headers=bearer(user))).json()["organizations"]
+    assert {o["name"]: o["operator"] for o in listed if o["role"] in ("owner", "admin")} == {"mine-ordinary": False, listed[0]["name"] if listed[0]["operator"] else listed[1]["name"]: True}
+    assert sum(o["operator"] for o in listed) == 1

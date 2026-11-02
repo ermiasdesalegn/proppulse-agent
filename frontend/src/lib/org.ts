@@ -10,6 +10,8 @@ export interface Org {
   slug: string;
   name: string;
   role: OrgRole;
+  /** The platform operator's own agency: the only one that edits the shared market data. */
+  operator: boolean;
 }
 
 /** What `GET /api/orgs/mine` answers, with anything malformed dropped rather than trusted. */
@@ -22,7 +24,7 @@ export function parseOrgs(body: unknown): Org[] {
     const o = raw as Record<string, unknown>;
     if (typeof o.id !== "string" || typeof o.slug !== "string" || typeof o.name !== "string") continue;
     if (!ROLE_ORDER.includes(o.role as OrgRole)) continue;
-    orgs.push({ id: o.id, slug: o.slug, name: o.name, role: o.role as OrgRole });
+    orgs.push({ id: o.id, slug: o.slug, name: o.name, role: o.role as OrgRole, operator: o.operator === true });
   }
   return orgs;
 }
@@ -31,6 +33,17 @@ export function parseOrgs(body: unknown): Org[] {
 export function chooseOrg(orgs: Org[], remembered: string | null | undefined): Org | null {
   if (orgs.length === 0) return null;
   return orgs.find((o) => o.id === remembered) ?? orgs[0];
+}
+
+/**
+ * May the person edit the shared market data (crawls, projects' prices and offers, developers)? The password session has no personal
+ * account and acts as the platform, so it may; a signed-in member may only inside the operator's own agency. While the answer is not
+ * known yet this says yes, so an operator never sees a flash of missing buttons; the backend refuses anyone who may not.
+ */
+export function canEditMarket(orgs: Org[] | null, selectedId: string | null, signedInAsMember: boolean): boolean {
+  if (!signedInAsMember || orgs === null) return true;
+  const chosen = orgs.find((o) => o.id === selectedId) ?? orgs[0];
+  return chosen?.operator === true;
 }
 
 /** Does `role` reach at least `needed`? Mirrors the backend's ordering; the backend is what actually enforces it. */

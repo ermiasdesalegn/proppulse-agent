@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { atLeast, chooseOrg, cleanOrgId, parseOrgs, slugPreview } from "./org";
+import { atLeast, canEditMarket, chooseOrg, cleanOrgId, parseOrgs, slugPreview } from "./org";
 
-const a = { id: "11111111-1111-4111-8111-111111111111", slug: "alpha", name: "Alpha", role: "owner" as const };
-const b = { id: "22222222-2222-4222-8222-222222222222", slug: "beta", name: "Beta", role: "viewer" as const };
+const a = { id: "11111111-1111-4111-8111-111111111111", slug: "alpha", name: "Alpha", role: "owner" as const, operator: false };
+const b = { id: "22222222-2222-4222-8222-222222222222", slug: "beta", name: "Beta", role: "viewer" as const, operator: false };
 
 describe("parseOrgs", () => {
   it("reads the backend's list", () => {
@@ -58,5 +58,27 @@ describe("slugPreview", () => {
     expect(slugPreview("  --Bole & Co.  ")).toBe("bole-co");
     expect(slugPreview("ሰላም")).toBe("");
     expect(slugPreview("a".repeat(60)).length).toBe(39);
+  });
+});
+
+describe("market access", () => {
+  const ordinary = { id: "a", slug: "a", name: "A", role: "owner" as const, operator: false };
+  const home = { id: "h", slug: "proppulse", name: "PropPulse", role: "admin" as const, operator: true };
+  it("says yes until it knows, and for the password session", () => {
+    expect(canEditMarket(null, null, true)).toBe(true);
+    expect(canEditMarket([], null, false)).toBe(true);
+  });
+  it("lets only the operator's own agency edit", () => {
+    expect(canEditMarket([ordinary, home], "a", true)).toBe(false);
+    expect(canEditMarket([ordinary, home], "h", true)).toBe(true);
+  });
+  it("follows the first agency when none is chosen, and refuses an unknown choice", () => {
+    expect(canEditMarket([ordinary, home], null, true)).toBe(false);
+    expect(canEditMarket([ordinary, home], "gone", true)).toBe(false);
+  });
+  it("reads the operator flag and treats a missing one as no", () => {
+    const [o] = parseOrgs({ organizations: [{ id: "x", slug: "x", name: "X", role: "viewer" }] });
+    expect(o.operator).toBe(false);
+    expect(parseOrgs({ organizations: [{ id: "x", slug: "x", name: "X", role: "viewer", operator: true }] })[0].operator).toBe(true);
   });
 });

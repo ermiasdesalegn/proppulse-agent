@@ -11,7 +11,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.access import Principal, console_access, console_admin, identify, require_role
+from app.access import OPERATOR_ORG_ID, Principal, console_access, console_admin, identify, require_role
 from app.audit import record
 from app.repository import Repository
 
@@ -56,7 +56,9 @@ class AcceptIn(BaseModel):
 
 
 def _org_view(m: dict) -> dict:
-    return {"id": str(m["org_id"]), "slug": m["slug"], "name": m["name"], "role": m["role"], "plan": m.get("plan"), "status": m.get("status")}
+    # `operator`: this is the platform operator's own agency, the only one that may edit the shared market data (app/access.py).
+    return {"id": str(m["org_id"]), "slug": m["slug"], "name": m["name"], "role": m["role"], "plan": m.get("plan"), "status": m.get("status"),
+            "operator": m["org_id"] == OPERATOR_ORG_ID}
 
 
 async def _mine(request: Request) -> list[dict]:
