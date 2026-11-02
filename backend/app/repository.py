@@ -1190,6 +1190,13 @@ class Repository:
             "select id, actor_kind, actor_id, action, target, detail, created_at from audit_log "
             "where (%s::bigint is null or id < %s) order by id desc limit %s", (before_id, before_id, limit))
 
+    async def reissue_invitation(self, invitation_id: UUID | str, token_hash: str) -> dict | None:
+        """Give an open invitation a new link and a fresh week; the old link stops working. None when it is not open any more."""
+        rows = await self._guarded(
+            "update invitations set token_hash = %s, expires_at = now() + interval '7 days' "
+            "where id = %s and accepted_at is null returning id, email, role, expires_at", (token_hash, str(invitation_id)))
+        return rows[0] if rows else None
+
     async def open_invitations(self) -> list[dict]:
         return await self._fetch(
             "select id, email, role, expires_at, created_at from invitations "

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import html
+import logging
 import re
 import secrets
 from typing import Literal
@@ -16,6 +18,7 @@ from app.audit import record
 from app.repository import Repository
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 MAX_OWNED_ORGANIZATIONS = 5
 RESERVED_SLUGS = frozenset({"www", "api", "app", "admin", "console", "portal", "login", "signup", "auth", "static", "platform", "support"})
@@ -146,14 +149,51 @@ async def invite(body: InviteIn, request: Request, p: Principal = Depends(consol
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409, "There is already an open invitation for that address") from None
     await record(request, p, "invitation.create", email, role=body.role)
-    # The link token is shown once and only its hash is kept. Sending it by email is the caller's job for now.
-    return {"id": str(row["id"]), "email": row["email"], "role": row["role"], "expires_at": row["expires_at"], "token": token}
+    return {"id": str(row["id"]), "email": row["email"], "role": row["role"], "expires_at": row["expires_at"],
+            **await _deliver(request, p, row, token)}
+
+
+async def _deliver(request: Request, p: Principal, row: dict, token: str) -> dict:
+    """Email the invitation link. Only its hash is kept, so the link exists in the email and, when no email could be sent (not configured, or
+    the provider failed), in this answer so an admin can pass it on by hand. Once the email is sent the token is not returned."""
+    s = request.app.state.settings
+    if not s.resend_api_key:
+        return {"emailed": False, "token": token, "note": "Email is not set up on this server; copy the link to the person yourself."}
+    profile = await platform_repo(request).org_profile(p.tenant.org_id)
+    agency = (profile or {}).get("display_name") or (profile or {}).get("name") or "Your agency"
+    origin = s.frontend_origin.split(",")[0].strip().rstrip("/")
+    link = f"{origin}/join?token={token}"
+    expires = row["expires_at"].strftime("%d %B %Y")
+    body = (
+        f"<p>{html.escape(agency)} has invited you to join its team on PropPulse as <b>{html.escape(row['role'])}</b>.</p>"
+        f'<p><a href="{html.escape(link)}">Accept the invitation</a></p>'
+        f"<p>Sign in (or sign up) with <b>{html.escape(row['email'])}</b>: the link only works for that address, once, and until {expires}.</p>"
+        "<p>If you were not expecting this, ignore this email; nothing happens until the link is used.</p>")
+    try:
+        await request.app.state.proactive.services.email.send(
+            to=row["email"], subject=f"{agency} invited you to join its team", html=body, from_name=agency,
+            idempotency_key=f"invite-{row['id']}-{hash_token(token)[:16]}")
+    except Exception as exc:  # the invitation exists; the admin can still pass the link on. The error text could echo the link, so only its type is logged
+        log.warning("invitation email could not be sent (%s)", type(exc).__name__)
+        return {"emailed": False, "token": token, "note": "The email could not be sent; copy the link to the person yourself."}
+    return {"emailed": True}
 
 
 @router.get("/api/invitations")
 async def list_invitations(request: Request, p: Principal = Depends(console_admin)):
     rows = await request.app.state.repo.open_invitations()
     return {"invitations": [{**r, "id": str(r["id"])} for r in rows]}
+
+
+@router.post("/api/invitations/{invitation_id}/resend")
+async def resend_invitation(invitation_id: UUID, request: Request, p: Principal = Depends(console_admin)):
+    """A new link by email, and a fresh week. The old link stops working, so a link that went to the wrong place can be cancelled this way."""
+    token = secrets.token_urlsafe(32)
+    row = await request.app.state.repo.reissue_invitation(invitation_id, hash_token(token))
+    if row is None:
+        raise HTTPException(404, "No such open invitation")
+    await record(request, p, "invitation.resend", row["email"], role=row["role"])
+    return {"id": str(row["id"]), "email": row["email"], "role": row["role"], "expires_at": row["expires_at"], **await _deliver(request, p, row, token)}
 
 
 @router.delete("/api/invitations/{invitation_id}")

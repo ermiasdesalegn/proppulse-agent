@@ -76,6 +76,7 @@ const ACTION_LABEL: Record<string, string> = {
   "invitation.create": "Invited someone",
   "invitation.revoke": "Cancelled an invitation",
   "invitation.accept": "Accepted an invitation",
+  "invitation.resend": "Sent an invitation again with a new link",
   "channel.telegram_connect": "Connected a Telegram bot",
   "channel.telegram_disconnect": "Disconnected the Telegram bot",
   "channel.calendar_connect": "Connected a calendar",
