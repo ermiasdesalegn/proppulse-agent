@@ -38,6 +38,27 @@ Logs pass through a redaction filter before any handler sees them: configured se
 - **Replies** are checked so that a figure that is not in the facts is never sent; the plain, fact-built layout is used instead.
 - **Uploads** (floor plans) are limited to PNG, JPEG and WebP up to 5 MB and the file's first bytes must match its declared type.
 
+## Rotating the master key
+
+Every agency's bot token and calendar key is sealed with that agency's own data key, and only the data key is sealed with the master key.
+A rotation therefore re-seals one small row per agency (`org_keys.wrapped_key`) and never touches the secrets. Each sealed data key names
+its master key (`v2.<key id>.`; the id is a fingerprint, safe to log). Keys sealed before ids existed (`v1.`) still open.
+
+1. **Make and store the new key first.** `python -m scripts.make_master_key`, and keep the result in two places (a password manager and
+   the host's secret store). Losing the new key halfway is as bad as losing the old one.
+2. **Load both, newest first.** `SECRETS_MASTER_KEYS="<new>,<old>"` (the old `SECRETS_MASTER_KEY` may stay; it is kept as the older key).
+   Restart. From now on new data keys are sealed with the new key, and everything opens with either.
+3. **Re-seal.** `python -m scripts.rotate_master_key start` queues one job per agency for the server's workers
+   (`run` does them in the command instead, when no server is running). Each job locks the agency's key row, re-seals the data key, checks
+   that a stored secret still opens, writes it and adds an audit entry (`key.rewrap`, actor "system"). A crash leaves some agencies on
+   the old key; they keep working because both keys are loaded, and running the command again finishes only those.
+4. **Check.** `python -m scripts.rotate_master_key --status` (or the Master key card on the operator's Agency page) shows how many
+   agencies are on each key. It says when every agency is on the new one.
+5. **Remove the old key** from the environment and restart. If any data key still needs it, the server refuses to start and names the
+   key and how many agencies need it, so a key cannot be dropped too early without noticing. Put it back and finish step 3.
+
+The old key should be destroyed only after backups made before the rotation have expired: a restored old backup needs it.
+
 ## Known limits
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.

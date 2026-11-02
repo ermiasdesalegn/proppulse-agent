@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app import audit
 from app.access import OPERATOR_ORG_ID, Principal, market_editor, require_role
 from app.api import jobs_of
+from app.keys import key_status
 
 router = APIRouter()
 
@@ -39,6 +40,12 @@ async def list_jobs(request: Request, status: Status | None = None, org_id: UUID
         "counts": await queue.counts(org_id=scope),
         "jobs": await queue.list(org_id=scope, status=status, limit=limit),
     }
+
+
+@router.get("/api/keys/status", dependencies=[Depends(operator_admin)])
+async def master_key_status(request: Request):
+    """Which master key seals how many agencies' data keys: ids and counts only, never a key."""
+    return await key_status(request.app.state.repo.pool, request.app.state.runtime.vault)
 
 
 @router.post("/api/jobs/{job_id}/retry")

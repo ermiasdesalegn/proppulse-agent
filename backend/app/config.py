@@ -43,6 +43,7 @@ class Settings(BaseSettings):
 
     admin_api_key: str = ""
     secrets_master_key: str = ""  # 32 random bytes, base64: encrypts each agency's bot token and calendar key (python -m scripts.make_master_key)
+    secrets_master_keys: str = ""  # during a rotation: several keys, comma separated, newest first (docs/SECURITY.md); wins over the single one
     tenancy_strict: bool = False  # True: database work with no organization in scope is an error instead of using the legacy one
     enforce_quotas: bool = True  # each agency's plan caps how many buyer messages the assistant answers per day (app/quota.py)
     cron_secret: str = ""
@@ -118,6 +119,13 @@ class Settings(BaseSettings):
     high_value_threshold_etb: float = 20_000_000
     similarity_threshold: float = 0.64  # tuned on seed data: negatives <= 0.606, positives >= 0.666
 
+
+    @property
+    def master_key_list(self) -> list[str]:
+        """The master keys, newest first: SECRETS_MASTER_KEYS, then SECRETS_MASTER_KEY if it is not among them (so leaving the old single
+        variable in place during a rotation keeps it loaded, as the older key)."""
+        keys = [*self.secrets_master_keys.replace("\n", ",").split(","), self.secrets_master_key]
+        return list(dict.fromkeys(k.strip().strip('"').strip("'") for k in keys if k.strip()))
 
     @property
     def gemini_key_list(self) -> list[str]:

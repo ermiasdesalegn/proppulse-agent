@@ -108,6 +108,10 @@ class TenantRuntime:
         self._ttl, self._clock = ttl, clock
         self._cache: dict[UUID, tuple[float, Active]] = {}
 
+    @property
+    def vault(self) -> Vault | None:
+        return self._vault
+
     # ---- what the application is wired with ----
 
     def tenant_settings(self) -> TenantSettings:

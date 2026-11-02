@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actorLabel, canRetry, describeEntry, jobLabel, jobOutcome, jobTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone, type AuditEntry, type Job, type Usage } from "./agency";
+import { actionLabel, actorLabel, canRetry, describeEntry, jobLabel, jobOutcome, jobTone, keySummary, keyTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone, type AuditEntry, type Job, type KeyStatus, type Usage } from "./agency";
 
 const entry = (over: Partial<AuditEntry>): AuditEntry => ({
   id: 1, actor_kind: "member", actor_id: "11111111-2222-4333-8444-555555555555", action: "settings.change", target: null, detail: {}, created_at: "2026-11-02T10:00:00Z", ...over,
@@ -70,5 +70,19 @@ describe("background jobs", () => {
     expect(jobOutcome(job({ status: "dead", attempts: 5 }))).toBe("gave up after 5 attempts");
     expect(jobTone("dead")).toBe("bad");
     expect(jobTone("done")).toBe("good");
+  });
+});
+
+const keys = (over: Partial<KeyStatus>): KeyStatus => ({ configured: true, agencies: 10, current: "NEWkey01", loaded: ["NEWkey01"], by_key: { NEWkey01: 10 }, unknown: 0, done: true, ...over });
+
+describe("master-key status", () => {
+  it("says when a rotation is under way and when the old key may go", () => {
+    expect(keySummary(keys({ loaded: ["NEWkey01", "OLDkey01"], by_key: { NEWkey01: 4, OLDkey01: 6 }, done: false }))).toBe("Rotation in progress: 6 of 10 agencies are still on an older key. Both keys must stay loaded.");
+    expect(keySummary(keys({ loaded: ["NEWkey01", "OLDkey01"] }))).toBe("Every agency is on NEWkey01. The older keys (OLDkey01) can now be removed.");
+    expect(keyTone(keys({ done: false }))).toBe("warn");
+  });
+  it("is red when a key is missing or none is set", () => {
+    expect(keyTone(keys({ unknown: 2 }))).toBe("bad");
+    expect(keySummary(keys({ configured: false, current: null }))).toContain("No master key");
   });
 });

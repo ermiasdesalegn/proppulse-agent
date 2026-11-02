@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Button, Card, Empty, ErrorNote, PageHeader, Pill } from "@/components/ui";
 import {
-  actorLabel, canRetry, describeEntry, JOB_STATUSES, jobLabel, jobOutcome, jobTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone,
-  type AuditEntry, type ChannelStatus, type JobList, type Usage,
+  actorLabel, canRetry, describeEntry, JOB_STATUSES, jobLabel, jobOutcome, jobTone, keySummary, keyTone, looksLikeBotToken, looksLikeServiceAccount, usagePercent, usageTone,
+  type AuditEntry, type ChannelStatus, type JobList, type KeyStatus, type Usage,
 } from "@/lib/agency";
 import { api, errorMessage, patch, post, put } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
@@ -31,6 +31,7 @@ export default function AgencyPage() {
       </div>
       <SettingsCard settings={channels.data?.settings} onSaved={() => { void channels.reload(); void audit.reload(); }} />
       <JobsCard onRetried={() => void audit.reload()} />
+      <KeysCard />
       <Card title="Change history" subtitle="Roles, invitations, channels and settings. Only admins can read this.">
         {audit.error ? <ErrorNote>{audit.error}</ErrorNote> : !audit.data ? <Empty>Loading...</Empty> : audit.data.entries.length === 0 ? <Empty>Nothing has been changed yet.</Empty> : (
           <ul>
@@ -44,6 +45,23 @@ export default function AgencyPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+/** The operator only (others get 403 and see nothing): which master key seals how many agencies' data keys. */
+function KeysCard() {
+  const keys = useApi<KeyStatus>("keys/status", 30_000);
+  if (!keys.data) return null;
+  const k = keys.data;
+  return (
+    <Card title="Master key" subtitle="Ids only. Rotate with python -m scripts.rotate_master_key (see SECURITY.md)." action={<Pill tone={keyTone(k)}>{k.done ? "Up to date" : "Rotating"}</Pill>}>
+      <div className="space-y-2 px-5 pb-5 text-sm">
+        <p role="status">{keySummary(k)}</p>
+        <ul className="flex flex-wrap gap-2 text-xs text-muted">
+          {Object.entries(k.by_key).map(([id, n]) => <li key={id} className="rounded-md border border-line px-2 py-0.5 font-mono">{id}{id === k.current ? " (newest)" : ""}: {n}</li>)}
+        </ul>
+      </div>
+    </Card>
   );
 }
 

@@ -69,6 +69,7 @@ const ACTION_LABEL: Record<string, string> = {
   "job.retry": "Retried a background job",
   "price.override_set": "Set the agency's own price",
   "price.override_clear": "Went back to the shared price",
+  "key.rewrap": "Re-sealed the agency's data key under the new master key",
 };
 
 export function actionLabel(action: string): string {
@@ -151,4 +152,31 @@ export function jobOutcome(job: Job): string {
   if (job.status === "dead") return `gave up after ${job.attempts} attempts`;
   if (job.status === "running") return `running (attempt ${job.attempts})`;
   return "waiting for a worker";
+}
+
+// ---- master-key rotation (backend app/keys.py), seen by the operator ----
+
+export interface KeyStatus {
+  configured: boolean;
+  agencies: number;
+  current: string | null;
+  loaded: string[];
+  by_key: Record<string, number>;
+  unknown: number;
+  done: boolean;
+}
+
+/** One sentence on where a rotation stands. */
+export function keySummary(k: KeyStatus): string {
+  if (!k.configured) return "No master key is set, so agencies cannot store credentials.";
+  if (k.unknown > 0) return `${k.unknown} agencies have a data key no loaded master key opens. Put the old key back before anything else.`;
+  const behind = k.agencies - (k.current ? k.by_key[k.current] ?? 0 : 0);
+  if (behind > 0) return `Rotation in progress: ${behind} of ${k.agencies} agencies are still on an older key. Both keys must stay loaded.`;
+  if (k.loaded.length > 1) return `Every agency is on ${k.current}. The older keys (${k.loaded.slice(1).join(", ")}) can now be removed.`;
+  return `Every agency is on ${k.current}.`;
+}
+
+export function keyTone(k: KeyStatus): "good" | "warn" | "bad" {
+  if (!k.configured || k.unknown > 0) return "bad";
+  return k.done ? "good" : "warn";
 }

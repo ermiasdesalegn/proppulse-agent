@@ -26,6 +26,7 @@ from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
 from app.jobs import JobQueue, JobWorker
 from app.jobs_api import router as jobs_router
+from app.keys import check_keys
 from app.observability import GuardMiddleware, secrets_from
 from app.org_api import router as org_router
 from app.portal_api import router as portal_router
@@ -80,7 +81,11 @@ async def lifespan(app: FastAPI):
     calls = ModelCallLog(pool, events)
     await calls.start()
     gateway.recorder = calls.record
-    runtime = TenantRuntime(repo, s, real_services, Vault(s.secrets_master_key) if s.secrets_master_key else None)
+    vault = Vault(s.master_key_list) if s.master_key_list else None
+    keys = await check_keys(pool, vault)  # refuses to start if an agency's data key names a master key this server was not given
+    if vault is not None and not keys["done"]:
+        log.warning("master-key rotation in progress: %s (python -m scripts.rotate_master_key --status)", keys["by_key"])
+    runtime = TenantRuntime(repo, s, real_services, vault)
     ts = runtime.tenant_settings()  # the global settings, except the few values that belong to the agency in scope
     # Every calendar, routing, email and Telegram call reports itself to the inspector; each resolves to the agency in scope.
     services = trace_services(runtime.proxied_services(), events)
