@@ -39,6 +39,7 @@ def placeholder_image(name: str, area: str) -> bytes:
 
 async def restore_demo_projects(repo: Any, embed: Any = None, *, remove_crawled: bool = True) -> dict:
     """Remove projects that were crawled, put the demo ones back without prices, and give the demo offer a fresh end date."""
+    repo = repo.as_platform()  # it rewrites the shared project catalogue, which an agency's own role may only read
     gone = [{"n": 0}]
     if remove_crawled:  # a reset removes what was crawled; seeding the demo projects alone must never delete real ones
         gone = await repo._fetch("with gone as (delete from projects where source_url not like %s returning 1) select count(*)::int as n from gone", (DEMO_PREFIX + "%",))

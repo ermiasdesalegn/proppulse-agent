@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     admin_api_key: str = ""
     secrets_master_key: str = ""  # 32 random bytes, base64: encrypts each agency's bot token and calendar key (python -m scripts.make_master_key)
     tenancy_strict: bool = False  # True: database work with no organization in scope is an error instead of using the legacy one
+    enforce_quotas: bool = True  # each agency's plan caps how many buyer messages the assistant answers per day (app/quota.py)
     cron_secret: str = ""
     frontend_origin: str = "http://localhost:3000"
 

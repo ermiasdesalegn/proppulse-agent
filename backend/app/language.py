@@ -31,6 +31,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     "trouble": {
         "en": "I'm having trouble right now. Please send that again in a moment.",
         "am": "አሁን ችግር አጋጥሞኛል። እባክዎ ትንሽ ቆይተው መልዕክትዎን እንደገና ይላኩ።"},
+    "quota_reached": {
+        "en": "This agency's assistant has reached its daily limit of conversations. Your message has been saved and the broker will reply personally.",
+        "am": "የዚህ ኤጀንሲ ረዳት የዕለቱን የውይይት ገደብ አልፏል። መልዕክትዎ ተቀምጧል፤ ደላላው በግል ይመልስልዎታል።"},
     "calendar_down": {
         "en": "I can't reach the broker's calendar right now, so I haven't booked anything. Please try again in a few minutes.",
         "am": "የደላላውን የቀን መቁጠሪያ አሁን ማግኘት አልቻልኩም፣ ስለዚህ ምንም አልያዝኩም። እባክዎ ከጥቂት ደቂቃዎች በኋላ ይሞክሩ።"},

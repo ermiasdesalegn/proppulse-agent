@@ -26,6 +26,7 @@ const GROUPS: { label: string; items: { href: string; label: string; icon: IconN
   { label: "Tools", items: [
     { href: "/console/studio", icon: "studio", label: "Studio" },
     { href: "/console/chat", icon: "chat", label: "Chat Simulator" },
+    { href: "/console/agency", icon: "crm", label: "Agency" },
   ] },
 ];
 

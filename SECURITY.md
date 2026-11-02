@@ -40,7 +40,7 @@ Logs pass through a redaction filter before any handler sees them: configured se
 ## Known limits
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.
-- One admin password and key for the console, no audit trail of who clicked what. Buyer accounts exist, but there is a single broker.
+- One admin password and key for the console. Changes to roles, invitations, channels and settings are recorded per agency with the actor (`audit_log`, `GET /api/audit`), but reads and other clicks are not, and the table owner could still delete rows.
 - Console access no longer depends on an email address: nobody becomes a member by signing up with a particular address. Membership is created by an owner's invitation (the link works once, for the invited address, and only its hash is stored) or by an operator with `python -m scripts.grant_role`. Keep "Confirm email" on anyway, so an invitation's address belongs to whoever uses it.
 - Buyer sign-up has no CAPTCHA; Supabase's own rate limits apply.
 - The prompt-injection check is a list of patterns. It stops the common attempts and costs nothing, but a determined attacker can phrase around it; the structural protection is that the agent's tools only act on the buyer's own conversation.

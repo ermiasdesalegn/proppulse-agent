@@ -197,7 +197,9 @@ Each agency is an organization with its own team (roles viewer < agent < admin <
 
 Moving the live database and app over (what is safe to apply first, why migration 023 needs a short switch window, how to go back): [docs/MIGRATION_HOSTED.md](docs/MIGRATION_HOSTED.md).
 
-Not done yet: a web page for an agency to connect its own bot or calendar (the API exists), a public page to choose an agency, key rotation, and the hosted database is still at migration 019 (020 to 024 run on the local and test databases).
+Also built: the shared market data is read-only for an agency's database role (writes run as the platform), every change to roles, invitations and channels is recorded in a per-agency audit trail, each plan caps how many buyer messages the assistant answers per day (free 100, pro 1,000, business 10,000), and the console has an **Agency** page to connect a Telegram bot and calendar, see today's use and read the change history.
+
+Not done yet: a public page to choose an agency, key rotation, and the hosted database is still at migration 019 (020 to 026 run on the local and test databases).
 
 ## Several Gemini keys
 Set `GEMINI_API_KEYS` in `backend/.env` to a comma-separated list (the first key is `GEMINI_API_KEY`). Each key runs the whole model chain; when every model on a key is out of quota or rate-limited, the next key takes over, the same request is retried, and the first key is tried again after six hours. Text, structured output, voice, images and embeddings all rotate, so the agent and the market sweep share it. `/health` shows how many keys are loaded. Keys are redacted from logs.
@@ -224,7 +226,7 @@ The live setup is free: Supabase (database), a Render web service (backend), Ver
 | `backend/app/agent` | LangGraph graph, nodes, state, checkpointer, prompts, lead scoring |
 | `backend/app/ingest` | Fetching, parsing, the portal page reader, the ingestion service, project crawling |
 | `backend/scraper` | The Scrapy portal crawler: spider, per-site configuration, pipeline to the backend |
-| `backend/migrations` | SQL schema 001–024 (020–024 are multi-tenancy) |
+| `backend/migrations` | SQL schema 001–026 (020–026 are multi-tenancy) |
 | `backend/evals` | Evaluation suite, recordings and reports |
 | `backend/scripts` | `migrate`, `seed`, live checks, `post_deploy_check`, `grant_role`, `make_master_key`, `bench_tenants` |
 | `backend/tests` | pytest suite |

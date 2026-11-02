@@ -257,3 +257,31 @@ async def test_deleting_a_tour_clears_the_link_but_keeps_the_row_in_its_organiza
     await db_conn.execute("delete from tours_and_appointments where id = %s", (tour,))
     row = await (await db_conn.execute("select org_id, tour_id from proactive_events where id = %s", (event,))).fetchone()
     assert row["org_id"] == a and row["tour_id"] is None
+
+
+SHARED_MARKET_TABLES = ["developers", "projects", "project_media", "price_history", "crawl_runs", "ingest_runs", "properties"]
+
+
+@pytest.mark.parametrize("table", SHARED_MARKET_TABLES)
+async def test_a_tenant_can_read_but_not_write_the_shared_market_data(db_conn, two_orgs, table):
+    a, *_ = two_orgs
+    async with as_org(db_conn, a):
+        await db_conn.execute(f"select count(*) from {table}")
+        cur = await db_conn.execute(
+            "select column_name from information_schema.columns where table_name = %s and column_name <> 'id' and is_generated = 'NEVER' "
+            "and is_identity = 'NO' order by ordinal_position limit 1", (table,))
+        column = (await cur.fetchone())["column_name"]
+        for statement in (f"delete from {table}", f"update {table} set {column} = {column}", f"truncate {table}"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                async with db_conn.transaction():
+                    await db_conn.execute(statement)
+
+
+async def test_market_writes_made_through_the_repository_still_work_for_an_agency(repo, two_orgs):
+    """The repository sends shared-table writes down the platform path, so an agency's console can still run a crawl or edit a project."""
+    from app.tenancy import use_tenant
+
+    a, *_ = two_orgs
+    with use_tenant(a):
+        run = await repo.start_crawl_run(portal="x", request_id=None, trigger="dashboard", run_url=None, dry_run=True, mode="full", page_limit=None)
+        assert run["portal"] == "x"

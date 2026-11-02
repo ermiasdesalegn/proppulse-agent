@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.access import Principal, console_access, console_admin, identify, require_role
+from app.audit import record
 from app.repository import Repository
 
 router = APIRouter()
@@ -82,6 +83,7 @@ async def create_organization(body: OrgIn, request: Request):
         org = await repo.create_organization(body.name.strip(), slug, who.user_id)
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409, "That address is already taken") from None
+    await record(request, None, "org.create", slug, org_id=org["id"], actor_id=who.user_id, name=org["name"])
     return {"id": str(org["id"]), "slug": org["slug"], "name": org["name"], "role": "owner", "plan": org["plan"], "status": org["status"]}
 
 
@@ -108,6 +110,7 @@ async def change_member_role(user_id: UUID, body: RoleIn, request: Request, p: P
         row = await repo.set_member_role(p.tenant.org_id, user_id, body.role)
     except psycopg.errors.RaiseException:
         raise HTTPException(409, "An organization must keep at least one owner") from None
+    await record(request, p, "member.role_change", str(user_id), old_role=member["role"], new_role=body.role)
     return {"user_id": str(user_id), "role": row["role"] if row else body.role}
 
 
@@ -126,6 +129,7 @@ async def remove_member(user_id: UUID, request: Request, p: Principal = Depends(
         await repo.remove_member(p.tenant.org_id, user_id)
     except psycopg.errors.RaiseException:
         raise HTTPException(409, "An organization must keep at least one owner") from None
+    await record(request, p, "member.leave" if p.tenant.user_id == user_id else "member.remove", str(user_id), role=member["role"])
     return {"removed": str(user_id)}
 
 
@@ -139,6 +143,7 @@ async def invite(body: InviteIn, request: Request, p: Principal = Depends(consol
         row = await request.app.state.repo.create_invitation(email, body.role, hash_token(token), p.tenant.user_id)
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409, "There is already an open invitation for that address") from None
+    await record(request, p, "invitation.create", email, role=body.role)
     # The link token is shown once and only its hash is kept. Sending it by email is the caller's job for now.
     return {"id": str(row["id"]), "email": row["email"], "role": row["role"], "expires_at": row["expires_at"], "token": token}
 
@@ -153,6 +158,7 @@ async def list_invitations(request: Request, p: Principal = Depends(console_admi
 async def revoke_invitation(invitation_id: UUID, request: Request, p: Principal = Depends(console_admin)):
     if not await request.app.state.repo.revoke_invitation(invitation_id):
         raise HTTPException(404, "No such open invitation")
+    await record(request, p, "invitation.revoke", str(invitation_id))
     return {"revoked": str(invitation_id)}
 
 
@@ -166,4 +172,12 @@ async def accept_invitation(body: AcceptIn, request: Request):
         raise HTTPException(403, "This invitation was sent to a different email address") from None
     if joined is None:
         raise HTTPException(404, "This invitation is not valid any more")
+    await record(request, None, "invitation.accept", who.email, org_id=joined["org_id"], actor_id=who.user_id, role=joined.get("role"))
     return _org_view(joined)
+
+
+@router.get("/api/audit")
+async def audit_trail(request: Request, limit: int = 100, before: int | None = None, p: Principal = Depends(console_admin)):
+    """The agency's change history, newest first. Admins and owners only."""
+    rows = await request.app.state.repo.list_audit(max(1, min(limit, 500)), before)
+    return {"entries": [{**r, "actor_id": None if r["actor_id"] is None else str(r["actor_id"])} for r in rows]}

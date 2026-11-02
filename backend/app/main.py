@@ -28,6 +28,7 @@ from app.org_api import router as org_router
 from app.portal_api import router as portal_router
 from app.proactive import ProactiveService
 from app.projects import ProjectService
+from app.quota import router as quota_router
 from app.repository import Repository
 from app.runtime import TenantRuntime
 from app.services import build_services
@@ -138,6 +139,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(portal_router)
     app.include_router(org_router)
     app.include_router(channels_router)
+    app.include_router(quota_router)
 
     @app.get("/health")
     def health() -> dict:

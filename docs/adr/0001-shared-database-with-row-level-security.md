@@ -47,7 +47,7 @@ Costs and risks accepted:
 - **Isolation is only as strong as the role setup.** The table owner bypasses the policies, so the owner's connection string is as sensitive as the master key. Code that can run arbitrary SQL could set its own label; the design defends against bugs, not against SQL injection ([THREAT_MODEL.md](../THREAT_MODEL.md), T13).
 - **Noisy neighbours share resources.** One busy agency can slow the rest. Mitigation later: per-agency quotas, and partitioning by organization if a single agency grows large.
 - **Vector indexes and RLS interact badly.** An HNSW index over private vectors returned 9 of 50 requested rows because other agencies' neighbours fill the candidate list and are then filtered out. At 20,000 buyers an exact scan is faster and correct, so there is no vector index on private data today. Re-measure on pgvector 0.8 (iterative scans) or partition before adding one.
-- **Shared tables are still writable by `app_user`** (crawlers and the dashboard share a code path). A platform role should take over those writes.
+- **Shared tables are read-only for `app_user`** (migration 025). The writers (crawlers, project and listing edits) run through `Repository._shared()` as the platform, so the shared market data cannot be rewritten by a bug in tenant code; the cost is that those paths must be listed in one place and checked when a new shared table or writer is added (`tests/test_tenancy_isolation.py` fails if a tenant can write one).
 - Per-agency data residency or a customer who contractually requires its own database cannot be met by this design; that customer would be a separate deployment.
 
 ## When to reconsider

@@ -67,6 +67,11 @@ class Repository:
         clone._role = None
         return clone
 
+    def _shared(self) -> Repository:
+        """For writes to the shared market tables (listings, projects, developers, crawl runs). A tenant's role may only read
+        them (migration 025), so these statements run as the platform. The caller has already checked who may do this."""
+        return self.as_platform()
+
     @asynccontextmanager
     async def _conn(self) -> AsyncIterator[Any]:
         """A connection whose transaction is labelled with the organization this work belongs to."""
@@ -150,7 +155,7 @@ class Repository:
 
     async def update_property_price(self, property_id: UUID | str, new_price_etb: float) -> dict:
         """Change a unit's price and log it, so the next proactive run can see the drop."""
-        async with self._conn() as conn:
+        async with self._shared()._conn() as conn:
             async with conn.transaction():
                 cur = await conn.execute("select price_etb from properties where id = %s for update", (str(property_id),))
                 row = await cur.fetchone()
@@ -175,7 +180,7 @@ class Repository:
     async def set_developer_scrape(self, slug: str, url: str | None, profile: dict | None, fetch_mode: str | None = None) -> dict:
         from psycopg.types.json import Jsonb
 
-        row = await self._one(
+        row = await self._shared()._one(
             "update developers set scrape_url = %s, scrape_profile = %s, fetch_mode = coalesce(%s, fetch_mode) where slug = %s "
             "returning id, name, slug, scrape_url, scrape_profile, fetch_mode",
             (url, Jsonb(profile) if profile else None, fetch_mode, slug),
@@ -193,7 +198,7 @@ class Repository:
         """Insert a unit; None if another run just inserted the same one (the hash is unique)."""
         from psycopg.types.json import Jsonb
 
-        row = await self._one(
+        row = await self._shared()._one(
             "insert into properties (developer_id, title, project_name, unit_type, sub_city, lat, lng, price_etb, bedrooms, sqm, "
             "down_payment_pct, construction_stage_pct, est_rental_yield_pct, delivery_date, description, floor_plan_image_url, "
             "vision_amenities, content_hash, embedding, source_url, photo_url) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector,%s,%s) "
@@ -205,7 +210,7 @@ class Repository:
         return None if row is None else row["id"]
 
     async def update_property_source(self, property_id: UUID | str, url: str) -> None:
-        await self._fetch("update properties set source_url = %s where id = %s returning id", (url, str(property_id)))
+        await self._shared()._fetch("update properties set source_url = %s where id = %s returning id", (url, str(property_id)))
 
     async def properties_missing_photo(self, *, include_existing: bool = False) -> list[dict]:
         missing = "" if include_existing else "and p.photo_url is null "
@@ -214,13 +219,13 @@ class Repository:
             f"where p.source_url is not null {missing}and p.status = 'AVAILABLE' order by d.slug, p.created_at desc")
 
     async def update_property_photo(self, property_id: UUID | str, url: str | None) -> None:
-        await self._fetch("update properties set photo_url = %s where id = %s returning id", (url, str(property_id)))
+        await self._shared()._fetch("update properties set photo_url = %s where id = %s returning id", (url, str(property_id)))
 
     async def update_property_image(self, property_id: UUID | str, url: str) -> None:
-        await self._fetch("update properties set floor_plan_image_url = %s where id = %s returning id", (url, str(property_id)))
+        await self._shared()._fetch("update properties set floor_plan_image_url = %s where id = %s returning id", (url, str(property_id)))
 
     async def set_property_status(self, ids: Sequence[UUID | str], status: str) -> int:
-        rows = await self._fetch("update properties set status = %s where id = any(%s::uuid[]) returning id", (status, [str(i) for i in ids]))
+        rows = await self._shared()._fetch("update properties set status = %s where id = any(%s::uuid[]) returning id", (status, [str(i) for i in ids]))
         return len(rows)
 
     async def available_for_developer(self, developer_id: UUID | str) -> list[dict]:
@@ -240,7 +245,7 @@ class Repository:
                                 error: str | None = None, items_found: int | None = None) -> int:
         from psycopg.types.json import Jsonb
 
-        row = await self._one(
+        row = await self._shared()._one(
             "insert into ingest_runs (developer_id, source, dry_run, full_sync, created, price_changed, removed, unchanged, skipped, report, error, items_found) "
             "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
             (None if developer_id is None else str(developer_id), source, dry_run, full_sync, counts["created"], counts["price_changed"],
@@ -264,7 +269,7 @@ class Repository:
     async def queue_crawl_runs(self, *, portals: Sequence[str], request_id: str, dry_run: bool, mode: str, page_limit: int | None) -> list[dict]:
         rows = []
         for portal in portals:
-            rows.append(await self._one(
+            rows.append(await self._shared()._one(
                 "insert into crawl_runs (portal, request_id, trigger, status, dry_run, mode, page_limit) values (%s,%s,'dashboard','QUEUED',%s,%s,%s) returning *",
                 (portal, request_id, dry_run, mode, page_limit)))
         return [r for r in rows if r]
@@ -273,13 +278,13 @@ class Repository:
                               page_limit: int | None) -> dict:
         """The runner says it has started: claim the row the dashboard queued for it, or open a new one (a scheduled run)."""
         if request_id:
-            row = await self._one(
+            row = await self._shared()._one(
                 "update crawl_runs set status = 'RUNNING', started_at = now(), run_url = %s, dry_run = %s, mode = %s, page_limit = %s "
                 "where id = (select id from crawl_runs where request_id = %s and portal = %s and status = 'QUEUED' order by id limit 1) returning *",
                 (run_url, dry_run, mode, page_limit, request_id, portal))
             if row:
                 return row
-        row = await self._one(
+        row = await self._shared()._one(
             "insert into crawl_runs (portal, request_id, trigger, status, dry_run, mode, page_limit, run_url, started_at) "
             "values (%s,%s,%s,'RUNNING',%s,%s,%s,%s, now()) returning *", (portal, request_id, trigger, dry_run, mode, page_limit, run_url))
         assert row is not None
@@ -288,7 +293,7 @@ class Repository:
     async def finish_crawl_run(self, run_id: int, *, status: str, stats: dict, blocked_reason: str | None, error: str | None) -> dict | None:
         from psycopg.types.json import Jsonb
 
-        return await self._one(
+        return await self._shared()._one(
             "update crawl_runs set status = %s, stats = %s, blocked_reason = %s, error = %s, finished_at = now() where id = %s returning *",
             (status, Jsonb(stats), blocked_reason, error, run_id))
 
@@ -888,12 +893,12 @@ class Repository:
 
     async def upsert_project(self, developer_id: UUID | str, data: dict) -> tuple[dict, str]:
         """Insert or refresh one project. Returns the row and what happened: created, updated or unchanged."""
-        existing = await self._one("select id, content_hash from projects where developer_id = %s and slug = %s", (str(developer_id), data["slug"]))
+        existing = await self._shared()._one("select id, content_hash from projects where developer_id = %s and slug = %s", (str(developer_id), data["slug"]))
         values = (data["name"], data["source_url"], data.get("sub_city"), data.get("location_text"), data.get("summary"), data.get("bedrooms_min"),
                   data.get("bedrooms_max"), data.get("sqm_min"), data.get("sqm_max"), data.get("floors"), data.get("status", "SELLING"),
                   data.get("image_url"), data.get("promo_text"), data.get("promo_discount_pct"), data.get("promo_until"), data["content_hash"])
         if existing is None:
-            row = await self._one(
+            row = await self._shared()._one(
                 "insert into projects (developer_id, slug, name, source_url, sub_city, location_text, summary, bedrooms_min, bedrooms_max, sqm_min, "
                 "sqm_max, floors, status, image_url, promo_text, promo_discount_pct, promo_until, content_hash) "
                 "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
@@ -901,9 +906,9 @@ class Repository:
             assert row is not None
             return row, "created"
         if existing["content_hash"] == data["content_hash"]:
-            await self._fetch("update projects set last_seen_at = now() where id = %s returning id", (existing["id"],))
+            await self._shared()._fetch("update projects set last_seen_at = now() where id = %s returning id", (existing["id"],))
             return existing, "unchanged"
-        row = await self._one(
+        row = await self._shared()._one(
             "update projects set name = %s, source_url = %s, sub_city = %s, location_text = %s, summary = %s, bedrooms_min = %s, bedrooms_max = %s, "
             "sqm_min = %s, sqm_max = %s, floors = %s, status = %s, image_url = %s, promo_text = %s, promo_discount_pct = %s, promo_until = %s, "
             "content_hash = %s, last_seen_at = now() where id = %s returning *", (*values, existing["id"]))
@@ -943,13 +948,13 @@ class Repository:
             (vector, vector, min_bedrooms, min_bedrooms, areas, areas, vector, vector, threshold, areas, limit))
 
     async def set_project_embedding(self, project_id: UUID | str, embedding: Sequence[float]) -> None:
-        await self._fetch("update projects set embedding = %s::vector where id = %s returning id", (vector_literal(embedding), str(project_id)))
+        await self._shared()._fetch("update projects set embedding = %s::vector where id = %s returning id", (vector_literal(embedding), str(project_id)))
 
     async def set_project_price(self, project_id: UUID | str, price_from_etb: float | None, note: str | None) -> dict | None:
-        return await self._one("update projects set price_from_etb = %s, price_note = %s where id = %s returning *", (price_from_etb, note, str(project_id)))
+        return await self._shared()._one("update projects set price_from_etb = %s, price_note = %s where id = %s returning *", (price_from_etb, note, str(project_id)))
 
     async def set_project_promo(self, project_id: UUID | str, text: str | None, discount_pct: float | None, until: Any) -> dict | None:
-        return await self._one("update projects set promo_text = %s, promo_discount_pct = %s, promo_until = %s where id = %s returning *",
+        return await self._shared()._one("update projects set promo_text = %s, promo_discount_pct = %s, promo_until = %s where id = %s returning *",
                                (text, discount_pct, until, str(project_id)))
 
     async def create_price_request(self, project_id: UUID | str, buyer_id: UUID | str) -> tuple[dict, bool]:
@@ -996,14 +1001,14 @@ class Repository:
 
     async def create_developer(self, *, name: str, slug: str, sales_email: str, website_url: str | None, commission_rate_pct: float = 3.0) -> dict | None:
         """None if the slug is taken."""
-        return await self._one(
+        return await self._shared()._one(
             "insert into developers (name, slug, sales_email, commission_rate_pct, website_url) values (%s, %s, %s, %s, %s) "
             "on conflict (slug) do nothing returning id, name, slug, sales_email, website_url", (name, slug, sales_email, commission_rate_pct, website_url))
 
     # ---- project pictures and videos ----
 
     async def add_project_media(self, project_id: UUID | str, *, kind: str, mime: str, filename: str | None, data: bytes) -> dict:
-        row = await self._one(
+        row = await self._shared()._one(
             "insert into project_media (project_id, kind, mime, filename, size_bytes, data) values (%s, %s, %s, %s, %s, %s) "
             "returning id, project_id, kind, mime, filename, size_bytes, created_at", (str(project_id), kind, mime, filename, len(data), data))
         assert row is not None
@@ -1019,11 +1024,11 @@ class Repository:
         return await self._one("select id, project_id, kind, mime, filename, data from project_media where project_id = %s order by id desc limit 1", (str(project_id),))
 
     async def delete_project_media(self, media_id: int) -> bool:
-        rows = await self._fetch("delete from project_media where id = %s returning id", (media_id,))
+        rows = await self._shared()._fetch("delete from project_media where id = %s returning id", (media_id,))
         return bool(rows)
 
     async def set_project_image(self, project_id: UUID | str, url: str | None) -> dict | None:
-        return await self._one("update projects set image_url = %s where id = %s returning *", (url, str(project_id)))
+        return await self._shared()._one("update projects set image_url = %s where id = %s returning *", (url, str(project_id)))
 
     # ---- unit layouts: the rooms of a unit, from which its 3D model is built ----
 
@@ -1101,6 +1106,28 @@ class Repository:
             "insert into invitations (org_id, email, role, token_hash, invited_by) values (current_org(), %s, %s, %s, %s) "
             "returning id, email, role, expires_at", (email, role, token_hash, str(invited_by) if invited_by else None))
         return rows[0]
+
+    async def usage_today(self) -> dict:
+        """What this agency has used since midnight UTC: buyer messages and model calls, with its plan."""
+        rows = await self._fetch(
+            "with day as (select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as since) "
+            "select (select plan from organizations where id = current_org()) as plan, "
+            "(select count(*)::int from chat_messages, day where role = 'buyer' and created_at >= day.since) as buyer_messages, "
+            "(select count(*)::int from model_calls, day where created_at >= day.since) as model_calls")
+        return rows[0]
+
+    async def add_audit(self, org_id: UUID | str, actor_kind: str, actor_id: UUID | str | None, action: str, target: str | None, detail: dict) -> None:
+        """Platform use: tenants may read their audit trail but not write it (migration 026)."""
+        from psycopg.types.json import Jsonb
+
+        await self.as_platform()._fetch(
+            "insert into audit_log (org_id, actor_kind, actor_id, action, target, detail) values (%s, %s, %s, %s, %s, %s) returning id",
+            (str(org_id), actor_kind, None if actor_id is None else str(actor_id), action, target, Jsonb(detail, dumps=lambda o: __import__("json").dumps(o, default=str))))
+
+    async def list_audit(self, limit: int = 100, before_id: int | None = None) -> list[dict]:
+        return await self._fetch(
+            "select id, actor_kind, actor_id, action, target, detail, created_at from audit_log "
+            "where (%s::bigint is null or id < %s) order by id desc limit %s", (before_id, before_id, limit))
 
     async def open_invitations(self) -> list[dict]:
         return await self._fetch(

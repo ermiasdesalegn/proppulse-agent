@@ -276,10 +276,10 @@ async def dirty_world(repo, services):
     prop = (await repo._fetch("select id from properties where title = 'Noah Bole Towers 2BR Apartment'"))[0]["id"]
     await repo.create_tour(buyer_id=a["id"], scheduled_start=start, stops=[prop], route_json=None, calendar_event_id=event_id)
     await repo.update_property_price(prop, 9_000_000)
-    await repo._fetch(
+    await repo.as_platform()._fetch(
         "insert into properties (developer_id, title, project_name, unit_type, sub_city, price_etb, bedrooms, sqm, content_hash, embedding, vision_amenities) "
         "select developer_id, 'Scraped Extra', 'Extra', 'Studio', 'Bole', 1, 0, 30, 'extra-hash', embedding, '{\"source\": \"scrape\"}'::jsonb from properties limit 1 returning id")
-    await repo._fetch("update developers set payment_plan = null where slug = 'ayat' returning id")
+    await repo.as_platform()._fetch("update developers set payment_plan = null where slug = 'ayat' returning id")
     return event_id, prop
 
 

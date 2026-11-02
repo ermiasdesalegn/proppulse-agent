@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.access import Principal, console_access, console_admin
+from app.audit import record
 from app.runtime import TenantRuntime
 from app.services.telegram import TelegramError
 from app.vault import VaultError
@@ -96,6 +97,7 @@ async def connect_telegram(body: TelegramIn, request: Request, p: Principal = De
             webhook = "could not be registered; try again"
     await repo.update_org_settings(org, telegram_bot_username=me.get("username"), telegram_connected_at=_now())
     runtime.invalidate(org)
+    await record(request, p, "channel.telegram_connect", me.get("username"), webhook=webhook)
     return {**await _status(request, p), "webhook": webhook}
 
 
@@ -111,6 +113,7 @@ async def disconnect_telegram(request: Request, p: Principal = Depends(console_a
     for name in ("telegram_bot_token", "telegram_webhook_secret"):
         await runtime.remove_secret(org, name)
     await request.app.state.repo.as_platform().update_org_settings(org, telegram_bot_username=None, telegram_connected_at=None)
+    await record(request, p, "channel.telegram_disconnect")
     return await _status(request, p)
 
 
@@ -129,6 +132,7 @@ async def connect_calendar(body: CalendarIn, request: Request, p: Principal = De
         raise HTTPException(503, str(exc)) from None
     await request.app.state.repo.as_platform().update_org_settings(org, google_calendar_id=body.calendar_id.strip())
     runtime.invalidate(org)
+    await record(request, p, "channel.calendar_connect", body.calendar_id.strip())
     return await _status(request, p)
 
 
@@ -138,6 +142,7 @@ async def disconnect_calendar(request: Request, p: Principal = Depends(console_a
     await runtime.remove_secret(org, "google_service_account_json")
     await request.app.state.repo.as_platform().update_org_settings(org, google_calendar_id=None)
     runtime.invalidate(org)
+    await record(request, p, "channel.calendar_disconnect")
     return await _status(request, p)
 
 
@@ -157,6 +162,7 @@ async def change_settings(body: SettingsIn, request: Request, p: Principal = Dep
             changes[key] = " ".join(changes[key].split()) or None  # one line, no stray whitespace in what reaches the prompt
     await request.app.state.repo.as_platform().update_org_settings(org, **changes)
     runtime.invalidate(org)
+    await record(request, p, "settings.change", ", ".join(sorted(changes)))
     return await _status(request, p)
 
 

@@ -112,9 +112,9 @@ with psycopg.connect(url) as c:
           "| superuser:", q("select rolsuper from pg_roles where rolname = current_user"))
 probes("after 020-022 (old code)")
 
-print("\n== Step B: 023-024")
-apply(23, 24)
-probes("after 023-024 (old code, expected to break)")
+print("\n== Step B: 023-026")
+apply(23, 26)
+probes("after 023-026 (old code, expected to break)")
 
 with psycopg.connect(url) as c:
     print("\n-- data check: buyers", c.execute("select count(*) from buyers_crm").fetchone()[0],

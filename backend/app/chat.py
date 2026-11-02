@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app import quota
 from app.ads import BUTTONS, DEEPLINK
 from app.agent.graph import BrokerAgent
 from app.agent.nodes import option_block
@@ -129,6 +130,9 @@ class ChatService:
                        channel=inbound.channel, text=excerpt(shown))
             if buyer["human_takeover"]:
                 return await self._while_broker_has_the_chat(buyer, inbound, shown)
+            if await self._over_quota():
+                self._emit("quota_reached", buyer_id=str(buyer["id"]))
+                return await self._say(buyer, inbound, msg("quota_reached", detect_language(inbound.text)))
             if self.projects is not None:
                 about_a_project = await self._project_turn(buyer, inbound)
                 if about_a_project is not None:
@@ -155,6 +159,12 @@ class ChatService:
         if answer is None:
             return None
         return await self._say(buyer, inbound, answer[0], answer[1] or None)
+
+    async def _over_quota(self) -> bool:
+        """True when the agency has used its plan's conversations for today. The buyer's message is already saved for the broker."""
+        if not self.settings.enforce_quotas:
+            return False
+        return quota.exceeded(await self.repo.usage_today())
 
     async def _say(self, buyer: dict, inbound: Inbound, text: str, quick_replies: list | None = None) -> Outcome:
         buyer_id = str(buyer["id"])

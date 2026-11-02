@@ -13,8 +13,10 @@ Everything below is done from a branch that is merged on purpose. Until then `ma
 | 022 | Creates role `app_user`, turns on row-level security (RLS) with policies | Yes, **if the old code connects as the table owner** (Supabase's `postgres`): owners are not forced through RLS, so nothing changes for them |
 | 023 | Replaces global unique keys with per-agency ones; composite foreign keys | **No.** The live code runs `on conflict` on `thread_id`, `dedupe_key`, `message_id`, `property_id` (layouts) and `(property_id, kind, price_etb)` (channel posts). After 023 those constraints no longer exist and the insert fails with "no unique or exclusion constraint matching the ON CONFLICT specification". Buyers could not start a chat |
 | 024 | `org_keys`, `org_secrets` (encrypted credentials), more `org_settings` columns | Yes, only adds |
+| 025 | Takes write rights on the shared market tables away from `app_user` | Yes: the old code never uses `app_user` (it connects as the owner). The new code needs it, which is why it goes with the switch |
+| 026 | `audit_log` | Yes, only adds |
 
-So the migration is **expand, then switch**: 020 to 022 can go first, with the old code running. 023 and the new code must change together, in one short window, and 024 can go with them.
+So the migration is **expand, then switch**: 020 to 022 can go first, with the old code running. 023 and the new code must change together, in one short window, and 024 to 026 can go with them.
 
 Related facts to keep in mind:
 
@@ -76,10 +78,10 @@ Then send the live bot a message and open the Command Center. If either breaks, 
 
 ### Step B, switch (short window)
 
-Order matters because the new code requires 023 and 024, and the old code cannot survive 023.
+Order matters because the new code requires 023 to 026, and the old code cannot survive 023.
 
 1. Set on Render: `SECRETS_MASTER_KEY`. Leave `ADMIN_API_KEY` as it is (it is now the platform secret) and keep `CRON_SECRET`. Remove `BROKER_EMAIL` from Vercel; it no longer does anything.
-2. Run the remaining migrations (023, 024).
+2. Run the remaining migrations (023 to 026).
 3. Deploy the new backend to Render and the new frontend to Vercel straight away. Render's cold start is the longest part. In the gap, the bot's updates fail; Telegram retries them, so buyers' messages are delayed, not lost.
 4. Make the first owner (membership replaces the old email check):
 
@@ -123,7 +125,7 @@ Restoring the dump is the only supported way back from 023, so the rehearsal in 
 - [ ] `CREATEROLE` confirmed on Supabase
 - [ ] `SECRETS_MASTER_KEY` generated, stored in two places, set on Render
 - [ ] Step A applied and verified with the old code running
-- [ ] Step B: 023, 024, new backend, new frontend, owner granted, webhook checked
+- [ ] Step B: 023 to 026, new backend, new frontend, owner granted, webhook checked
 - [ ] Step C verification done, throw-away agency deleted
 - [ ] `docs/FREE_DEPLOYMENT.md` updated to the new migration range and variables
 
@@ -135,7 +137,7 @@ Restoring the dump is the only supported way back from 023, so the rehearsal in 
 |---|---|---|
 | On 019 (control) | all 6 succeed | |
 | After 020 to 022 | **all 6 succeed** | 1 organization; 0 buyers without `org_id`; all 1,500 messages in agency #1; RLS on; applying took about 1 s |
-| After 023 and 024 | **5 of 6 fail**: `there is no unique or exclusion constraint matching the ON CONFLICT specification` (buyer upsert, announcement claim, layout upsert, channel-post claim, proactive reservation). Only a plain insert still works | applying took about 0.5 s; all 300 buyers and 1,500 messages intact |
+| After 023 to 026 | **5 of 6 fail**: `there is no unique or exclusion constraint matching the ON CONFLICT specification` (buyer upsert, announcement claim, layout upsert, channel-post claim, proactive reservation). Only a plain insert still works | applying 023 to 026 took about 0.6 s; all 300 buyers and 1,500 messages intact |
 
 So the plan's central claim holds: 020 to 022 are safe with the old code running, and 023 must be switched together with the new code.
 

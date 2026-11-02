@@ -24,7 +24,7 @@ async def test_a_ranking_respects_the_buyers_limits(repo):
 
 
 async def test_only_available_units_are_ranked_and_the_count_is_respected(repo):
-    await repo._fetch("update properties set status = 'UNAVAILABLE' where title = 'Ayat Square Studios Studio' returning id")
+    await repo.as_platform()._fetch("update properties set status = 'UNAVAILABLE' where title = 'Ayat Square Studios Studio' returning id")
     assert (await titles(repo, "cheapest"))[0] == "Gift Kazanchis Suites Studio"
     assert len(await repo.rank_properties("cheapest", max_budget_etb=None, min_bedrooms=None, sub_cities=None, count=2)) == 2
 
