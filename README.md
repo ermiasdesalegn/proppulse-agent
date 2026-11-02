@@ -195,6 +195,8 @@ Each agency is an organization with its own team (roles viewer < agent < admin <
 | What could still go wrong? | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) lists each threat, the test that covers it and the risk left |
 | Where is the code? | [Architecture section 11](docs/ARCHITECTURE.md#11-many-agencies-on-one-platform) |
 
+Moving the live database and app over (what is safe to apply first, why migration 023 needs a short switch window, how to go back): [docs/MIGRATION_HOSTED.md](docs/MIGRATION_HOSTED.md).
+
 Not done yet: a web page for an agency to connect its own bot or calendar (the API exists), a public page to choose an agency, key rotation, and the hosted database is still at migration 019 (020 to 024 run on the local and test databases).
 
 ## Several Gemini keys
