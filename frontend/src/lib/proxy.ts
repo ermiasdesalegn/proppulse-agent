@@ -1,4 +1,5 @@
 // Which backend URL a browser request may reach through /api/proxy/*. Everything goes to <backend>/api/<path> only.
+import { AGENCY_HEADER, cleanAgency } from "./agencysite";
 
 const BLOCKED_FIRST_SEGMENTS = new Set(["telegram"]); // Telegram's own webhook is not something a browser should call
 
@@ -60,12 +61,15 @@ export function responseHeaders(upstream: Headers): Headers {
 
 const BUYER_REQUEST_HEADERS = ["content-type", "accept"];
 
+/** The buyer's calls carry the agency the visitor chose (set by the middleware, never trusted as it arrives: only a well-formed slug is passed on). */
 export function buyerHeaders(incoming: Headers, accessToken: string | null): Headers {
   const out = new Headers();
   for (const name of BUYER_REQUEST_HEADERS) {
     const value = incoming.get(name);
     if (value) out.set(name, value);
   }
+  const agency = cleanAgency(incoming.get(AGENCY_HEADER));
+  if (agency) out.set(AGENCY_HEADER, agency);
   if (accessToken) out.set("authorization", `Bearer ${accessToken}`);
   return out;
 }

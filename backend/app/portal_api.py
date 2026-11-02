@@ -23,6 +23,7 @@ from app.chat import ChatService, Inbound
 from app.ingest.portal import is_listing_photo
 from app.model3d import Layout, render_png, to_glb
 from app.repository import Repository
+from app.tenancy import resolve_org_id
 
 router = APIRouter(dependencies=[Depends(agency_scope)])
 
@@ -47,6 +48,24 @@ _DETAIL_ONLY = {"description", "payment_plan", "vision_amenities", "source_url",
 
 
 # ---------------- public ----------------
+
+@router.get("/api/public/agency")
+async def agency_card(response: Response, request: Request):
+    """Who the visitor is talking to: the agency's name, colour and logo for the website's header. The agency came from the `X-Agency`
+    header (no header: the original agency); an unknown or suspended one was already answered "not found"."""
+    profile = await request.app.state.repo.as_platform().org_profile(resolve_org_id())
+    if profile is None:
+        raise HTTPException(404, "No such agency")
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return {"slug": profile["slug"], "name": profile["display_name"] or profile["name"], "brand_color": profile["brand_color"], "logo_url": profile["logo_url"]}
+
+
+@router.get("/api/public/agencies")
+async def agency_directory(response: Response, request: Request):
+    """The agencies that chose to be listed. Nothing else about them: no counts, no members, no inactive ones."""
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return {"agencies": await request.app.state.repo.listed_agencies()}
+
 
 @router.get("/api/public/featured")
 async def featured(response: Response, hero: UUID | None = Query(None), repo: Repository = Depends(repo_of)):

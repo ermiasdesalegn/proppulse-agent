@@ -19,7 +19,7 @@ function under(pathname: string, root: string): boolean {
   return pathname === root || pathname.startsWith(`${root}/`);
 }
 
-const PUBLIC_PAGES = ["/", "/login", "/signup", "/auth"];
+const PUBLIC_PAGES = ["/", "/login", "/signup", "/auth", "/agencies"];
 const PUBLIC_API = ["/api/auth", "/api/public"];
 const SIGN_IN_PAGES = ["/login", "/signup"];
 

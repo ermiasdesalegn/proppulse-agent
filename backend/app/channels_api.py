@@ -36,6 +36,9 @@ class SettingsIn(BaseModel):
     persona: str | None = Field(default=None, max_length=500)
     broker_chat_id: str | None = Field(default=None, max_length=40, pattern=r"^-?\d{1,20}$")
     timezone: str | None = Field(default=None, max_length=60)
+    listed: bool | None = None  # appear in the public directory of agencies
+    brand_color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")  # empty clears it
+    logo_url: str | None = Field(default=None, max_length=300, pattern=r"^(https://[^\s<>\"']+)?$")  # an https address, or empty to clear it
 
 
 def runtime_of(request: Request) -> TenantRuntime:
@@ -61,7 +64,8 @@ async def _status(request: Request, p: Principal) -> dict[str, Any]:
             "connected_at": profile["telegram_connected_at"], "webhook_url": _webhook_url(request, profile["slug"]),
         },
         "calendar": {"connected": "google_service_account_json" in have and bool(profile["google_calendar_id"]), "calendar_id": profile["google_calendar_id"]},
-        "settings": {"broker_name": profile["broker_name"], "persona": profile["persona"], "broker_chat_id": profile["broker_chat_id"], "timezone": profile["timezone"]},
+        "settings": {"broker_name": profile["broker_name"], "persona": profile["persona"], "broker_chat_id": profile["broker_chat_id"], "timezone": profile["timezone"],
+                     "listed": bool(profile["listed"]), "brand_color": profile["brand_color"], "logo_url": profile["logo_url"]},
     }
 
 
@@ -157,6 +161,11 @@ async def change_settings(body: SettingsIn, request: Request, p: Principal = Dep
             ZoneInfo(tz)
         except (ZoneInfoNotFoundError, ValueError, OSError):
             raise HTTPException(422, "Unknown time zone. Use a name such as Africa/Addis_Ababa.") from None
+    for key in ("brand_color", "logo_url"):
+        if key in changes and not changes[key]:
+            changes[key] = None
+    if "listed" in changes and changes["listed"] is None:
+        del changes["listed"]
     for key in ("broker_name", "persona"):
         if key in changes and changes[key] is not None:
             changes[key] = " ".join(changes[key].split()) or None  # one line, no stray whitespace in what reaches the prompt

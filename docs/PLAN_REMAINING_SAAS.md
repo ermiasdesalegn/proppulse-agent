@@ -1,6 +1,6 @@
 # Plan: what is left after the three multi-tenant features
 
-Status: planned 2026-11-02. Items 1 (the event bus losing events) 2 (alerts for an agency's own unit price, migration 029) and 3 (replacing one agency's own data key) 4 (a tamper-evident audit trail) 5 (money and job quotas) and 6 (invitations sent by email) are built; the rest are not. Follows [PLAN_NEXT_SAAS.md](PLAN_NEXT_SAAS.md), whose three features (fair job queue,
+Status: planned 2026-11-02. Items 1 (the event bus losing events) 2 (alerts for an agency's own unit price, migration 029) and 3 (replacing one agency's own data key) 4 (a tamper-evident audit trail) 5 (money and job quotas) 6 (invitations sent by email) and 7 (the public website shows the agency the visitor chose; migration 032, not 031 as planned) are built; the rest are not. Follows [PLAN_NEXT_SAAS.md](PLAN_NEXT_SAAS.md), whose three features (fair job queue,
 per-agency prices, master-key rotation) are built and on the local `saas` branch. Everything here stays local on `saas`: no merge to
 `main`, no push, no hosted database. Migrations continue from 029.
 

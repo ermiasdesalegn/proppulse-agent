@@ -1233,8 +1233,14 @@ class Repository:
     async def org_profile(self, org_id: UUID | str) -> dict | None:
         return await self._one(
             "select o.id, o.slug, o.name, o.status, s.display_name, s.broker_name, s.broker_chat_id, s.timezone, s.persona, "
-            "s.google_calendar_id, s.telegram_bot_username, s.telegram_connected_at "
+            "s.google_calendar_id, s.telegram_bot_username, s.telegram_connected_at, s.brand_color, s.logo_url, s.listed "
             "from organizations o left join org_settings s on s.org_id = o.id where o.id = %s", (str(org_id),))
+
+    async def listed_agencies(self) -> list[dict]:
+        """The agencies that chose to be in the public directory, active ones only, with what the website shows of them."""
+        return await self.as_platform()._fetch(
+            "select o.slug, coalesce(nullif(s.display_name, ''), o.name) as name, s.brand_color, s.logo_url "
+            "from organizations o join org_settings s on s.org_id = o.id where o.status = 'active' and s.listed order by 2, o.slug")
 
     async def org_by_slug(self, slug: str) -> dict | None:
         return await self._one("select id, slug, name, status from organizations where slug = %s", (slug,))
@@ -1284,7 +1290,7 @@ class Repository:
     async def update_org_settings(self, org_id: UUID | str, **fields: Any) -> dict:
         """Change an organization's non-secret settings. Only the listed columns can be named."""
         allowed = {"display_name", "broker_name", "persona", "broker_chat_id", "timezone", "google_calendar_id",
-                   "telegram_bot_username", "telegram_connected_at", "hero_property_id", "brand_color", "logo_url"}
+                   "telegram_bot_username", "telegram_connected_at", "hero_property_id", "brand_color", "logo_url", "listed"}
         unknown = set(fields) - allowed
         if unknown or not fields:
             raise ValueError(f"cannot update settings: {sorted(unknown) or 'none given'}")

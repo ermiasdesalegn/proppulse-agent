@@ -21,7 +21,7 @@ router = APIRouter()
 log = logging.getLogger(__name__)
 
 MAX_OWNED_ORGANIZATIONS = 5
-RESERVED_SLUGS = frozenset({"www", "api", "app", "admin", "console", "portal", "login", "signup", "auth", "static", "platform", "support"})
+RESERVED_SLUGS = frozenset({"www", "api", "app", "admin", "console", "portal", "login", "signup", "auth", "static", "platform", "support", "join", "start", "agencies", "public", "robots", "sitemap", "health", "_next"})
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 Role = Literal["owner", "admin", "agent", "viewer"]
 

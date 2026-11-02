@@ -102,6 +102,14 @@ Spend is the tokens recorded for each model call times the prices in `MODEL_PRIC
 provider's list: check them, change the line and `MODEL_PRICES_AS_OF` when the provider changes its prices. A call that reported no
 tokens adds nothing and is counted separately on `GET /api/usage`.
 
+## The public website and agencies
+
+An agency's public pages are at `/<slug>`, its buyer portal at `/<slug>/portal`. The website's middleware discards any `x-agency` header a
+browser sends and sets its own from the address (or a 30-day cookie of the last agency visited), after asking the backend, at most once a
+minute per address, whether the agency exists and is active. The backend checks again on every call. An agency appears in the public
+directory (`/agencies`) only if its admin turns on `listed` (`PATCH /api/org/settings`); its name, colour (`#rrggbb`) and logo (an https
+address) are what the website shows of it. Anyone can read any active agency's public pages; nothing private is on them.
+
 ## Known limits
 
 - Rate limits are kept in each instance's memory. With several instances a client gets the limit per instance; a shared store (Redis) would make it exact.

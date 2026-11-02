@@ -386,3 +386,13 @@ async def test_an_agency_cannot_read_another_agencys_price_history(world, db_con
         async with world.repo._conn() as conn:
             rows = await (await conn.execute("select 1 from agency_price_history")).fetchall()
     assert rows == []
+
+
+async def test_deleting_an_agency_that_has_its_own_unit_prices_is_not_refused(world, db_conn, two):
+    pid, shared = await noah(db_conn)
+    await _set_price(world, two, "a", pid, shared - 1_000_000)
+    assert (await (await db_conn.execute("select count(*) as n from agency_price_history where org_id = %s", (two["a"],))).fetchone())["n"] == 1
+    await db_conn.execute("delete from organizations where id = %s", (two["a"],))  # cascades to its prices and its history
+    gone = await (await db_conn.execute("select (select count(*) from agency_prices where org_id = %s) as prices, "
+                                        "(select count(*) from agency_price_history where org_id = %s) as history", (two["a"], two["a"]))).fetchone()
+    assert gone == {"prices": 0, "history": 0}

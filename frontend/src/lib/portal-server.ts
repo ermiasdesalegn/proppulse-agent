@@ -1,4 +1,11 @@
+import { headers } from "next/headers";
+import { AGENCY_HEADER, agencyRequestHeaders } from "@/lib/agencysite";
 import { serverClient } from "@/lib/supabase/server";
+
+/** The agency the visitor chose, as the middleware set it on this request. */
+export function currentAgency(): string | null {
+  return headers().get(AGENCY_HEADER);
+}
 
 // Server-side reads for the Client Portal pages. The buyer's own access token goes to the backend (never the admin key), and the backend
 // checks it again, so these pages show nothing that the buyer's account could not fetch itself.
@@ -15,7 +22,7 @@ export async function portalGet<T>(path: string): Promise<PortalResult<T>> {
   try {
     const base = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
     const res = await fetch(`${base}/api/me${path}`, {
-      headers: { authorization: `Bearer ${session.access_token}`, accept: "application/json" },
+      headers: { authorization: `Bearer ${session.access_token}`, accept: "application/json", ...agencyRequestHeaders(currentAgency()) },
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
     });

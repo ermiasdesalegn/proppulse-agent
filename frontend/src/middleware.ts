@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { decide, emailLinkRedirect, type Role } from "@/lib/access";
+import { AGENCY_COOKIE, AGENCY_HEADER, routeAgency } from "@/lib/agencysite";
 import { chooseOrg, cleanOrgId, ORG_COOKIE, parseOrgs, type Org } from "@/lib/org";
 import { roleFromClaims, type Claims } from "@/lib/role";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
@@ -37,6 +38,27 @@ async function organizationsOf(accessToken: string, key: string): Promise<Org[]>
   if (membershipCache.size > 200) membershipCache.clear();
   membershipCache.set(key, { orgs, until: Date.now() + ttl });
   return orgs;
+}
+
+// Which agency addresses the backend knows (and has not suspended), asked at most once a minute per address. A slug the backend does not know
+// is never remembered and never sent on to a page or an API call. When the backend cannot be reached the slug is let through (null): the
+// pages and the backend check it again.
+const agencyCache = new Map<string, { known: boolean | null; until: number }>();
+
+async function agencyKnown(slug: string): Promise<boolean | null> {
+  const hit = agencyCache.get(slug);
+  if (hit && hit.until > Date.now()) return hit.known;
+  let known: boolean | null = null;
+  try {
+    const base = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+    const res = await fetch(`${base}/api/public/agency`, { headers: { "x-agency": slug }, cache: "no-store", signal: AbortSignal.timeout(3000) });
+    known = res.ok ? true : res.status === 404 ? false : null;
+  } catch {
+    known = null;
+  }
+  if (agencyCache.size > 500) agencyCache.clear();
+  agencyCache.set(slug, { known, until: Date.now() + (known === null ? 5_000 : 60_000) });
+  return known;
 }
 
 async function whoIsThis(request: NextRequest, refreshed: CookieToSet[], headers: Record<string, string>): Promise<Role> {
@@ -83,17 +105,36 @@ export async function middleware(request: NextRequest) {
   const refreshed: CookieToSet[] = [];
   const headers: Record<string, string> = {};
   const role = await whoIsThis(request, refreshed, headers);
-  const decision = decide(pathname, role, search);
+
+  // The public website: /<agency>/... is the page without its prefix, for that agency. Whatever `x-agency` the browser sent is discarded;
+  // the only one a page or an API route ever sees is the one decided here, from the address or the remembered choice.
+  let routed = routeAgency(pathname, request.cookies.get(AGENCY_COOKIE)?.value);
+  let nobody = false;
+  if (routed.slug && (await agencyKnown(routed.slug)) === false) {
+    if (routed.remember) nobody = true; // the address names an agency that does not exist: the usual 404 page, and nothing is sent to the backend
+    else routed = { ...routed, slug: null, forget: true }; // a remembered agency that is gone (suspended, say): back to the original one
+  }
+  const forwarded = new Headers(request.headers);
+  forwarded.delete(AGENCY_HEADER);
+  if (routed.slug) forwarded.set(AGENCY_HEADER, routed.slug);
+  const decision = decide(routed.path, role, search);
 
   let response: NextResponse;
-  if (decision.action === "next") {
-    response = NextResponse.next({ request });
+  if (nobody) {
+    response = NextResponse.rewrite(new URL("/_agency-not-found", request.url));
+  } else if (decision.action === "next") {
+    // `request` carries any refreshed sign-in cookies (set above), so the copy of its headers keeps them.
+    response = routed.path === pathname
+      ? NextResponse.next({ request: { headers: forwarded } })
+      : NextResponse.rewrite(new URL(`${routed.path}${search}`, request.url), { request: { headers: forwarded } });
   } else if (decision.action === "deny") {
     response = NextResponse.json({ detail: decision.status === 401 ? "Please sign in" : "This area is for members of an organization only" }, { status: decision.status });
   } else {
     response = NextResponse.redirect(new URL(decision.to, request.url));
   }
   for (const { name, value, options } of refreshed) response.cookies.set(name, value, options);
+  if (!nobody && routed.remember && routed.slug) response.cookies.set(AGENCY_COOKIE, routed.slug, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 30, secure: process.env.NODE_ENV === "production" });
+  if (routed.forget) response.cookies.delete(AGENCY_COOKIE);
   for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
   return response;
 }
