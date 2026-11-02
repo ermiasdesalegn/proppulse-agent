@@ -68,6 +68,8 @@ describe("background jobs", () => {
     expect(jobOutcome(job({ status: "done", result: { sent: 2, skipped: 1 } }))).toBe("2 sent, 1 skipped");
     expect(jobOutcome(job({ status: "failed", attempts: 2 }))).toBe("attempt 2 of 5 failed; retrying");
     expect(jobOutcome(job({ status: "dead", attempts: 5 }))).toBe("gave up after 5 attempts");
+    expect(jobOutcome(job({ status: "done", kind: "keys.rewrap", result: { status: "rewrapped" } }))).toBe("rewrapped");
+    expect(jobLabel("keys.rewrap")).toBe("Master-key re-wrap");
     expect(jobTone("dead")).toBe("bad");
     expect(jobTone("done")).toBe("good");
   });

@@ -106,7 +106,7 @@ export interface Job {
   max_attempts: number;
   run_after: string;
   last_error: string | null;
-  result: { sent?: number; skipped?: number; failed?: number } | null;
+  result: { sent?: number; skipped?: number; failed?: number; status?: string } | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -127,6 +127,7 @@ const JOB_LABEL: Record<string, string> = {
   "proactive.milestone_reminders": "Payment milestones and commission",
   "projects.promotion_ads": "Developers' offers",
   "prices.project_changed": "Project price notices",
+  "keys.rewrap": "Master-key re-wrap",
 };
 
 export function jobLabel(kind: string): string {
@@ -146,6 +147,7 @@ export function canRetry(job: Job, operator: boolean): boolean {
 export function jobOutcome(job: Job): string {
   if (job.status === "done") {
     const r = job.result ?? {};
+    if (r.sent === undefined && r.status) return r.status; // a job that sends nothing (a key re-wrap) says what it did
     return `${r.sent ?? 0} sent, ${r.skipped ?? 0} skipped${r.failed ? `, ${r.failed} failed` : ""}`;
   }
   if (job.status === "failed") return `attempt ${job.attempts} of ${job.max_attempts} failed; retrying`;
