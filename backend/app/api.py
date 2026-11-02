@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.access import console_access, console_admin, console_owner, job_access, run_for_orgs
+from app.access import console_access, console_owner, job_access, market_admin, market_agent, run_for_orgs
 from app.ads import AdError
 from app.chat import ChatService, Conflict, Inbound
 from app.events import sse_frames
@@ -177,7 +177,7 @@ async def proactive_events(audience: str | None = None, limit: int = 100, repo: 
     return await repo.list_events(audience=audience, limit=min(max(limit, 1), 500))
 
 
-@router.post("/api/properties/{property_id}/price", dependencies=[Depends(console_admin)])
+@router.post("/api/properties/{property_id}/price", dependencies=[Depends(market_admin)])
 async def change_price(property_id: UUID, body: PriceIn, repo: Repository = Depends(repo_of)):
     """Record a developer's price change. The next proactive run alerts buyers the unit now suits."""
     try:
@@ -315,7 +315,7 @@ async def list_announcements(repo: Repository = Depends(repo_of)):
     return await repo.list_announcements()
 
 
-@router.post("/api/ingest", dependencies=[Depends(console_admin)])
+@router.post("/api/ingest", dependencies=[Depends(market_admin)])
 async def ingest(body: IngestIn, request: Request, service: IngestionService = Depends(ingest_of)):
     try:
         report = await service.run(developer_slug=body.developer_slug, source=body.source, html=body.html, text=body.text, url=body.url,
@@ -341,7 +341,7 @@ class PortalBatchIn(BaseModel):
     llm_budget: int = Field(default=3, ge=0, le=10)
 
 
-@router.post("/api/ingest/portal", dependencies=[Depends(console_admin)])
+@router.post("/api/ingest/portal", dependencies=[Depends(market_admin)])
 async def ingest_portal(body: PortalBatchIn, service: IngestionService = Depends(ingest_of)):
     return await service.run_portal(portal=body.portal, name=body.name, items=body.items, dry_run=body.dry_run, llm_budget=body.llm_budget)
 
@@ -352,7 +352,7 @@ class PortalSyncIn(BaseModel):
     dry_run: bool = False
 
 
-@router.post("/api/ingest/portal/sync", dependencies=[Depends(console_admin)])
+@router.post("/api/ingest/portal/sync", dependencies=[Depends(market_admin)])
 async def ingest_portal_sync(body: PortalSyncIn, service: IngestionService = Depends(ingest_of)):
     """Sent once at the end of a complete portal crawl: listings that are no longer on the portal stop being offered."""
     try:
@@ -394,7 +394,7 @@ async def portal_runs(service: PortalRunService = Depends(portal_runs_of)):
     return {"config": service.config(), "runs": await service.runs()}
 
 
-@router.post("/api/portal/runs", dependencies=[Depends(console_admin)])
+@router.post("/api/portal/runs", dependencies=[Depends(market_admin)])
 async def start_portal_crawl(body: PortalRunIn, service: PortalRunService = Depends(portal_runs_of)):
     try:
         return await service.start(site=body.site, limit=body.limit, dry_run=body.dry_run)
@@ -402,7 +402,7 @@ async def start_portal_crawl(body: PortalRunIn, service: PortalRunService = Depe
         raise HTTPException(502 if "GitHub" in str(exc) else 422, str(exc)) from None
 
 
-@router.post("/api/portal/runs/report", dependencies=[Depends(console_admin)])
+@router.post("/api/portal/runs/report", dependencies=[Depends(market_admin)])
 async def portal_run_report(body: PortalReportIn, service: PortalRunService = Depends(portal_runs_of)):
     try:
         if body.phase == "start":
@@ -450,7 +450,7 @@ async def _record_scrape_failure(request: Request, repo: Repository, dev: dict, 
             pass
 
 
-@router.put("/api/developers/{slug}/scrape", dependencies=[Depends(console_admin)])
+@router.put("/api/developers/{slug}/scrape", dependencies=[Depends(market_admin)])
 async def set_scrape_source(slug: str, body: ScrapeConfigIn, repo: Repository = Depends(repo_of)):
     if (body.url is None) != (body.profile is None):
         raise HTTPException(422, "give both the address and the selectors, or neither to clear them")
@@ -465,7 +465,7 @@ class SuggestIn(BaseModel):
     html: str | None = Field(default=None, max_length=500_000)
 
 
-@router.post("/api/developers/{slug}/suggest-profile", dependencies=[Depends(console_admin)])
+@router.post("/api/developers/{slug}/suggest-profile", dependencies=[Depends(market_admin)])
 async def suggest_scrape_profile(slug: str, body: SuggestIn, service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of)):
     """Let the language model propose selectors for a developer's page and test them. Nothing is saved: the broker reviews the preview."""
     from app.ingest.onboard import suggest_profile
@@ -519,7 +519,7 @@ async def demo_js_listing():
     return Response(page, media_type="text/html")
 
 
-@router.post("/api/cron/scrape-market", dependencies=[Depends(job_access("admin"))])  # shared market data: runs once, whoever asks
+@router.post("/api/cron/scrape-market", dependencies=[Depends(job_access("admin", operator_only=True))])  # shared market data: the platform only
 async def scrape_market(request: Request, dry_run: bool = False, publish_ads: bool = False,
                         service: IngestionService = Depends(ingest_of), repo: Repository = Depends(repo_of)):
     """Read every developer that has a scrape address saved. One developer failing never stops the others."""
@@ -895,7 +895,7 @@ async def list_price_requests(repo: Repository = Depends(repo_of)):
     return await repo.list_price_requests()
 
 
-@router.post("/api/developers/{slug}/crawl-projects", dependencies=[Depends(console_admin)])
+@router.post("/api/developers/{slug}/crawl-projects", dependencies=[Depends(market_admin)])
 async def crawl_projects(slug: str, body: CrawlIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -905,7 +905,7 @@ async def crawl_projects(slug: str, body: CrawlIn, projects=Depends(projects_of)
         raise _project_error(exc) from None
 
 
-@router.put("/api/projects/{project_id}/price", dependencies=[Depends(console_access)])
+@router.put("/api/projects/{project_id}/price", dependencies=[Depends(market_agent)])
 async def set_project_price(project_id: UUID, body: ProjectPriceIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -915,7 +915,7 @@ async def set_project_price(project_id: UUID, body: ProjectPriceIn, projects=Dep
         raise _project_error(exc) from None
 
 
-@router.put("/api/projects/{project_id}/promo", dependencies=[Depends(console_access)])
+@router.put("/api/projects/{project_id}/promo", dependencies=[Depends(market_agent)])
 async def set_project_promo(project_id: UUID, body: ProjectPromoIn, repo: Repository = Depends(repo_of)):
     row = await repo.set_project_promo(project_id, (body.text or "").strip() or None, body.discount_pct if body.text else None, body.until if body.text else None)
     if row is None:
@@ -945,7 +945,7 @@ class DeveloperIn(BaseModel):
     commission_rate_pct: float = Field(default=3.0, ge=0, le=100)
 
 
-@router.post("/api/developers", dependencies=[Depends(console_admin)])
+@router.post("/api/developers", dependencies=[Depends(market_admin)])
 async def create_developer(body: DeveloperIn, repo: Repository = Depends(repo_of)):
     import re as _re
 
@@ -971,7 +971,7 @@ class ImageUrlIn(BaseModel):
     url: str | None = Field(default=None, max_length=500, pattern=r"^https?://")
 
 
-@router.post("/api/projects/{project_id}/media", dependencies=[Depends(console_access)])
+@router.post("/api/projects/{project_id}/media", dependencies=[Depends(market_agent)])
 async def add_project_media(project_id: UUID, body: MediaIn, projects=Depends(projects_of)):
     from app.projects import ProjectError
 
@@ -999,7 +999,7 @@ async def project_media_file(project_id: UUID, media_id: int, repo: Repository =
     return Response(bytes(row["data"]), media_type=row["mime"], headers={"Cache-Control": "private, max-age=3600"})
 
 
-@router.delete("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(console_access)])
+@router.delete("/api/projects/{project_id}/media/{media_id}", dependencies=[Depends(market_agent)])
 async def delete_project_media(project_id: UUID, media_id: int, repo: Repository = Depends(repo_of)):
     row = await repo.get_project_media(media_id)
     if row is None or str(row["project_id"]) != str(project_id) or not await repo.delete_project_media(media_id):
@@ -1007,7 +1007,7 @@ async def delete_project_media(project_id: UUID, media_id: int, repo: Repository
     return {"ok": True}
 
 
-@router.put("/api/projects/{project_id}/image", dependencies=[Depends(console_access)])
+@router.put("/api/projects/{project_id}/image", dependencies=[Depends(market_agent)])
 async def set_project_image(project_id: UUID, body: ImageUrlIn, repo: Repository = Depends(repo_of)):
     if await repo.set_project_image(project_id, body.url) is None:
         raise HTTPException(404, "project not found")

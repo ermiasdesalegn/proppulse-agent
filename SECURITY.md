@@ -12,6 +12,7 @@ What the system protects, how, and what it does not do. Report problems to the r
 | An agency's credentials (bot token, calendar key) | Encrypted with a per-agency key under a master key kept only in the server's environment (`SECRETS_MASTER_KEY`); bound to the agency and name; never returned by the API; the restricted database role cannot read them |
 | An agency's Telegram webhook (`/api/telegram/webhook/<agency>`) | A secret registered for that bot, compared in constant time; an unknown agency, a suspended one and a wrong secret all answer the same 403 |
 | Backend admin API (`/api/*`) | `X-Admin-Key` header compared in constant time; the key never leaves the dashboard's server (the browser talks to a proxy that adds it) |
+| Shared market data (crawls, ingestion, developers, prices, project offers and pictures) | Writable only through the platform key or a member of the operator's own agency; every other agency's members get 403 whatever their role, and their database role cannot write those tables at all |
 | Cron endpoints | `X-Cron-Secret` (Cloud Scheduler) or the admin key |
 | Telegram webhook | Secret token header compared in constant time; refuses everything if no secret is configured |
 | Announcement email webhook | Shared secret header; each message id is processed once; unknown senders are recorded and ignored |

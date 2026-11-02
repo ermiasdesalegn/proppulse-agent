@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 
 from app.buyer_auth import BuyerIdentity, TokenError, verifier_of
 from app.tenancy import DEFAULT_ORG_ID, TenantContext, use_tenant
@@ -156,12 +156,12 @@ async def agency_scope(request: Request, x_agency: str | None = Header(default=N
         yield
 
 
-def job_access(minimum: str = "agent"):
+def job_access(minimum: str = "agent", *, operator_only: bool = False):
     """Guard for the scheduled jobs. Returns the organizations the job should run for.
 
     The cron secret runs a job for every active organization (or for the one named in X-Org-Id). The operator's admin key runs it
     for the one named, or the original one. A signed-in member of at least `minimum` role runs it for their own organization only,
-    which is what the console's buttons do.
+    which is what the console's buttons do. With `operator_only` a member must belong to the operator's own agency.
     """
 
     async def guard(
@@ -183,7 +183,10 @@ def job_access(minimum: str = "agent"):
         if s.cron_secret and _same(x_cron_secret, s.cron_secret):
             return await named() if org else await platform.active_org_ids()
         if x_cron_secret is None and x_admin_key is None and _bearer(authorization):
-            return [(await _member_principal(request, authorization, org, minimum)).tenant.org_id]
+            member = await _member_principal(request, authorization, org, minimum)
+            if operator_only and member.tenant.org_id != OPERATOR_ORG_ID:
+                raise HTTPException(403, NOT_OPERATOR)
+            return [member.tenant.org_id]
         if not s.cron_secret and not s.admin_api_key:
             raise HTTPException(503, "Neither CRON_SECRET nor ADMIN_API_KEY is configured")
         if s.admin_api_key and _same(x_admin_key, s.admin_api_key):
@@ -230,4 +233,25 @@ def principal_of(request: Request) -> Principal:
 console_access = require_role()          # read: viewer, write: agent
 console_admin = require_role("admin")    # settings, members, shared-data jobs
 console_owner = require_role("owner")    # the most destructive operations
+
+
+# The market data (listings, projects, developers, crawls) is shared by every agency, so changing it changes it for all of them.
+# Only the platform (the admin key) and the members of the operator's own agency, the original organization, may do that.
+OPERATOR_ORG_ID = DEFAULT_ORG_ID
+NOT_OPERATOR = "Shared market data can only be changed by the platform operator"
+
+
+def market_editor(minimum: str):
+    guard = require_role(minimum)
+
+    async def check(p: Principal = Depends(guard)) -> Principal:
+        if not (p.platform or p.tenant.org_id == OPERATOR_ORG_ID):
+            raise HTTPException(403, NOT_OPERATOR)
+        return p
+
+    return check
+
+
+market_admin = market_editor("admin")   # crawls, ingestion, developers, price changes
+market_agent = market_editor("agent")   # a project's price, offer, pictures
 

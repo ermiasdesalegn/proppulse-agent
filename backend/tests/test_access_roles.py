@@ -66,9 +66,9 @@ async def test_roles_decide_what_a_member_may_change(api, db_conn):
     takeover = f"/api/buyers/{buyer}/takeover"
     assert (await api.post(takeover, headers=bearer(viewer))).status_code == 403, "a viewer only looks"
     assert (await api.post(takeover, headers=bearer(agent))).status_code != 403, "an agent may act"
-    dev = "/api/developers/nobody/scrape"  # shared-data setup is for admins
+    dev = "/api/developers/nobody/scrape"  # shared-data setup: never for an ordinary agency (see test_market_access.py)
     assert (await api.put(dev, json={}, headers=bearer(agent))).status_code == 403
-    assert (await api.put(dev, json={}, headers=bearer(admin))).status_code != 403
+    assert (await api.put(dev, json={}, headers=bearer(admin))).status_code == 403
     reset = "/api/demo/reset"
     assert (await api.post(reset, json={"confirm": "RESET"}, headers=bearer(admin))).status_code == 403, "reset is for owners"
 

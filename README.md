@@ -197,7 +197,7 @@ Each agency is an organization with its own team (roles viewer < agent < admin <
 
 Moving the live database and app over (what is safe to apply first, why migration 023 needs a short switch window, how to go back): [docs/MIGRATION_HOSTED.md](docs/MIGRATION_HOSTED.md).
 
-Also built: the shared market data is read-only for an agency's database role (writes run as the platform), every change to roles, invitations and channels is recorded in a per-agency audit trail, each plan caps how many buyer messages the assistant answers per day (free 100, pro 1,000, business 10,000), and the console has an **Agency** page to connect a Telegram bot and calendar, see today's use and read the change history.
+Also built: the shared market data is read-only for an agency's database role (writes run as the platform) and only the platform or the operator's own agency can edit it from the console, every change to roles, invitations and channels is recorded in a per-agency audit trail, each plan caps how many buyer messages the assistant answers per day (free 100, pro 1,000, business 10,000), and the console has an **Agency** page to connect a Telegram bot and calendar, see today's use and read the change history.
 
 Not done yet: a public page to choose an agency, key rotation, and the hosted database is still at migration 019 (020 to 026 run on the local and test databases).
 
