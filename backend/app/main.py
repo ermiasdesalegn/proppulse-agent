@@ -29,6 +29,7 @@ from app.jobs_api import router as jobs_router
 from app.observability import GuardMiddleware, secrets_from
 from app.org_api import router as org_router
 from app.portal_api import router as portal_router
+from app.prices_api import router as prices_router
 from app.proactive import ProactiveService
 from app.projects import ProjectService
 from app.quota import router as quota_router
@@ -116,6 +117,7 @@ async def lifespan(app: FastAPI):
     app.state.runtime = runtime
     app.state.telegram_mode = telegram_status
     app.state.jobs = JobQueue(pool, per_org_limit=s.job_per_org_limit, lease=timedelta(seconds=s.job_lease_seconds), secrets=secrets_from(s))
+    projects.jobs = app.state.jobs
     worker = JobWorker(app.state.jobs, app.state, concurrency=s.job_workers) if s.job_workers > 0 else None
     if worker:
         await worker.start()
@@ -150,6 +152,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(channels_router)
     app.include_router(quota_router)
     app.include_router(jobs_router)
+    app.include_router(prices_router)
 
     @app.get("/health")
     def health() -> dict:

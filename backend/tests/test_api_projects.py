@@ -52,7 +52,7 @@ async def test_crawl_then_list_then_set_price_and_offer_and_advertise(api, spy_r
     assert project["price_from_etb"] is None and project["open_requests"] == 0 and project["developer_name"] == "Noah Real Estate"
 
     pid = project["id"]
-    assert (await client.put(f"/api/projects/{pid}/price", json={"price_from_etb": 18_000_000, "note": "from the 3 bedroom"}, headers=ADMIN)).json()["buyers_told"] == 0
+    assert (await client.put(f"/api/projects/{pid}/price", json={"price_from_etb": 18_000_000, "note": "from the 3 bedroom"}, headers=ADMIN)).json()["agencies"] == 0, "nobody asked yet, so no agency has anything to tell"
     assert (await client.get("/api/projects", headers=ADMIN)).json()[0]["price_from_etb"] == 18_000_000
     assert (await client.put(f"/api/projects/{pid}/price", json={"price_from_etb": -1}, headers=ADMIN)).status_code == 422
 

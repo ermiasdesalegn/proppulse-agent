@@ -26,8 +26,15 @@ from app.ingest.projects import crawl, read_projects
 from app.language import msg
 from app.repository import Repository
 from app.services import Services
+from app.tenancy import resolve_org_id
 
 log = logging.getLogger(__name__)
+
+PRICE_JOB = "prices.project_changed"
+
+
+def _num(value: Any) -> float | None:
+    return None if value is None else float(value)
 
 PROJECT_LINK = re.compile(r"^(proj|pinfo|pvisit)_([0-9a-f]{8})$")
 ASK_PRICE = re.compile(r"^\s*Ask the price of (.{3,120}?)\s*$", re.I)
@@ -143,6 +150,7 @@ class ProjectService:
         self._names: tuple[float, list[dict]] = (0.0, [])
         self.sweep: dict[str, Any] = {"running": False, "last": None}
         self._sweep_task: asyncio.Task | None = None
+        self.jobs: Any = None  # the job queue (app/jobs.py); the app sets it, a test without one gets one on the repository's connections
 
     # ---------------- reading developer sites ----------------
 
@@ -450,46 +458,97 @@ class ProjectService:
 
     # ---------------- the broker sets a price ----------------
 
+    def _queue(self) -> Any:
+        from app.jobs import JobQueue
+
+        if self.jobs is None:
+            self.jobs = JobQueue(self.repo.pool)
+        return self.jobs
+
     async def set_price(self, project_id: UUID | str, price_from_etb: float | None, note: str | None = None) -> dict:
+        """The shared price, which only the platform sets. Every agency whose buyers asked for this project is told in its own job, in
+        its own scope, with the price that agency shows: an agency with a price of its own keeps it and is not contradicted.
+
+        (Before, the buyers were told here, in the operator's scope, so only the operator agency's buyers ever heard: price requests
+        are private to each agency.)"""
         if price_from_etb is not None and not (0 < price_from_etb < 1e12):
             raise ProjectError("The price must be a positive amount in birr.")
         before = await self.repo.get_project(project_id)
         if before is None:
             raise LookupError("project not found")
-        old_price = float(before["price_from_etb"]) if before["price_from_etb"] is not None else None
+        old = before["shared_price_from_etb"]
         updated = await self.repo.set_project_price(project_id, price_from_etb, (note or "").strip() or None)
         if updated is None:
             raise LookupError("project not found")
+        orgs = await self.repo.as_platform().orgs_with_price_requests(project_id)
+        version = time.time_ns()  # each save is its own announcement; a retry of the same save's job reuses that job, it is never queued twice
+        queued = [await self._queue().enqueue(org, PRICE_JOB, {"project_id": str(project_id), "old": _num(old), "source": "shared"},
+                                              dedupe_key=f"shared:{project_id}:{version}") for org in orgs]
+        return {"project": before["name"], "price_from_etb": price_from_etb, "agencies": len(orgs), "job_ids": [q.id for q in queued]}
+
+    async def set_agency_price(self, project_id: UUID | str, price_etb: float | None, note: str | None = None, valid_until: date | None = None,
+                               *, by: UUID | None = None) -> dict:
+        """The agency in scope sets (or, with None, clears) its own price for a project. Its own buyers are told in a job of its own."""
+        if price_etb is not None and not (0 < price_etb < 1e12):
+            raise ProjectError("The price must be a positive amount in birr.")
+        before = await self.repo.get_project(project_id)
+        if before is None:
+            raise LookupError("project not found")
+        if price_etb is None:
+            await self.repo.clear_agency_price("project", project_id)
+        else:
+            await self.repo.set_agency_price("project", project_id, price_etb, note=(note or "").strip() or None, valid_until=valid_until, created_by=by)
+        after = await self.repo.get_project(project_id)
+        assert after is not None
+        org = resolve_org_id()
+        job = await self._queue().enqueue(org, PRICE_JOB, {"project_id": str(project_id), "old": _num(before["price_from_etb"]), "source": "agency"},
+                                          dedupe_key=f"agency:{project_id}:{time.time_ns()}")
+        return {"project": after["name"], "shared_price_from_etb": _num(after["shared_price_from_etb"]), "agency_price_etb": _num(after["agency_price_etb"]),
+                "price_from_etb": _num(after["price_from_etb"]), "job_id": job.id}
+
+    async def announce_price(self, project_id: UUID | str, old: float | None, *, source: str = "shared") -> dict:
+        """Tell the agency in scope's buyers about the project's price as this agency shows it now. Run as a job, once per agency; safe to
+        run twice: each message is claimed once (its key holds the buyer and the price)."""
         project = await self.repo.get_project(project_id)
-        assert project is not None
-        told = skipped = 0
-        if price_from_etb is not None and self.proactive is not None:
-            for req in await self.repo.open_price_requests(project_id):
-                buyer = await self.repo.get_buyer(req["buyer_id"])
-                if buyer is None:
-                    continue
-                text = msg("proj_price_known", await self._language_of(buyer), project=project["name"],
-                           developer=project["developer_name"], price=fmt_etb(price_from_etb), note=(f" ({project['price_note']})" if project.get("price_note") else ""))
-                if buyer["human_takeover"]:  # the broker owns this chat: tell the broker, not the buyer
-                    await self.proactive._notify_broker("PROJECT_PRICE", f"projprice-broker:{project_id}:{buyer['id']}:{price_from_etb:g}",
-                                                        f"{project['name']} now has a price ({fmt_etb(price_from_etb)}). {buyer.get('full_name') or 'A buyer'} asked for it in a chat you hold.",
-                                                        buyer_id=buyer["id"])
-                    skipped += 1
-                    continue
-                claim = await self.repo.claim_event(kind="PROJECT_PRICE", audience="buyer", dedupe_key=f"projprice:{project_id}:{buyer['id']}:{price_from_etb:g}", buyer_id=buyer["id"])
-                if claim is None:
-                    skipped += 1
-                    continue
-                channel = await self.proactive._deliver_to_buyer(buyer, text)
-                if channel is None:
-                    skipped += 1  # the claim stays pending and is retried the next time the price is saved
-                    continue
-                await self.proactive._remember(buyer, text)
-                await self.proactive._finish(claim, text, channel)
-                await self.repo.answer_price_request(req["id"])
-                told += 1
-        changed = await self._price_changed(project, old_price, price_from_etb)
-        return {"project": project["name"], "price_from_etb": price_from_etb, "buyers_told": told + changed["told"], "skipped": skipped + changed["skipped"], "change": changed["kind"]}
+        out: dict[str, Any] = {"job": "project_price", "project": None, "sent": 0, "skipped": 0, "failed": 0, "change": None}
+        if project is None or self.proactive is None:
+            return out
+        out["project"] = project["name"]
+        if source == "shared" and project["agency_price_etb"] is not None:
+            out["note"] = "this agency shows its own price, which did not change"
+            return out
+        new = _num(project["price_from_etb"])
+        if new is None:
+            return out
+        for req in await self.repo.open_price_requests(project_id):
+            buyer = await self.repo.get_buyer(req["buyer_id"])
+            if buyer is None:
+                continue
+            text = msg("proj_price_known", await self._language_of(buyer), project=project["name"],
+                       developer=project["developer_name"], price=fmt_etb(new), note=(f" ({project['price_note']})" if project.get("price_note") else ""))
+            if buyer["human_takeover"]:  # the broker owns this chat: tell the broker, not the buyer
+                await self.proactive._notify_broker("PROJECT_PRICE", f"projprice-broker:{project_id}:{buyer['id']}:{new:g}",
+                                                    f"{project['name']} now has a price ({fmt_etb(new)}). {buyer.get('full_name') or 'A buyer'} asked for it in a chat you hold.",
+                                                    buyer_id=buyer["id"])
+                out["skipped"] += 1
+                continue
+            claim = await self.repo.claim_event(kind="PROJECT_PRICE", audience="buyer", dedupe_key=f"projprice:{project_id}:{buyer['id']}:{new:g}", buyer_id=buyer["id"])
+            if claim is None:
+                out["skipped"] += 1
+                continue
+            channel = await self.proactive._deliver_to_buyer(buyer, text)
+            if channel is None:
+                out["skipped"] += 1  # the claim stays pending and is retried the next time the price is saved
+                continue
+            await self.proactive._remember(buyer, text)
+            await self.proactive._finish(claim, text, channel)
+            await self.repo.answer_price_request(req["id"])
+            out["sent"] += 1
+        changed = await self._price_changed(project, old, new)
+        out["sent"] += changed["told"]
+        out["skipped"] += changed["skipped"]
+        out["change"] = changed["kind"]
+        return out
 
     async def _price_changed(self, project: dict, old: float | None, new: float | None) -> dict:
         """A price that was already given and then changed. A drop goes to the buyers who asked for it; an increase only to the broker,
@@ -618,3 +677,14 @@ class ProjectService:
             else:
                 out["skipped"] += 1
         return out
+
+
+# ---------------- the price job ----------------
+
+from app.jobs import JobContext, job  # noqa: E402  (registered here, next to the code it runs)
+
+
+@job(PRICE_JOB)
+async def _project_price_job(ctx: JobContext) -> dict:
+    p = ctx.payload
+    return await ctx.state.projects.announce_price(p["project_id"], p.get("old"), source=p.get("source", "shared"))

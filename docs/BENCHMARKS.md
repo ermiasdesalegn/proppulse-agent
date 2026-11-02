@@ -78,3 +78,28 @@ Claim rate: 594 jobs/s (2,000 jobs that do nothing, 20 agencies, 4 workers).
 - Several processes or machines (the concurrency test runs four workers with their own pools in one process; the claim's correctness does not depend on that, its throughput might).
 - A hosted database: every claim is a few round trips, so network latency would lower the claim rate.
 - Real jobs. The proactive jobs call Telegram and the calendar; their time is the work itself, not the queue.
+
+---
+
+# Benchmark: property search with per-agency prices
+
+`python -m scripts.bench_tenants` (backend), the same run as the first benchmark, with the catalogue grown to 3,015 units. One run, 2026-11-02.
+
+The search is the buyer-facing one (`match_properties_hybrid`: nearest by meaning, within budget and bedrooms), as `app_user` with
+row-level security. "Before 028" is the same query on the shared table; the other two go through `agency_properties`, first with no agency
+prices, then with each of the 50 agencies pricing about a third of the units (50,159 rows in `agency_prices`).
+
+| Search | p50 ms | p95 ms |
+|---|---:|---:|
+| shared prices, before 028 | 1.24 | 1.69 |
+| agency view, no agency prices | 1.34 | 1.65 |
+| agency view, 50,159 agency prices | 1.42 | 1.71 |
+
+## What it shows
+
+1. **The agency's price costs about 0.1 to 0.2 ms at p50 and nothing measurable at p95.** The view adds one primary-key lookup per
+   candidate unit (`org_id, target_kind, target_id`).
+2. **One index made it worse.** The first version also had an index on `(target_kind, target_id)`. The planner preferred it, read every
+   agency's price for each unit (12 here) and filtered them: p95 2.83 ms, 46% over the shared-price search. Without it the primary key is
+   used and the difference disappears. Nothing needs that index today; if something does later, put `org_id` last in it.
+3. Each run is a fresh transaction, so the numbers include planning, which the view makes slightly larger.

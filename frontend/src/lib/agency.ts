@@ -67,6 +67,8 @@ const ACTION_LABEL: Record<string, string> = {
   "channel.calendar_disconnect": "Disconnected the calendar",
   "settings.change": "Changed settings",
   "job.retry": "Retried a background job",
+  "price.override_set": "Set the agency's own price",
+  "price.override_clear": "Went back to the shared price",
 };
 
 export function actionLabel(action: string): string {
@@ -123,6 +125,7 @@ const JOB_LABEL: Record<string, string> = {
   "proactive.tour_reminders": "24-hour tour reminders",
   "proactive.milestone_reminders": "Payment milestones and commission",
   "projects.promotion_ads": "Developers' offers",
+  "prices.project_changed": "Project price notices",
 };
 
 export function jobLabel(kind: string): string {

@@ -136,7 +136,7 @@ class Repository:
         whatever its description says, so it is reported as an exact match (1.0)."""
         order = self.RANKINGS[ranking]
         rows = await self._fetch(
-            "select id, developer_id, title, sub_city, price_etb, bedrooms, 1.0::float8 as similarity from properties "
+            "select id, developer_id, title, sub_city, price_etb, bedrooms, 1.0::float8 as similarity from agency_properties "
             "where status = 'AVAILABLE' and (%s::numeric is null or price_etb <= %s) and (%s::int is null or bedrooms >= %s) "
             "and (cardinality(%s::text[]) = 0 or sub_city = any(%s::text[])) "
             f"order by {order} limit %s",
@@ -151,8 +151,8 @@ class Repository:
             "p.bedrooms, p.sqm, p.down_payment_pct, p.construction_stage_pct, p.est_rental_yield_pct, p.delivery_date, "
             "p.status, p.description, p.floor_plan_image_url, p.vision_amenities, p.payment_plan, p.source_url, "
             "d.name as developer_name, d.slug as developer_slug, d.sales_email, d.commission_rate_pct, "
-            "d.payment_plan as developer_payment_plan, d.reliability_score "
-            "from properties p join developers d on d.id = p.developer_id where p.id = any(%s::uuid[])",
+            "d.payment_plan as developer_payment_plan, d.reliability_score, p.shared_price_etb, p.agency_price_etb "
+            "from agency_properties p join developers d on d.id = p.developer_id where p.id = any(%s::uuid[])",
             ([str(i) for i in ids],),
         )
         by_id = {str(r["id"]): r for r in rows}
@@ -349,7 +349,7 @@ class Repository:
     async def recent_price_drops(self, since: datetime) -> list[dict]:
         return await self._fetch(
             f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
-            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join properties p on p.id = ph.property_id "
+            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join agency_properties p on p.id = ph.property_id "
             f"join developers d on d.id = p.developer_id "
             # Only drops still in effect: if the price moved again since, the drop is no longer true and is not news.
             f"where ph.detected_at >= %s and ph.change_pct < 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb "
@@ -360,7 +360,7 @@ class Repository:
     async def recent_price_increases(self, since: datetime) -> list[dict]:
         return await self._fetch(
             f"select ph.id as price_history_id, ph.old_price_etb, ph.new_price_etb, ph.change_pct, ph.detected_at, "
-            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join properties p on p.id = ph.property_id "
+            f"{self._PROPERTY_EVENT_COLUMNS} from price_history ph join agency_properties p on p.id = ph.property_id "
             f"join developers d on d.id = p.developer_id "
             f"where ph.detected_at >= %s and ph.change_pct > 0 and p.status = 'AVAILABLE' and p.price_etb = ph.new_price_etb "
             f"order by ph.detected_at",
@@ -370,7 +370,7 @@ class Repository:
     async def recent_new_listings(self, since: datetime) -> list[dict]:
         # Seed rows are demo inventory, not market events, so they never trigger "new launch" messages.
         return await self._fetch(
-            f"select {self._PROPERTY_EVENT_COLUMNS} from properties p join developers d on d.id = p.developer_id "
+            f"select {self._PROPERTY_EVENT_COLUMNS} from agency_properties p join developers d on d.id = p.developer_id "
             f"where p.created_at >= %s and p.status = 'AVAILABLE' and coalesce(p.vision_amenities->>'source', '') <> 'seed' "
             f"order by p.created_at",
             (since,),
@@ -659,7 +659,7 @@ class Repository:
                         "lead_registered_at, expected_commission_etb) "
                         "select %s, p.developer_id, p.id, %s, %s, case when %s::text is null then null else now() end, "
                         "round(p.price_etb * d.commission_rate_pct / 100, 2) "
-                        "from properties p join developers d on d.id = p.developer_id where p.id = %s returning *",
+                        "from agency_properties p join developers d on d.id = p.developer_id where p.id = %s returning *",
                         (str(buyer_id), str(tour_id) if tour_id else None, e.lead_reg_email_id, e.lead_reg_email_id, str(e.property_id)),
                     )
                     row = await cur.fetchone()
@@ -690,7 +690,7 @@ class Repository:
             "select l.*, b.full_name as buyer_name, b.lead_score, d.name as developer_name, d.slug as developer_slug, "
             "p.title as property_title, p.price_etb as property_price_etb "
             "from commission_ledger l join buyers_crm b on b.id = l.buyer_id "
-            "join developers d on d.id = l.developer_id join properties p on p.id = l.property_id "
+            "join developers d on d.id = l.developer_id join agency_properties p on p.id = l.property_id "
             "where (%s::text is null or l.status = %s) order by l.created_at desc",
             (status, status),
         )
@@ -735,7 +735,7 @@ class Repository:
     async def list_properties_for_map(self) -> list[dict]:
         return await self._fetch(
             "select p.id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, p.bedrooms, p.sqm, p.status, "
-            "d.name as developer_name, d.slug as developer_slug from properties p join developers d on d.id = p.developer_id "
+            "d.name as developer_name, d.slug as developer_slug from agency_properties p join developers d on d.id = p.developer_id "
             "order by d.slug, p.price_etb"
         )
 
@@ -749,7 +749,7 @@ class Repository:
         "p.photo_url, c.project_id as cover_project_id, c.media_id as cover_media_id, c.image_url as cover_image_url, "
         "exists (select 1 from unit_layouts l where l.property_id = p.id) as has_layout "
         "{extra}"
-        "from properties p join developers d on d.id = p.developer_id "
+        "from agency_properties p join developers d on d.id = p.developer_id "
         "left join lateral (select pr.id as project_id, pr.image_url, "
         "(select m.id from project_media m where m.project_id = pr.id and m.kind = 'photo' order by m.id desc limit 1) as media_id "
         "from projects pr where pr.developer_id = p.developer_id and lower(pr.name) = lower(p.project_name) limit 1) c on true "
@@ -786,13 +786,13 @@ class Repository:
         clause = " where " + " and ".join(where)
         order = self._PORTAL_SORTS.get(sort, self._PORTAL_SORTS["newest"])
         rows = await self._fetch(self._PORTAL_UNIT.format(extra="") + clause + f" order by {order} limit %s offset %s", (*params, limit, offset))
-        total = await self._one("select count(*) as n from properties p join developers d on d.id = p.developer_id" + clause, tuple(params))
+        total = await self._one("select count(*) as n from agency_properties p join developers d on d.id = p.developer_id" + clause, tuple(params))
         return rows, int(total["n"]) if total else 0
 
     async def portal_facets(self) -> dict:
         row = await self._one(
             "select coalesce(min(price_etb), 0) as price_min, coalesce(max(price_etb), 0) as price_max, coalesce(max(bedrooms), 0) as bedrooms_max, count(*) as units "
-            "from properties where status = 'AVAILABLE'"
+            "from agency_properties where status = 'AVAILABLE'"
         )
         assert row is not None
         areas = await self._fetch("select sub_city, count(*) as units from properties where status = 'AVAILABLE' group by sub_city order by count(*) desc, sub_city")
@@ -893,7 +893,8 @@ class Repository:
     _PROJECT_COLUMNS = (
         "pr.id, pr.developer_id, pr.name, pr.slug, pr.source_url, pr.sub_city, pr.location_text, pr.summary, pr.bedrooms_min, pr.bedrooms_max, "
         "pr.sqm_min, pr.sqm_max, pr.floors, pr.status, pr.price_from_etb, pr.price_note, pr.image_url, pr.promo_text, pr.promo_discount_pct, "
-        "pr.promo_until, pr.content_hash, pr.last_seen_at, d.name as developer_name, d.slug as developer_slug, d.sales_email"
+        "pr.promo_until, pr.content_hash, pr.last_seen_at, d.name as developer_name, d.slug as developer_slug, d.sales_email, "
+        "pr.shared_price_from_etb, pr.shared_price_note, pr.agency_price_etb, pr.agency_price_note, pr.agency_price_until"
     )
 
     async def upsert_project(self, developer_id: UUID | str, data: dict) -> tuple[dict, str]:
@@ -921,7 +922,7 @@ class Repository:
         return row, "updated"
 
     async def get_project(self, project_id: UUID | str) -> dict | None:
-        return await self._one(f"select {self._PROJECT_COLUMNS} from projects pr join developers d on d.id = pr.developer_id where pr.id = %s", (str(project_id),))
+        return await self._one(f"select {self._PROJECT_COLUMNS} from agency_projects pr join developers d on d.id = pr.developer_id where pr.id = %s", (str(project_id),))
 
     async def find_project_by_code(self, code: str) -> dict | None:
         rows = await self._fetch("select id from projects where replace(id::text, '-', '') like %s limit 2", (code.lower() + "%",))
@@ -934,7 +935,7 @@ class Repository:
             f"(select count(*) from project_media m where m.project_id = pr.id) as media_count, "
             f"(select m.id from project_media m where m.project_id = pr.id order by m.id desc limit 1) as cover_media_id, "
             f"(select m.kind from project_media m where m.project_id = pr.id order by m.id desc limit 1) as cover_media_kind "
-            f"from projects pr join developers d on d.id = pr.developer_id {where}order by d.name, pr.name")
+            f"from agency_projects pr join developers d on d.id = pr.developer_id {where}order by d.name, pr.name")
 
     async def search_projects(self, *, sub_cities: Sequence[str] | None = None, min_bedrooms: int | None = None, limit: int = 2,
                               embedding: Sequence[float] | None = None, threshold: float = 0.65) -> list[dict]:
@@ -944,7 +945,7 @@ class Repository:
         vector = vector_literal(embedding) if embedding is not None else None
         return await self._fetch(
             f"select {self._PROJECT_COLUMNS}, case when %s::vector is null or pr.embedding is null then null else 1 - (pr.embedding <=> %s::vector) end as similarity "
-            "from projects pr join developers d on d.id = pr.developer_id "
+            "from agency_projects pr join developers d on d.id = pr.developer_id "
             "where pr.status = 'SELLING' and (%s::int is null or pr.bedrooms_max is null or pr.bedrooms_max >= %s::int) "
             "and (cardinality(%s::text[]) = 0 or pr.sub_city = any(%s::text[]) "
             "     or (%s::vector is not null and pr.embedding is not null and 1 - (pr.embedding <=> %s::vector) >= %s)) "
@@ -990,7 +991,7 @@ class Repository:
 
     async def projects_with_live_promotion(self) -> list[dict]:
         return await self._fetch(
-            f"select {self._PROJECT_COLUMNS} from projects pr join developers d on d.id = pr.developer_id "
+            f"select {self._PROJECT_COLUMNS} from agency_projects pr join developers d on d.id = pr.developer_id "
             "where pr.status = 'SELLING' and pr.promo_text is not null and (pr.promo_until is null or pr.promo_until >= current_date) order by pr.name")
 
     async def claim_project_post(self, *, project_id: UUID | str, kind: str, promo_key: str, chat_id: str, text: str) -> dict | None:
@@ -1054,6 +1055,34 @@ class Repository:
 
     async def units_with_layout(self) -> set[str]:
         return {str(r["property_id"]) for r in await self._fetch("select property_id from unit_layouts")}
+
+    async def orgs_with_price_requests(self, project_id: UUID | str) -> list[UUID]:
+        """The agencies whose buyers asked for this project's price (open or answered). Platform only: requests are private per agency."""
+        rows = await self._fetch("select distinct org_id from price_requests where project_id = %s order by org_id", (str(project_id),))
+        return [r["org_id"] for r in rows]
+
+    # ---- an agency's own prices (migration 028) ----
+
+    async def set_agency_price(self, kind: str, target_id: UUID | str, price_etb: float, *, note: str | None = None, valid_until: date | None = None,
+                               created_by: UUID | str | None = None) -> dict:
+        row = await self._one(
+            "insert into agency_prices (target_kind, target_id, price_etb, note, valid_until, created_by) values (%s, %s, %s, %s, %s, %s) "
+            "on conflict (org_id, target_kind, target_id) do update set price_etb = excluded.price_etb, note = excluded.note, "
+            "valid_until = excluded.valid_until, created_by = excluded.created_by, updated_at = now() returning *",
+            (kind, str(target_id), price_etb, note, valid_until, None if created_by is None else str(created_by)))
+        assert row is not None
+        return row
+
+    async def clear_agency_price(self, kind: str, target_id: UUID | str) -> bool:
+        rows = await self._fetch("delete from agency_prices where target_kind = %s and target_id = %s returning target_id", (kind, str(target_id)))
+        return bool(rows)
+
+    async def list_agency_prices(self) -> list[dict]:
+        return await self._fetch(
+            "select a.target_kind, a.target_id, a.price_etb, a.note, a.valid_until, a.updated_at, "
+            "coalesce(pr.name, p.title) as name, coalesce(pr.price_from_etb, p.price_etb) as shared_price_etb "
+            "from agency_prices a left join projects pr on a.target_kind = 'project' and pr.id = a.target_id "
+            "left join properties p on a.target_kind = 'property' and p.id = a.target_id order by a.updated_at desc")
 
     async def answered_price_requests(self, project_id: UUID | str) -> list[dict]:
         """Buyers who asked for this project's price and were told: the ones to tell when the price changes."""

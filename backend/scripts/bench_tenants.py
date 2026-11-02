@@ -101,6 +101,7 @@ def main() -> None:
     ap.add_argument("--buyers", type=int, default=400, help="buyers per agency")
     ap.add_argument("--messages", type=int, default=10, help="chat messages per buyer")
     ap.add_argument("--runs", type=int, default=200)
+    ap.add_argument("--units", type=int, default=3000, help="units in the catalogue for the price search")
     args = ap.parse_args()
 
     url = bench_url()
@@ -163,6 +164,35 @@ def main() -> None:
             ("set local hnsw.iterative_scan = relaxed_order", "set local hnsw.max_scan_tuples = 20000"))
     else:
         print(f"pgvector {version} here: no iterative scan (needs 0.8), so that variant is skipped\n")
+
+    # Per-agency prices (migration 028): the property search before (the shared table), through the agency view with no agency
+    # prices, and with every agency pricing a third of the units. The catalogue is first grown to `--units` units so the search has work.
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(
+            "insert into properties (developer_id, title, project_name, unit_type, sub_city, lat, lng, price_etb, bedrooms, sqm, status, "
+            "description, vision_amenities, content_hash, embedding) select developer_id, title || ' #' || g, project_name, unit_type, sub_city, "
+            "lat, lng, price_etb * (0.8 + (g %% 40) / 100.0), bedrooms, sqm, 'AVAILABLE', description, '{}'::jsonb, md5(content_hash || g), embedding "
+            "from properties cross join generate_series(1, %s) g", (max(1, args.units // 15),))
+        units = conn.execute("select count(*) from properties").fetchone()[0]
+        conn.execute("analyze properties")
+    budget = 30_000_000
+
+    def search_before(_c, _org):
+        return ("select p.id, p.price_etb from properties p where p.status = 'AVAILABLE' and p.embedding is not null and p.price_etb <= %s "
+                "and p.bedrooms >= 2 and 1 - (p.embedding <=> %s::vector) >= 0.5 order by p.embedding <=> %s::vector limit 10", (budget, prop[1], prop[1]))
+
+    def search_now(_c, _org):
+        return "select * from match_properties_hybrid(%s::vector, %s, 2, null, 10, 0.5)", (prop[1], budget)
+
+    run(f"property search ({units} units), shared prices, before 028", search_before, "app_user")
+    run(f"property search ({units} units), agency view, no agency prices", search_now, "app_user")
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(
+            "insert into agency_prices (org_id, target_kind, target_id, price_etb) select o.id, 'property', p.id, p.price_etb * 0.95 "
+            "from organizations o cross join properties p where o.slug like 'bench-%' and abs(hashtext(o.id::text || p.id::text)) % 3 = 0")
+        priced = conn.execute("select count(*) from agency_prices").fetchone()[0]
+        conn.execute("analyze agency_prices")
+    run(f"property search ({units} units), agency view, {priced} agency prices", search_now, "app_user")
 
     print(f"| query ({total} buyers in {args.orgs} agencies) | p50 ms | p95 ms | rows |")
     print("|---|---:|---:|---:|")
