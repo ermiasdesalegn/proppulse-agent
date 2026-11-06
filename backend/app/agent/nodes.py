@@ -30,7 +30,7 @@ from app.brochure import render_html as brochure_html
 from app.brochure import render_pdf as brochure_pdf
 from app.dossier import deliver_dossier
 from app.finance import fmt_etb, payment_schedule
-from app.geo import expand_with_adjacent, normalize_sub_cities
+from app.geo import KNOWN_SUB_CITIES, expand_with_adjacent, normalize_sub_cities
 from app.guardrails import looks_like_injection, reply_is_grounded, wants_a_human
 from app.ingest.portal import is_portal_unit
 from app.language import detect_language, msg
@@ -557,7 +557,7 @@ class AgentNodes:
             out["deal_stage"] = "INVENTORY_PENDING"
         lang = self._lang(state)
         if area_is_firm(prefs):
-            text = msg("waitlist_area", lang, area=" or ".join(prefs["preferred_sub_cities"]))
+            text = msg("waitlist_area", lang, area=" or ".join(prefs["preferred_sub_cities"]), areas=", ".join(KNOWN_SUB_CITIES))
         elif budget_is_firm(prefs):
             text = msg("waitlist_budget", lang, budget=fmt_etb(prefs["max_budget_etb"]))
         elif scope["relaxation_step"] > 0 and prefs.get("max_budget_etb"):

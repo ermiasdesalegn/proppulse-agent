@@ -71,8 +71,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "We don't have a unit matching those criteria right now. I've added you to the Priority Watchlist and I'll message you the moment a match appears.",
         "am": "እነዚህን መስፈርቶች የሚያሟላ ቤት አሁን የለንም። በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ የሚመጥን ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ።"},
     "waitlist_area": {
-        "en": "I don't have anything in {area} right now, and I won't offer other areas unless you ask. I've added you to the Priority Watchlist for {area} and I'll message you the moment one appears. If you'd consider somewhere else, just tell me.",
-        "am": "በ{area} አሁን ምንም ቤት የለኝም፤ እርስዎ ካልጠየቁ ሌላ አካባቢ አላቀርብም። ለ{area} በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ። ሌላ አካባቢ ቢያስቡ ብቻ ይንገሩኝ።"},
+        "en": "I don't have anything in {area} right now, and I won't offer other areas unless you ask. We are working in Addis Ababa at the moment, with the most choice in {areas}. I've added you to the Priority Watchlist for {area} and I'll message you the moment one appears. If you'd consider somewhere else, just tell me.",
+        "am": "በ{area} አሁን ምንም ቤት የለኝም፤ እርስዎ ካልጠየቁ ሌላ አካባቢ አላቀርብም። በአሁኑ ጊዜ የምንሠራው በአዲስ አበባ ነው፤ ብዙ ምርጫ ያለው በ{areas} ነው። ለ{area} በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ። ሌላ አካባቢ ቢያስቡ ብቻ ይንገሩኝ።"},
     "waitlist_budget": {
         "en": "I don't have anything within {budget} that matches right now, and I won't go above it unless you ask. I've added you to the Priority Watchlist and I'll message you the moment one appears. If you can stretch a little, just tell me.",
         "am": "ከ{budget} በታች የሚመጥን ቤት አሁን የለኝም፤ እርስዎ ካልጠየቁ ከዚህ በላይ አላቀርብም። በቅድሚያ የመጠባበቂያ ዝርዝር ውስጥ አስገብቼዎታለሁ፤ ቤት እንደመጣ ወዲያውኑ እነግርዎታለሁ። ጥቂት ማስተካከል ከቻሉ ብቻ ይንገሩኝ።"},

@@ -424,6 +424,19 @@ async def test_a_project_is_found_by_area_or_by_meaning_but_not_when_both_miss(r
     assert [p["name"] for p in await repo.search_projects(sub_cities=["Lebu"], limit=5)] == ["Tower Place"], "without a vector it is area only"
 
 
+async def test_a_buyer_who_said_only_this_area_is_not_shown_projects_from_elsewhere_that_read_like_the_wish(repo, db_conn):
+    from app.projects import suggest_projects
+
+    near = [0.1] * 768
+    garden = await add_project(repo, db_conn, "Garden Court", sub_city="Sarbet")
+    await repo.set_project_embedding(garden["id"], near)
+    soft = {"preferred_sub_cities": ["Bahir Dar"], "area_firm": False}
+    firm = {"preferred_sub_cities": ["Bahir Dar"], "area_firm": True}
+    text, _ = await suggest_projects(repo, soft, embedding=near, threshold=0.65)
+    assert "Garden Court" in text, "a soft wish may be met by a project that reads like it"
+    assert await suggest_projects(repo, firm, embedding=near, threshold=0.65) == ("", []), "'only in X' shows nothing from another area"
+
+
 async def test_saving_a_crawl_makes_the_projects_searchable_by_meaning(repo, db_conn):
     site = Site({"https://dev.example/": "<a href='/t/'>t</a>", "https://dev.example/t/": project_page()})
     gw = FakeGateway([info()])

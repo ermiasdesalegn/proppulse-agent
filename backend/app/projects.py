@@ -133,7 +133,9 @@ async def suggest_projects(repo: Repository, prefs: dict, lang: str = "en", limi
     from app.geo import expand_with_adjacent
 
     cities = list(prefs.get("preferred_sub_cities") or [])
-    if not (prefs.get("area_firm") and cities):
+    if prefs.get("area_firm") and cities:
+        embedding = None  # "only in X": a project that merely reads like the buyer's wish is not in X, so it is not shown
+    else:
         cities = expand_with_adjacent(cities)
     found = await repo.search_projects(sub_cities=cities, min_bedrooms=prefs.get("min_bedrooms"), limit=limit, embedding=embedding, threshold=threshold)
     if not found:
