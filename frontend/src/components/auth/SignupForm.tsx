@@ -7,7 +7,10 @@ import { browserClient } from "@/lib/supabase/browser";
 
 const field = "mt-1 w-full rounded-md border border-line bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30";
 
-export default function SignupForm({ next }: { next: string | null }) {
+export default function SignupForm({ next: requestedNext }: { next: string | null }) {
+  // Everyone signs up the same way; what differs is where they land afterwards. A broker or agency goes on to start (or join) an agency.
+  const [kind, setKind] = useState<"buyer" | "agency">(requestedNext === "/start" ? "agency" : "buyer");
+  const next = kind === "agency" ? "/start" : requestedNext === "/start" ? null : requestedNext;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -51,7 +54,19 @@ export default function SignupForm({ next }: { next: string | null }) {
         ) : (
           <form onSubmit={submit}>
             <h1 className="display mt-1 text-3xl font-medium">Create your account</h1>
-            <p className="mt-1 text-sm text-muted">Browse every listing and talk to our assistant.</p>
+            <div role="radiogroup" aria-label="What brings you here" className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              {([["buyer", "I'm looking for a home"], ["agency", "I'm a broker or agency"]] as const).map(([value, label]) => (
+                <button key={value} type="button" role="radio" aria-checked={kind === value} onClick={() => setKind(value)}
+                  className={`rounded-md border px-3 py-2 text-left font-medium transition ${kind === value ? "border-accent bg-accent/10 text-ink" : "border-line text-muted hover:text-ink"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-sm text-muted">
+              {kind === "agency"
+                ? "Create your login first. After you confirm your email you can start your agency (you become its owner) or accept an invitation to join one."
+                : "Browse every listing and talk to our assistant."}
+            </p>
             <label htmlFor="name" className="mt-6 block text-sm font-medium">Full name</label>
             <input id="name" name="name" autoFocus autoComplete="name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} className={field} />
             <label htmlFor="email" className="mt-4 block text-sm font-medium">Email</label>

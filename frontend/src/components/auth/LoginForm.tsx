@@ -83,8 +83,8 @@ export default function LoginForm({ next, notice }: { next: string | null; notic
           <button type="submit" disabled={busy || !password || (!broker && (!email || !supabase))} className={button}>{busy ? "Signing in..." : "Sign in"}</button>
 
           <div className="mt-5 flex items-center justify-between text-sm text-muted">
-            {broker ? <span /> : <span>New here? <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"} className="font-medium text-accent hover:underline">Create an account</Link></span>}
-            <button type="button" onClick={() => { setBroker(!broker); setError(null); setPassword(""); }} className="text-xs hover:text-ink">{broker ? "Back to sign in" : "Broker access"}</button>
+            {broker ? <span /> : <span>New here? <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"} className="font-medium text-accent hover:underline">Create an account</Link> (buyers and brokers)</span>}
+            <button type="button" onClick={() => { setBroker(!broker); setError(null); setPassword(""); }} className="text-xs hover:text-ink">{broker ? "Back to sign in" : "Operator password"}</button>
           </div>
         </form>
       </div>
