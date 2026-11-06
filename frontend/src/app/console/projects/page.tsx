@@ -6,6 +6,8 @@ import { Button, Card, Empty, ErrorNote, PageHeader, Pill, Stat, StatusDot } fro
 import { api, errorMessage, post, put } from "@/lib/api";
 import { fmtDate, fmtEtb, timeAgo } from "@/lib/format";
 import { useLive } from "@/lib/live";
+import { agencyPriceBody, hasOwnPrice, priceSource } from "@/lib/prices";
+import { useMarketAccess } from "@/lib/useMarketAccess";
 import type { AdResult, CrawlReport, Developer, PriceRequest, Project, SweepStatus } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
@@ -16,10 +18,11 @@ const STATUS: Record<Project["status"], { tone: "good" | "warn" | "neutral"; lab
 const range = (a: number | null, b: number | null, unit: string) => (a == null && b == null ? null : a != null && b != null && a !== b ? `${a}-${b} ${unit}` : `${a ?? b} ${unit}`);
 const liveOffer = (p: Project) => !!p.promo_text && (!p.promo_until || p.promo_until >= new Date().toISOString().slice(0, 10));
 
-type Dialog = { kind: "price" | "offer" | "ad" | "media"; project: Project } | null;
+type Dialog = { kind: "price" | "own" | "offer" | "ad" | "media"; project: Project } | null;
 
 export default function ProjectsPage() {
   const { dataVersion } = useLive();
+  const canEdit = useMarketAccess(); // prices, offers, pictures and crawls change the shared catalogue, so only the operator's console shows them
   const projects = useApi<Project[]>("projects", 30_000);
   const requests = useApi<PriceRequest[]>("price-requests", 30_000);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -45,9 +48,15 @@ export default function ProjectsPage() {
         <Stat label="Priced" icon="money" value={list.filter((p) => p.price_from_etb != null).length} hint="Price entered by you" />
       </div>
 
-      <SweepCard onDone={reload} />
+      {canEdit ? (
+        <>
+          <SweepCard onDone={reload} />
 
-      <CrawlCard onDone={reload} />
+          <CrawlCard onDone={reload} />
+        </>
+      ) : (
+        <p role="note" className="rounded-lg border border-[#222] px-4 py-3 text-sm text-muted">The project catalogue is shared by every agency and is kept up to date by the platform. You can advertise any project in your own channel.</p>
+      )}
 
       <Card title="All projects" subtitle="Read from the developers' own sites, or the demo projects">
         {projects.loading ? <Empty>Loading...</Empty> : list.length === 0 ? (
@@ -76,12 +85,14 @@ export default function ProjectsPage() {
                   <div className="text-right">
                     <p className="tnum text-lg font-semibold">{p.price_from_etb != null ? `from ${fmtEtb(Number(p.price_from_etb))}` : <span className="text-muted">Price on request</span>}</p>
                     {p.price_note && <p className="text-xs text-muted">{p.price_note}</p>}
+                    {hasOwnPrice(p) && <p className="mt-1 max-w-[16rem] text-xs text-accent">{priceSource(p, fmtEtb)}</p>}
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant={Number(p.open_requests) > 0 ? "primary" : "default"} onClick={() => setDialog({ kind: "price", project: p })}>{p.price_from_etb != null ? "Change price" : "Set price"}</Button>
-                  <Button onClick={() => setDialog({ kind: "offer", project: p })}>{p.promo_text ? "Change offer" : "Add offer"}</Button>
-                  <Button onClick={() => setDialog({ kind: "media", project: p })}>{p.cover_media_id || p.image_url ? "Photo or video" : "Add photo or video"}</Button>
+                  {canEdit && <Button variant={Number(p.open_requests) > 0 ? "primary" : "default"} onClick={() => setDialog({ kind: "price", project: p })}>{p.shared_price_from_etb != null ? "Change shared price" : "Set shared price"}</Button>}
+                  <Button variant={!canEdit && Number(p.open_requests) > 0 ? "primary" : "default"} onClick={() => setDialog({ kind: "own", project: p })}>{hasOwnPrice(p) ? "Change our price" : "Our own price"}</Button>
+                  {canEdit && <Button onClick={() => setDialog({ kind: "offer", project: p })}>{p.promo_text ? "Change offer" : "Add offer"}</Button>}
+                  {canEdit && <Button onClick={() => setDialog({ kind: "media", project: p })}>{p.cover_media_id || p.image_url ? "Photo or video" : "Add photo or video"}</Button>}
                   <Button variant="glow" disabled={p.status === "SOLD_OUT"} onClick={() => setDialog({ kind: "ad", project: p })}>Advertise in channel</Button>
                 </div>
               </li>
@@ -104,6 +115,7 @@ export default function ProjectsPage() {
       </Card>
 
       {dialog?.kind === "price" && <PriceDialog project={dialog.project} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); reload(); }} />}
+      {dialog?.kind === "own" && <AgencyPriceDialog project={dialog.project} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); reload(); }} />}
       {dialog?.kind === "offer" && <OfferDialog project={dialog.project} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); reload(); }} />}
       {dialog?.kind === "ad" && <AdDialog project={dialog.project} onClose={() => setDialog(null)} />}
       {dialog?.kind === "media" && <MediaDialog project={dialog.project} onClose={() => setDialog(null)} onChanged={reload} />}
@@ -184,8 +196,8 @@ function Shell({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 function PriceDialog({ project, onClose, onSaved }: { project: Project; onClose: () => void; onSaved: () => void }) {
-  const [price, setPrice] = useState(project.price_from_etb != null ? String(Number(project.price_from_etb)) : "");
-  const [note, setNote] = useState(project.price_note ?? "");
+  const [price, setPrice] = useState(project.shared_price_from_etb != null ? String(Number(project.shared_price_from_etb)) : "");
+  const [note, setNote] = useState(project.shared_price_note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [told, setTold] = useState<number | null>(null);
@@ -193,14 +205,14 @@ function PriceDialog({ project, onClose, onSaved }: { project: Project; onClose:
   async function save() {
     setBusy(true); setError(null);
     try {
-      const r = await put<{ buyers_told: number }>(`projects/${project.id}/price`, { price_from_etb: Number(price), note: note.trim() || null });
-      setTold(r.buyers_told);
+      const r = await put<{ agencies: number }>(`projects/${project.id}/price`, { price_from_etb: Number(price), note: note.trim() || null });
+      setTold(r.agencies);
     } catch (e) { setError(errorMessage(e)); }
     setBusy(false);
   }
 
   return (
-    <Shell title={`Price for ${project.name}`} onClose={told === null ? onClose : onSaved}>
+    <Shell title={`Shared price for ${project.name}`} onClose={told === null ? onClose : onSaved}>
       {told === null ? (
         <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
           <p className="mt-1 text-sm text-muted">{Number(project.open_requests) > 0 ? `${project.open_requests} buyer${Number(project.open_requests) === 1 ? " is" : "s are"} waiting. They are told as soon as you save.` : "No one is waiting yet; the price will be given to anyone who asks."}</p>
@@ -213,10 +225,53 @@ function PriceDialog({ project, onClose, onSaved }: { project: Project; onClose:
         </form>
       ) : (
         <div>
-          <p role="status" className="mt-3 text-sm">Saved. {told} buyer{told === 1 ? "" : "s"} told.</p>
+          <p role="status" className="mt-3 text-sm">Saved. {told === 0 ? "No agency has buyers waiting for it." : `The buyers who asked are being told, agency by agency (${told} ${told === 1 ? "agency" : "agencies"}). An agency with a price of its own keeps it.`}</p>
           <div className="mt-5 flex justify-end"><Button variant="primary" onClick={onSaved}>Done</Button></div>
         </div>
       )}
+    </Shell>
+  );
+}
+
+/** Any agency's agents: the agency's own price, shown to its buyers instead of the shared one. Its waiting buyers are told. */
+function AgencyPriceDialog({ project, onClose, onSaved }: { project: Project; onClose: () => void; onSaved: () => void }) {
+  const own = hasOwnPrice(project);
+  const [price, setPrice] = useState(own ? String(Number(project.agency_price_etb)) : "");
+  const [note, setNote] = useState(project.agency_price_note ?? "");
+  const [until, setUntil] = useState(project.agency_price_until ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const checked = agencyPriceBody(price, note, until, new Date().toISOString().slice(0, 10));
+    if ("error" in checked) { setError(checked.error); return; }
+    setBusy(true); setError(null);
+    try { await put(`agency-prices/project/${project.id}`, checked.body); onSaved(); } catch (e) { setError(errorMessage(e)); setBusy(false); }
+  }
+  async function clear() {
+    setBusy(true); setError(null);
+    try { await api(`agency-prices/project/${project.id}`, { method: "DELETE" }); onSaved(); } catch (e) { setError(errorMessage(e)); setBusy(false); }
+  }
+
+  return (
+    <Shell title={`Our price for ${project.name}`} onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <p className="mt-1 text-sm text-muted">
+          Only your agency&apos;s buyers see this price, in replies, cards and brochures. Shared price: {project.shared_price_from_etb != null ? `from ${fmtEtb(Number(project.shared_price_from_etb))}` : "on request"}.
+          {Number(project.open_requests) > 0 ? " Your buyers who are waiting are told when you save." : ""}
+        </p>
+        <label htmlFor="own-price" className="mt-4 block text-sm font-medium">Our starting price (ETB)</label>
+        <input id="own-price" type="number" min="1" step="any" autoFocus required value={price} onChange={(e) => setPrice(e.target.value)} className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" />
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div><label htmlFor="own-note" className="block text-sm font-medium">Note (optional)</label><input id="own-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="for example: our negotiated price" className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" /></div>
+          <div><label htmlFor="own-until" className="block text-sm font-medium">Until (optional)</label><input id="own-until" type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="mt-1 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm" /></div>
+        </div>
+        {error && <div className="mt-3"><ErrorNote>{error}</ErrorNote></div>}
+        <div className="mt-5 flex flex-wrap justify-between gap-2">
+          <div>{own && <Button type="button" variant="danger" disabled={busy} onClick={() => void clear()}>Use the shared price</Button>}</div>
+          <div className="flex gap-2"><Button type="button" onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={busy || !(Number(price) > 0)}>{busy ? "Saving..." : "Save our price"}</Button></div>
+        </div>
+      </form>
     </Shell>
   );
 }

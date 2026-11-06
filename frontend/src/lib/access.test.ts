@@ -29,6 +29,18 @@ describe("access rules", () => {
     expect(decide("/portal/listings", "broker")).toEqual({ action: "next" });
   });
 
+  it("lets any signed-in person start an agency, since they have no organization yet", () => {
+    expect(decide("/start", "buyer")).toEqual({ action: "next" });
+    expect(decide("/api/orgs/mine", "buyer")).toEqual({ action: "next" });
+    expect(decide("/api/orgs", "broker")).toEqual({ action: "next" });
+    expect(decide("/start", "anonymous")).toEqual({ action: "redirect", to: "/login?next=%2Fstart" });
+    expect(decide("/api/orgs/mine", "anonymous")).toEqual({ action: "deny", status: 401 });
+    expect(decide("/join", "buyer")).toEqual({ action: "next" });
+    expect(decide("/api/invitations/accept", "buyer")).toEqual({ action: "next" });
+    expect(decide("/join", "anonymous", "?token=abc")).toEqual({ action: "redirect", to: "/login?next=%2Fjoin%3Ftoken%3Dabc" });
+    expect(decide("/startup", "buyer")).toEqual({ action: "redirect", to: "/portal" });
+  });
+
   it("treats a path nobody planned for as broker-only", () => {
     expect(decide("/anything-new", "buyer")).toEqual({ action: "redirect", to: "/portal" });
     expect(decide("/api/anything-new", "anonymous")).toEqual({ action: "deny", status: 401 });

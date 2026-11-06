@@ -1,4 +1,5 @@
 // Which backend URL a browser request may reach through /api/proxy/*. Everything goes to <backend>/api/<path> only.
+import { AGENCY_HEADER, cleanAgency } from "./agencysite";
 
 const BLOCKED_FIRST_SEGMENTS = new Set(["telegram"]); // Telegram's own webhook is not something a browser should call
 
@@ -14,13 +15,29 @@ export function backendUrl(segments: string[], search: string, base: string): st
 
 const FORWARDED_REQUEST_HEADERS = ["content-type", "accept", "last-event-id"];
 
-export function forwardedHeaders(incoming: Headers, adminKey: string): Headers {
+export function forwardedHeaders(incoming: Headers, adminKey: string, orgId: string | null = null): Headers {
   const out = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = incoming.get(name);
     if (value) out.set(name, value);
   }
   out.set("x-admin-key", adminKey);
+  if (orgId) out.set("x-org-id", orgId);
+  return out;
+}
+
+/**
+ * A member of an organization reaches the console API with their own sign-in and the organization they chose. The backend checks
+ * both against its memberships table, so nothing here is trusted: this only decides what is sent. The admin key is not among it.
+ */
+export function memberHeaders(incoming: Headers, accessToken: string, orgId: string | null): Headers {
+  const out = new Headers();
+  for (const name of FORWARDED_REQUEST_HEADERS) {
+    const value = incoming.get(name);
+    if (value) out.set(name, value);
+  }
+  out.set("authorization", `Bearer ${accessToken}`);
+  if (orgId) out.set("x-org-id", orgId);
   return out;
 }
 
@@ -44,12 +61,15 @@ export function responseHeaders(upstream: Headers): Headers {
 
 const BUYER_REQUEST_HEADERS = ["content-type", "accept"];
 
+/** The buyer's calls carry the agency the visitor chose (set by the middleware, never trusted as it arrives: only a well-formed slug is passed on). */
 export function buyerHeaders(incoming: Headers, accessToken: string | null): Headers {
   const out = new Headers();
   for (const name of BUYER_REQUEST_HEADERS) {
     const value = incoming.get(name);
     if (value) out.set(name, value);
   }
+  const agency = cleanAgency(incoming.get(AGENCY_HEADER));
+  if (agency) out.set(AGENCY_HEADER, agency);
   if (accessToken) out.set("authorization", `Bearer ${accessToken}`);
   return out;
 }

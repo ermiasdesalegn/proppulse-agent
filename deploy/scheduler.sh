@@ -16,4 +16,5 @@ job() {  # name, schedule, path
 
 job proppulse-proactive  "0 8 * * *"  /api/cron/daily-proactive-run   # follow-ups, nudges and new-listing alerts, every morning
 job proppulse-reminders  "0 * * * *"  /api/cron/reminders             # 24 h tour and milestone reminders, checked hourly
+job proppulse-audit      "30 1 * * *" /api/cron/audit-export         # copy each agency's new audit entries to the configured sink (does nothing when none is set)
 job proppulse-scrape     "0 6 * * *"  /api/cron/scrape-market         # market scrape with robots.txt and pacing, before the morning run

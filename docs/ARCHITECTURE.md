@@ -251,7 +251,7 @@ Besides the broker's console, the Next.js app has a public front door and a sign
     │                                                                         (backend/app/portal_api.py)
     └─ /portal/chat ──▶ browser ──▶ /api/me/chat[/open|/messages]  (Next route, token attached) ──▶ ChatService ──▶ LangGraph agent
                                                                        same agent, same thread rules as Telegram, thread  web:<user id>
- broker ──▶ /console/…  ──▶ /api/proxy/…  (admin key added server-side)       sign-in: password cookie, or the confirmed BROKER_EMAIL account
+ broker ──▶ /console/…  ──▶ /api/proxy/…  (admin key added server-side)       sign-in: password cookie (operator), or a member account
 ```
 
 **Who may open what** (`lib/access.ts`, applied by `middleware.ts`, tested in `lib/access.test.ts`):
@@ -262,7 +262,7 @@ Besides the broker's console, the Next.js app has a public front door and a sign
 | `/portal/*`, `/api/me/*` | sign-in page, then back | allowed | allowed (preview) |
 | `/console/*`, `/api/proxy/*`, anything else | sign-in page / 401 | sent to `/portal` / 403 | allowed |
 
-**Roles** (`lib/role.ts`): the password cookie means broker; otherwise the Supabase session is verified with `getClaims()` (a signature check, no network once the keys are cached) and the account whose email equals `BROKER_EMAIL` and is confirmed is the broker; everyone else is a buyer.
+**Roles** (`lib/role.ts`): the password cookie means broker (the operator); otherwise the Supabase session is verified with `getClaims()` (a signature check, no network once the keys are cached) and the backend is asked, once a minute per sign-in, which organizations the person belongs to (`GET /api/orgs/mine`): a member of at least one is a console user, everyone else is a buyer. The console proxy forwards a member's own token and the chosen organization (`pp_org` cookie, `X-Org-Id`); the backend (`app/access.py`) checks the membership and the role on every request and runs the request inside `use_tenant(...)`. The platform secret (`X-Admin-Key`) is for the operator's session and the cron jobs, and acts as owner of the named organization or the original one.
 
 **Buyer API** (`backend/app/portal_api.py`, `backend/app/buyer_auth.py`): `GET /api/public/featured` and `GET /api/public/covers/<project>`; with a token, `GET /api/me/listings` (area, bedrooms, price range, developer, text, four sorts, paging; the filter options and the buyer's saved ids come back with it), `GET /api/me/listings/<id>`, `…/preview.png` and `…/model.glb` (the 3D layout when one exists), `GET/PUT/DELETE /api/me/saved`, `POST /api/me/chat`, `POST /api/me/chat/open`, `POST /api/me/chat/voice` (a raw WAV body, at most 3 MB), `GET /api/me/chat/messages`, and `GET /api/me/chat/messages/<id>/model.png|model.glb|comparison.pdf` for the files an agent message carries (served only from the buyer's own conversation, made again from stored data each time). `GET /api/public/featured?hero=<id>` also returns the chosen hero home. Responses use an allow-list of fields.
 
@@ -271,3 +271,20 @@ Besides the broker's console, the Next.js app has a public front door and a sign
 **Same features as Telegram.** What Telegram sends as files the website carries as attachments of the agent's message (`chat_messages.attachments`, migration 019): the 3D picture shown inline, download links for the `.glb` model and the comparison PDF, and on visit day a map pin that the chat turns into a maps link from the coordinates alone. Voice notes are recorded in the browser as 16 kHz mono WAV (`lib/voice.ts`), the one format every browser can produce and Gemini reads directly; the backend transcribes them with the Telegram prompt and the chat shows `🎤` and what was heard. Home pages load Google's `<model-viewer>` only there to show the 3D model, with the drawn picture until it is ready. A QR code (`components/site/TelegramQR.tsx`, drawn on the server) opens the Telegram bot; it starts a separate conversation, not the web one.
 
 **Look.** The public site and the portal use a scoped light theme (`.site` in `globals.css`) that redefines the console's colour tokens, so shared classes turn light inside it. Headings use Fraunces, text Inter, both self-hosted.
+
+## 11. Many agencies on one platform
+
+```
+ request / webhook / cron ──▶ who is it? ──▶ runtime.scope(org) ──▶ everything below runs for that agency only
+   member token + X-Org-Id        (app/access.py)     │
+   the agency's bot webhook                           ├─ database: SET LOCAL ROLE app_user + app.org_id  ──▶ row-level security
+   cron secret (every agency)                         ├─ settings: broker name, chat, time zone, persona (TenantSettings)
+   X-Agency header (website)                          ├─ channels: its Telegram bot, its calendar (encrypted credentials)
+                                                      └─ conversations: checkpoint key org:<id>:<thread>
+```
+
+- **Shared:** the scraped market (developers, projects, listings, prices) is read by every agency and written by the platform's crawlers once.
+- **Private:** buyers, chats, tours, deals, saved homes, events and model calls carry `org_id`, enforced by row-level security and by composite foreign keys that refuse a link across agencies.
+- **Where to read:** `app/tenancy.py` (scope and `thread_key`), `app/access.py` (members, roles, job scope), `app/runtime.py` (per-agency settings and services), `app/vault.py` (credential encryption), `app/channels_api.py` (connect a bot or calendar), `app/org_api.py` (team and invitations), `tests/test_tenancy_*.py` and `tests/test_channels_api.py` (the isolation guarantees).
+
+- **Why this design, what it costs, what is left:** [ADR 0001](adr/0001-shared-database-with-row-level-security.md) (shared tables with row-level security rather than a schema or database per agency), [BENCHMARKS.md](BENCHMARKS.md) (50 agencies, 20,000 buyers) and [THREAT_MODEL.md](THREAT_MODEL.md).

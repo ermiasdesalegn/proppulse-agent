@@ -116,8 +116,9 @@ async def test_buyer_endpoints_need_a_valid_sign_in(site, method, path):
 
 async def test_a_buyer_token_does_not_open_the_broker_api(site):
     client, _ = site
-    assert (await client.get("/api/buyers", headers=auth())).status_code == 401
-    assert (await client.get("/api/properties", headers=auth())).status_code == 401
+    # signed in, but a member of no organization: refused as forbidden, not as "not signed in"
+    assert (await client.get("/api/buyers", headers=auth())).status_code == 403
+    assert (await client.get("/api/properties", headers=auth())).status_code == 403
 
 
 async def test_expired_buyer_sign_ins_do_not_lock_the_broker_out(site):

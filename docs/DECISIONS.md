@@ -21,6 +21,15 @@ something a pooled database promises to keep alive. Polling `event_log` by id ev
 writes) costs one indexed query per instance and needs no special connection. The trade-off is up to 0.5 s of delay for events written
 by another instance.
 
+**Events are delivered strictly in id order, waiting out gaps (found and fixed 2026-11-02).** Reading "every id after the last one
+seen" lost events: ids are taken at insert but rows appear at commit, so when two instances wrote at once, id 8 could be read before
+id 7 committed, and 7 was never read. The test with two instances failed about 2 runs in 5 because of it, and in use a dashboard tab
+would silently miss an event. The stream to the browser, a tab resuming with Last-Event-ID and the dashboard's own "newer than" check
+all assume ids arrive in order, so the fix is in the bus: a missing id holds back the later events until it appears, or for at most
+3 seconds (`gap_grace`), after which it is taken to be an insert that was rolled back. A tab opening during a gap gets a backlog that
+stops before it. Each instance starts after the last id handed out, so ids used before it started are not waited for. Tests reproduce
+the loss with an insert held open, and the two-instance test passed 50 runs in a row after the fix.
+
 ## Tests run on an embedded Postgres, not Docker and not the hosted database
 
 The suite used to run against the hosted Supabase database: 23 minutes, flaky when the network was slow, and sharing data with real
@@ -163,7 +172,7 @@ if it is on the list for that kind of key). Every query is keyed by the user id 
 and chat. Listing responses are built from an allow-list: no developer email, commission rate, reliability score, content hash or embedding. A test fails if
 one of those names ever appears. The admin key is not a buyer's sign-in, and a buyer's token does not open the broker API.
 
-## The broker is the confirmed account with BROKER_EMAIL
+## The broker is the confirmed account with BROKER_EMAIL (superseded by organization membership, below)
 
 A role is worked out from the sign-in: the old password cookie means broker; otherwise a Supabase account whose email equals `BROKER_EMAIL` **and which the
 auth server says is confirmed** is the broker; any other account is a buyer. Anyone can type the broker's address into the sign-up form, so the address alone
@@ -208,3 +217,47 @@ and the drawn fallback shows one pin per spot ("16 homes"). The fix at the sourc
 
 Fraunces and Inter (SIL OFL, latin only) are kept in `frontend/src/fonts`. The build once failed because Google's font host timed out; self-hosting removes that,
 and visitors' browsers never contact Google.
+
+## Who may use the console is a membership, not an email address
+
+Multi-tenancy replaced the single `BROKER_EMAIL`. A person belongs to organizations through the `memberships` table with a role (viewer, agent, admin, owner).
+The backend decides on every console request (`app/access.py`): it verifies the person's token, finds their membership for the organization named in
+`X-Org-Id` (or their only one), refuses a stranger with the same answer whether the organization exists or not, and checks the role. Reads need viewer, writes
+need agent, setting up shared market data needs admin, and wiping the demo needs owner. The request then runs inside `use_tenant(...)`, so row-level security
+confines every query to that organization.
+
+Why: an address anyone can type into a sign-up form is a weak identity, and one address cannot describe several agencies with several teams. Membership is created
+only by an owner's invitation (a link that works once, for the invited address, with only its hash stored) or by an operator (`scripts/grant_role.py`), so there is
+nothing to guess or squat. An organization always keeps at least one owner (a database trigger, not application code). The admin key stays as the platform secret
+for the cron jobs and the operator's password session; it acts as owner of the organization it names, or of the original one.
+
+Known limits: invitations are returned to the inviter instead of being emailed; roles are checked by route (read/write by HTTP method, a few routes stricter), not
+per field; the organization a buyer talks to on the public site is still the original one until buyers choose an agency by address.
+
+## Each agency brings its own channels, behind the names the code already uses
+
+About thirty places read `settings.broker_name`, `settings.broker_telegram_chat_id`, `services.telegram`, `services.calendar` and so on. Passing an
+organization through every one of them would have touched most of the codebase and been easy to get wrong. Instead `app/runtime.py` hands them
+`TenantSettings` and a `Services` made of proxies: inside `runtime.scope(org)` every read or call resolves to the organization in scope, outside it to the
+original configuration. Scope is a context variable, so a Telegram update processed in a background task keeps the agency it arrived for.
+
+Rules that follow from it: an agency without a bot or calendar gets a silent stand-in, **never the platform's own** (a buyer of one agency must not be messaged
+through another's bot); the demo's fallback chat and email are the platform owner's and are switched off for every other agency; the original agency keeps the
+platform's configured channels, so nothing changed for it.
+
+Credentials (`org_secrets`) are encrypted with AES-GCM under a per-agency data key, which is itself encrypted under a master key held only in the server's
+environment (`SECRETS_MASTER_KEY`). Each value is bound to its agency and name as associated data, so copying a ciphertext to another row makes it fail to open.
+`app_user` has no grant on the key or secret tables: they are read only on the platform path, after the caller's role is checked. The API never returns a
+token, and a connect request proves the token with Telegram's `getMe` before storing anything.
+
+Conversation memory: the agent's checkpoint tables have no organization column, so each conversation is stored under `org:<id>:<thread>` (the original agency keeps
+bare ids, so its saved chats still work). Events and model-call rows carry `org_id`, and a console tab's live stream is filtered to its own agency.
+
+Jobs: the cron secret runs every job once for each active agency, each inside its own scope; a failing agency is reported and never stops the others. A price drop on
+a shared listing is matched against each agency's own buyers and sent through that agency's own bot, once per agency. The market scraper writes shared data, so
+it runs once. A signed-in agent can start the jobs for their own agency from the console; an admin can start the market scraper.
+
+Known limits: Telegram long polling serves only the original agency (others use the webhook); the public site picks an agency by an `X-Agency` header, and a
+page for choosing one is still to be built; a master-key rotation is not automated (values carry a version prefix to allow it); calendar credentials are stored
+and used but the Google connection itself is not tested against Google here.
+

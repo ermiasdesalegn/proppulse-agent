@@ -8,6 +8,7 @@ from app.ingest.projects import Page, ProjectInfo, crawl, looks_like_a_project, 
 from app.projects import ProjectService, card_text, has_live_offer
 from app.services.telegram import MockTelegramService, TelegramError
 from tests.agent_helpers import NOW, FakeGateway, ext, make_agent, make_chat, make_proactive, make_services, new_buyer, say_to
+from tests.jobs_helpers import set_price_and_tell
 
 pytestmark = pytest.mark.usefixtures("quiet_world")
 
@@ -235,12 +236,12 @@ async def test_setting_the_price_tells_every_waiting_buyer_once_and_the_broker_f
         await service.handle_text(b, "Ask the price of Central Tower")
     services.telegram.messages.clear()
 
-    result = await service.set_price(project["id"], 21_000_000, "starting price")
+    result = await set_price_and_tell(service, project["id"], 21_000_000, "starting price")
     assert (result["buyers_told"], result["skipped"]) == (2, 1)
     to_buyers = [m for m in services.telegram.messages if m["chat_id"] != "999"]
     assert sorted(m["chat_id"] for m in to_buyers) == [6_000_100, 6_000_101] and all("starts from 21M ETB (starting price)" in m["text"] for m in to_buyers)
     assert any(m["chat_id"] == "999" and "asked for it in a chat you hold" in m["text"] for m in services.telegram.messages)
-    again = await service.set_price(project["id"], 21_000_000, "starting price")
+    again = await set_price_and_tell(service, project["id"], 21_000_000, "starting price")
     assert again["buyers_told"] == 0, "nobody is told twice"
     assert [r["status"] for r in await repo.list_price_requests()].count("ANSWERED") == 2
     with pytest.raises(Exception):
@@ -543,18 +544,18 @@ async def test_a_price_drop_is_told_to_the_buyers_who_asked_and_an_increase_only
     project = await add_project(repo, db_conn)
     asker = await repo.get_or_create_buyer("test:asker", 6_100_001)
     await service.handle_text(asker, "Ask the price of Central Tower")
-    await service.set_price(project["id"], 20_000_000, None)
+    await set_price_and_tell(service, project["id"], 20_000_000, None)
     services.telegram.messages.clear()
 
-    drop = await service.set_price(project["id"], 18_000_000, "from the 3 bedroom")
+    drop = await set_price_and_tell(service, project["id"], 18_000_000, "from the 3 bedroom")
     assert drop["change"] == "drop" and drop["buyers_told"] == 1
     told = [m for m in services.telegram.messages if m["chat_id"] == 6_100_001]
     assert len(told) == 1 and "now starts from 18M ETB (from the 3 bedroom), down from 20M ETB (10.0% lower)" in told[0]["text"]
-    again = await service.set_price(project["id"], 18_000_000, "from the 3 bedroom")
+    again = await set_price_and_tell(service, project["id"], 18_000_000, "from the 3 bedroom")
     assert again["change"] is None and len([m for m in services.telegram.messages if m["chat_id"] == 6_100_001]) == 1, "the same price is not announced twice"
 
     services.telegram.messages.clear()
-    up = await service.set_price(project["id"], 21_000_000, None)
+    up = await set_price_and_tell(service, project["id"], 21_000_000, None)
     assert up["change"] == "increase" and up["buyers_told"] == 0
     assert [m["chat_id"] for m in services.telegram.messages] == ["999"] and "Price increase: Central Tower" in services.telegram.messages[0]["text"]
     assert "1 buyer had been given the earlier price" in services.telegram.messages[0]["text"]

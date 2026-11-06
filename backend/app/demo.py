@@ -18,6 +18,7 @@ CLEARED = ("proactive_events", "project_posts", "commission_ledger", "buyers_crm
 
 async def reset_demo(repo: Any, calendar: Any = None, embed: Any = None) -> dict:
     """Returns how many rows were removed from each table, and what was restored."""
+    repo = repo.as_platform()  # clears shared market tables and checkpoints, which an organization's own role may not touch
     report: dict[str, Any] = {"deleted": {}, "calendar_events_cancelled": 0}
 
     if calendar is not None:  # events this system put on the real calendar are removed with the tours that made them

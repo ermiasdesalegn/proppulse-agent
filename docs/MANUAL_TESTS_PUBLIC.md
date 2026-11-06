@@ -6,8 +6,8 @@ What was tested without your accounts: the access rules and role logic (unit tes
 
 1. Supabase > Authentication > Providers: **Email** on, **Confirm email** on.
 2. Supabase > Authentication > URL Configuration: Site URL = your Vercel address; add `http://localhost:3000/auth/callback` and `https://<your-vercel-address>/auth/callback` to the redirect URLs.
-3. Create the broker account (Authentication > Users > Add user, tick auto-confirm, or sign up and confirm the email). Its email is the value for `BROKER_EMAIL`.
-4. `frontend/.env.local` (and the same names on Vercel): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BROKER_EMAIL`. Backend: `SUPABASE_URL` is enough; add `SUPABASE_JWT_SECRET` only if the backend answers 401 to valid buyer sign-ins (an older project signing with the shared secret).
+3. Create the broker account (Authentication > Users > Add user, tick auto-confirm, or sign up and confirm the email). Make it the owner of the original organization: `python -m scripts.grant_role --email <its email> --org proppulse --role owner`.
+4. `frontend/.env.local` (and the same names on Vercel): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Backend: `SUPABASE_URL` is enough; add `SUPABASE_JWT_SECRET` only if the backend answers 401 to valid buyer sign-ins (an older project signing with the shared secret).
 5. Migrations 016 and 017 are applied (`python -m scripts.migrate`). Already done on the hosted database.
 
 ## Checks
@@ -16,7 +16,7 @@ What was tested without your accounts: the access rules and role logic (unit tes
 2. **Sign-up with a real mailbox.** `/signup` with a name, an email you own and an 8+ character password: "Check your email" appears. Open the link **on the same device**: you arrive signed in at `/portal`. Sign-up with an address that already exists shows the same message (no hint that it exists).
 3. **Link opened on another device.** Sign up, open the email link on your phone instead: you land on the sign-in page with "Your email is confirmed"; sign in works.
 4. **Roles.** Signed in as the buyer: `/console` sends you to `/portal`, `/api/proxy/buyers` answers 403. Sign out, sign in as the broker account (same form): you land in `/console`. The broker can open `/portal` and sees the same homes.
-5. **Someone signing up with the broker's email.** In a private window, sign up with `BROKER_EMAIL`'s address and do not confirm it: you must not reach `/console` (Supabase refuses a second account with that address, or the account stays unconfirmed).
+5. **Someone signing up with the owner's email.** In a private window, sign up with the owner's address and do not confirm it: you must not reach `/console`, because that account is not a member of any organization (Supabase refuses a second account with that address, or the account stays unconfirmed).
 6. **Password login.** `/login`, "Broker access", the console password: you land in `/console`; Sign out returns to `/login`.
 7. **Browse.** `/portal` shows about 560 homes. Pick area Bole, 3+ bedrooms, up to 30M: the count drops, chips appear, each chip's x removes just that filter, the address can be copied into another tab and shows the same result. Paging works.
 8. **A home.** Open one: price, facts, payment terms where the listing states them, the original-listing link opens the portal or developer page in a new tab. A home with a 3D layout (build one in the Studio) shows the picture.

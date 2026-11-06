@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from app.agent.deps import AgentDeps
 from app.agent.graph import BrokerAgent
 from app.api import router
 from app.calllog import ModelCallLog
+from app.channels_api import router as channels_router
 from app.chat import ChatService
 from app.config import Settings, get_settings
 from app.db import make_pool
@@ -22,15 +24,23 @@ from app.gemini import get_gateway
 from app.ingest.browser import BrowserFetcher, Politeness
 from app.ingest.fetch import HttpFetcher
 from app.ingest.service import IngestionService
-from app.observability import GuardMiddleware
+from app.jobs import JobQueue, JobWorker
+from app.jobs_api import router as jobs_router
+from app.keys import check_keys
+from app.observability import GuardMiddleware, secrets_from
+from app.org_api import router as org_router
 from app.portal_api import router as portal_router
+from app.prices_api import router as prices_router
 from app.proactive import ProactiveService
 from app.projects import ProjectService
+from app.quota import router as quota_router
 from app.repository import Repository
+from app.runtime import TenantRuntime
 from app.services import build_services
 from app.services.telegram import BotApiTelegramService
 from app.telegram_updates import TelegramPoller, TelegramUpdateHandler
 from app.tracing import trace_repo, trace_services
+from app.vault import Vault
 
 log = logging.getLogger("proppulse")
 
@@ -65,23 +75,30 @@ async def lifespan(app: FastAPI):
     checkpointer = await open_checkpointer(s)
     gateway = get_gateway()
     real_services = build_services(s)
-    repo = Repository(pool)
+    repo = Repository(pool, strict=s.tenancy_strict)
     events = DurableEventBus(pool, retention_days=30)
     await events.start()
     calls = ModelCallLog(pool, events)
     await calls.start()
     gateway.recorder = calls.record
-    services = trace_services(real_services, events)  # every calendar, routing, email and Telegram call reports itself to the inspector
-    agent = BrokerAgent(AgentDeps(gateway=gateway, repo=trace_repo(repo, events), services=services, settings=s, events=events), checkpointer.saver)
-    chat = ChatService(repo, agent, services, s, events=events)
-    proactive = ProactiveService(repo, agent, services, s, events=events)
+    vault = Vault(s.master_key_list) if s.master_key_list else None
+    keys = await check_keys(pool, vault)  # refuses to start if an agency's data key names a master key this server was not given
+    if vault is not None and not keys["done"]:
+        log.warning("master-key rotation in progress: %s (python -m scripts.rotate_master_key --status)", keys["by_key"])
+    runtime = TenantRuntime(repo, s, real_services, vault)
+    ts = runtime.tenant_settings()  # the global settings, except the few values that belong to the agency in scope
+    # Every calendar, routing, email and Telegram call reports itself to the inspector; each resolves to the agency in scope.
+    services = trace_services(runtime.proxied_services(), events)
+    agent = BrokerAgent(AgentDeps(gateway=gateway, repo=trace_repo(repo, events), services=services, settings=ts, events=events), checkpointer.saver)
+    chat = ChatService(repo, agent, services, ts, events=events)
+    proactive = ProactiveService(repo, agent, services, ts, events=events)
     http_fetcher = HttpFetcher(allow_private=s.scrape_allow_private_hosts)
     politeness = Politeness(lambda u: http_fetcher.get_text(u, polite=False), min_interval=s.scrape_min_interval_seconds) if s.scrape_polite else None
     http_fetcher.politeness = politeness
     browser_fetcher = BrowserFetcher(http=http_fetcher, allow_private=s.scrape_allow_private_hosts, politeness=politeness)  # starts Chromium on first use
     ingest = IngestionService(repo, gateway, http_fetcher, s, events=events, browser=browser_fetcher)
-    ads = AdService(repo, gateway, services, s, events=events)
-    projects = ProjectService(repo, gateway, services, s, fetcher=http_fetcher, proactive=proactive, ads=ads, events=events)
+    ads = AdService(repo, gateway, services, ts, events=events)
+    projects = ProjectService(repo, gateway, services, ts, fetcher=http_fetcher, proactive=proactive, ads=ads, events=events)
     chat.projects = projects
     handler = TelegramUpdateHandler(chat)
 
@@ -102,10 +119,18 @@ async def lifespan(app: FastAPI):
     app.state.settings, app.state.repo, app.state.chat, app.state.proactive = s, repo, chat, proactive
     app.state.events, app.state.ingest, app.state.ads, app.state.projects = events, ingest, ads, projects
     app.state.telegram_handler, app.state.checkpointer_kind = handler, checkpointer.kind
+    app.state.runtime = runtime
     app.state.telegram_mode = telegram_status
+    app.state.jobs = JobQueue(pool, per_org_limit=s.job_per_org_limit, lease=timedelta(seconds=s.job_lease_seconds), secrets=secrets_from(s))
+    projects.jobs = app.state.jobs
+    worker = JobWorker(app.state.jobs, app.state, concurrency=s.job_workers) if s.job_workers > 0 else None
+    if worker:
+        await worker.start()
     try:
         yield
     finally:
+        if worker:
+            await worker.stop()
         if poller:
             await poller.stop()
         await handler.drain()
@@ -128,6 +153,11 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
                        trust_proxy=s.trust_proxy_headers)
     app.include_router(router)
     app.include_router(portal_router)
+    app.include_router(org_router)
+    app.include_router(channels_router)
+    app.include_router(quota_router)
+    app.include_router(jobs_router)
+    app.include_router(prices_router)
 
     @app.get("/health")
     def health() -> dict:

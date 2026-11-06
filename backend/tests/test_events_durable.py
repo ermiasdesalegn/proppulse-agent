@@ -143,3 +143,57 @@ async def test_old_events_are_pruned(pool):
         assert kinds == ["fresh"]
     finally:
         await bus.stop()
+
+
+# ---- an event whose id is taken before a later one's but commits after it ----
+
+async def _hold_an_insert(pool):
+    """A connection that has inserted an event (so its id is taken) and not committed yet, like a slow writer on another instance."""
+    conn = await pool.getconn()
+    cur = await conn.execute("insert into event_log (kind, data) values ('late', '{}'::jsonb) returning id")
+    return conn, (await cur.fetchone())["id"]
+
+
+async def test_an_event_that_commits_after_a_later_one_is_still_delivered_in_order(pool):
+    bus = await started(pool)
+    try:
+        sub = await bus.open()
+        holder, late_id = await _hold_an_insert(pool)
+        bus.publish("after")  # takes the next id and commits at once
+        await asyncio.sleep(0.5)
+        assert sub.queue.empty(), "the later event waits for the earlier id instead of jumping ahead of it"
+        await holder.commit()
+        await pool.putconn(holder)
+        first, second = await next_event(sub), await next_event(sub)
+        assert (first["id"], first["kind"]) == (late_id, "late") and second["kind"] == "after" and second["id"] > late_id
+    finally:
+        await bus.stop()
+
+
+async def test_an_id_that_never_commits_holds_delivery_back_only_for_the_grace_period(pool):
+    bus = await started(pool, gap_grace=0.5)
+    try:
+        sub = await bus.open()
+        holder, _ = await _hold_an_insert(pool)
+        await holder.rollback()  # a failed insert: its id is never used
+        await pool.putconn(holder)
+        bus.publish("after")
+        event = await next_event(sub, timeout=3)
+        assert event["kind"] == "after"
+    finally:
+        await bus.stop()
+
+
+async def test_a_tab_opened_during_a_gap_gets_the_late_event_too(pool):
+    bus = await started(pool)
+    try:
+        holder, late_id = await _hold_an_insert(pool)
+        bus.publish("after")
+        await asyncio.sleep(0.5)
+        sub = await bus.open()  # opens while the gap is open: its backlog must not run ahead of it
+        await holder.commit()
+        await pool.putconn(holder)
+        got = [await next_event(sub), await next_event(sub)]
+        assert [e["kind"] for e in got] == ["late", "after"] and got[0]["id"] == late_id
+    finally:
+        await bus.stop()

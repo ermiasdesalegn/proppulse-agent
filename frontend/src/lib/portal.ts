@@ -1,4 +1,5 @@
 // What the buyer-facing API returns, and how the website turns it into addresses and wording.
+import { agencyRequestHeaders, cleanAgency, type AgencyCard } from "./agencysite";
 
 export interface PortalUnit {
   id: string;
@@ -54,19 +55,46 @@ export function deliveryLabel(date: string | null | undefined): string | null {
 }
 
 /** Read on the server: the showcase for the landing page. Null when the backend is unreachable, so the page still renders. */
-export async function loadFeatured(): Promise<Featured | null> {
+export async function loadFeatured(agency?: string | null): Promise<Featured | null> {
+  const slug = cleanAgency(agency);
   try {
     const base = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
     // HERO_PROPERTY_ID picks the home whose photo leads the page (a listing id from the portal's address bar); unset, the newest leads.
     const hero = (process.env.HERO_PROPERTY_ID ?? "").trim();
     const query = /^[0-9a-f-]{36}$/i.test(hero) ? `?hero=${hero}` : "";
-    const res = await fetch(`${base}/api/public/featured${query}`, { next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
+    // The agency is in the cache key as well as in the header, so one agency's showcase is never served to another's visitors.
+    const keyed = slug ? `${query ? `${query}&` : "?"}agency=${slug}` : query;
+    const res = await fetch(`${base}/api/public/featured${keyed}`, { headers: agencyRequestHeaders(slug), next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
     if (!res.ok) return null;
     const featured = (await res.json()) as Featured;
     // A backend that does not know `hero` yet still lists the chosen home when it is among the featured ones.
     return { ...featured, hero: featured.hero ?? (query ? featured.units.find((u) => u.id === hero) ?? null : null) };
   } catch {
     return null;
+  }
+}
+
+/** The agency's name, colour and logo for the header. "not-found" when the backend does not know it (or it is suspended); null when unreachable. */
+export async function loadAgency(agency?: string | null): Promise<AgencyCard | "not-found" | null> {
+  const slug = cleanAgency(agency);
+  try {
+    const base = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+    const res = await fetch(`${base}/api/public/agency${slug ? `?agency=${slug}` : ""}`, { headers: agencyRequestHeaders(slug), next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
+    if (res.status === 404) return "not-found";
+    return res.ok ? ((await res.json()) as AgencyCard) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The agencies that chose to be listed. Empty when the backend is unreachable. */
+export async function loadDirectory(): Promise<Pick<AgencyCard, "slug" | "name" | "brand_color" | "logo_url">[]> {
+  try {
+    const base = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+    const res = await fetch(`${base}/api/public/agencies`, { next: { revalidate: 60 }, signal: AbortSignal.timeout(4000) });
+    return res.ok ? (((await res.json()) as { agencies: AgencyCard[] }).agencies ?? []) : [];
+  } catch {
+    return [];
   }
 }
 

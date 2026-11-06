@@ -368,8 +368,13 @@ export interface Project {
   sqm_max: number | null;
   floors: number | null;
   status: "SELLING" | "SOLD_OUT" | "UPCOMING";
-  price_from_etb: number | null;
+  price_from_etb: number | null; // the price this agency shows: its own when it has one, else the shared one
   price_note: string | null;
+  shared_price_from_etb: number | null;
+  shared_price_note: string | null;
+  agency_price_etb: number | null;
+  agency_price_note: string | null;
+  agency_price_until: string | null;
   image_url: string | null;
   promo_text: string | null;
   promo_discount_pct: number | null;

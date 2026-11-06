@@ -42,7 +42,19 @@ class Settings(BaseSettings):
     email_from: str = ""
 
     admin_api_key: str = ""
+    secrets_master_key: str = ""  # 32 random bytes, base64: encrypts each agency's bot token and calendar key (python -m scripts.make_master_key)
+    secrets_master_keys: str = ""  # during a rotation: several keys, comma separated, newest first (docs/SECURITY.md); wins over the single one
+    tenancy_strict: bool = False  # True: database work with no organization in scope is an error instead of using the legacy one
+    # US dollars per million tokens, "model=input/output", comma separated; `default` prices any model not listed. These are ESTIMATES the
+    # operator must check against the provider's price list and update (with the date) when it changes: spend is only as good as this line.
+    model_prices: str = ("default=0.30/2.50,gemini-2.5-flash=0.30/2.50,gemini-3.5-flash-lite=0.10/0.40,"
+                         "gemini-3.1-flash-lite=0.10/0.40,gemini-embedding-001=0.15/0")
+    model_prices_as_of: str = "2026-11-02 (estimate, not checked against the provider's list)"
+    enforce_quotas: bool = True  # each agency's plan caps how many buyer messages the assistant answers per day (app/quota.py)
     cron_secret: str = ""
+    job_workers: int = 2  # background job tasks in this process (app/jobs.py); 0 turns the worker off (the tests do)
+    job_per_org_limit: int = 1  # jobs of one agency that may run at the same time, so one agency cannot take every worker
+    job_lease_seconds: int = 120  # a running job whose worker stops extending this is handed to another worker
     frontend_origin: str = "http://localhost:3000"
 
     demo_fallback_email: str = ""
@@ -88,6 +100,11 @@ class Settings(BaseSettings):
     ads_auto_publish: bool = False  # post new listings and price drops to the channel without being asked
     telegram_channel_id: str = ""
 
+    audit_export_dir: str = ""  # copy each agency's audit trail here (development); see app/auditchain.py. Off when both this and the bucket are empty
+    audit_export_bucket: str = ""  # or to this S3-compatible bucket, which should have object lock with a default retention (production)
+    audit_export_prefix: str = ""
+    audit_export_endpoint_url: str = ""  # for an S3-compatible service other than AWS
+
     demo_reset_enabled: bool = False  # lets the dashboard's Reset Demo button wipe conversations and restore the demo catalogue
     history_compact_after: int = 40  # a conversation longer than this many messages has its older part summarised
     history_keep_recent: int = 12
@@ -112,6 +129,13 @@ class Settings(BaseSettings):
     high_value_threshold_etb: float = 20_000_000
     similarity_threshold: float = 0.64  # tuned on seed data: negatives <= 0.606, positives >= 0.666
 
+
+    @property
+    def master_key_list(self) -> list[str]:
+        """The master keys, newest first: SECRETS_MASTER_KEYS, then SECRETS_MASTER_KEY if it is not among them (so leaving the old single
+        variable in place during a rotation keeps it loaded, as the older key)."""
+        keys = [*self.secrets_master_keys.replace("\n", ",").split(","), self.secrets_master_key]
+        return list(dict.fromkeys(k.strip().strip('"').strip("'") for k in keys if k.strip()))
 
     @property
     def gemini_key_list(self) -> list[str]:

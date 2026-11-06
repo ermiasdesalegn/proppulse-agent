@@ -240,7 +240,7 @@ async def test_any_address_at_a_developers_domain_counts_but_a_shared_domain_doe
     assert (await spy_repo.find_developer_for_sender("sales@gift.example"))["slug"] == "gift"
     assert await spy_repo.find_developer_for_sender("someone@gmail.com") is None
     assert await spy_repo.find_developer_for_sender("not-an-address") is None
-    await spy_repo._fetch("update developers set sales_email = 'sales@shared.example' where slug in ('ayat', 'noah') returning id")
+    await spy_repo.as_platform()._fetch("update developers set sales_email = 'sales@shared.example' where slug in ('ayat', 'noah') returning id")
     assert await spy_repo.find_developer_for_sender("x@shared.example") is None, "two developers on one domain: refuse to guess"
 
 

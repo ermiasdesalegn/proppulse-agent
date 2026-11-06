@@ -10,14 +10,17 @@ import contextlib
 import logging
 from typing import Any
 
+from app.tenancy import resolve_org_id
+
 log = logging.getLogger(__name__)
 
 COLUMNS = ("operation", "schema_name", "lane", "model", "outcome", "latency_ms", "attempt", "fallbacks",
-           "input_tokens", "output_tokens", "node", "buyer_id", "thread_id")
+           "input_tokens", "output_tokens", "node", "buyer_id", "thread_id", "org_id")
 
 
 def to_row(record: dict) -> dict:
     row = {c: record.get(c) for c in COLUMNS}
+    row["org_id"] = str(resolve_org_id())  # recorded in the caller's task, so it is the organization the model call was made for
     row["schema_name"] = record.get("schema")
     row["fallbacks"] = list(record.get("fallbacks") or [])
     return row
@@ -38,7 +41,7 @@ class ModelCallLog:
             self.dropped += 1
             return
         if self._events is not None:
-            self._events.publish("model_call", **{k: v for k, v in row.items() if k not in ("buyer_id", "thread_id") or v})
+            self._events.publish("model_call", **{k: v for k, v in row.items() if k != "org_id" and (k not in ("buyer_id", "thread_id") or v)})
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._writer(), name="model-call-log")
