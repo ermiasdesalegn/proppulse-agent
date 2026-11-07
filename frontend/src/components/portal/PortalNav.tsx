@@ -26,6 +26,12 @@ export default function PortalNav({ email }: { email: string | null }) {
       </nav>
       <div className="flex items-center gap-3 text-sm">
         {email && <span className="hidden max-w-[11rem] truncate text-muted lg:inline" title={email}>{email}</span>}
+        {email && (
+          <Link href="/start" className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
+            title="You are signed in as a buyer. Brokers and agencies start their own workspace here.">
+            Are you a broker? Start an agency
+          </Link>
+        )}
         <SignOutButton className="rounded-full px-3 py-2 font-medium text-muted transition hover:bg-ink/5 hover:text-ink" />
       </div>
     </>
