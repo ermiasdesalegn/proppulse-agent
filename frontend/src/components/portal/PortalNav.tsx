@@ -11,6 +11,8 @@ const ITEMS = [
   { href: "/portal/map", label: "Map", match: (p: string) => p.startsWith("/portal/map") },
   { href: "/portal/saved", label: "Saved", match: (p: string) => p.startsWith("/portal/saved") },
   { href: "/portal/chat", label: "Concierge", match: (p: string) => p.startsWith("/portal/chat") },
+  { href: "/portal/visits", label: "My visits", match: (p: string) => p.startsWith("/portal/visits") },
+  { href: "/portal/alerts", label: "Alerts", match: (p: string) => p.startsWith("/portal/alerts") },
 ];
 
 export default function PortalNav({ email }: { email: string | null }) {

@@ -427,7 +427,7 @@ class Repository:
         return await self._fetch(
             "select t.id, t.scheduled_start, t.project_id, b.id as buyer_id, b.telegram_id, b.full_name, b.email, b.thread_id "
             "from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id "
-            "where t.scheduled_start > %s and t.scheduled_start <= %s and t.reminder_sent = false order by t.scheduled_start",
+            "where t.scheduled_start > %s and t.scheduled_start <= %s and t.reminder_sent = false and t.cancelled_at is null order by t.scheduled_start",
             (start, end),
         )
 
@@ -643,9 +643,34 @@ class Repository:
     async def tours_starting_between(self, start: datetime, end: datetime) -> list[dict]:
         return await self._fetch(
             "select t.*, b.telegram_id, b.full_name from tours_and_appointments t join buyers_crm b on b.id = t.buyer_id "
-            "where t.scheduled_start >= %s and t.scheduled_start < %s order by t.scheduled_start",
+            "where t.scheduled_start >= %s and t.scheduled_start < %s and t.cancelled_at is null order by t.scheduled_start",
             (start, end),
         )
+
+    async def buyer_tours(self, buyer_id: UUID | str) -> list[dict]:
+        """One buyer's bookings, soonest first, with where they go (the stops' titles, or the project)."""
+        return await self._fetch(
+            "select t.id, t.scheduled_start, t.kind, t.cancelled_at, pj.name as project_name, "
+            "(select coalesce(json_agg(p.title order by tp.stop_order), '[]'::json) from tour_properties tp "
+            "join properties p on p.id = tp.property_id where tp.tour_id = t.id) as homes "
+            "from tours_and_appointments t left join projects pj on pj.id = t.project_id where t.buyer_id = %s "
+            "order by t.scheduled_start desc",
+            (str(buyer_id),),
+        )
+
+    async def cancel_buyer_tour(self, buyer_id: UUID | str, tour_id: UUID | str) -> dict | None:
+        """Mark the buyer's own upcoming booking cancelled. None when it is not theirs, already cancelled, or already past."""
+        return await self._one(
+            "update tours_and_appointments set cancelled_at = now() "
+            "where id = %s and buyer_id = %s and cancelled_at is null and scheduled_start > now() returning *",
+            (str(tour_id), str(buyer_id)),
+        )
+
+    async def set_buyer_alerts(self, buyer_id: UUID | str, enabled: bool) -> dict:
+        row = await self._one("update buyers_crm set alerts_enabled = %s where id = %s returning *", (enabled, str(buyer_id)))
+        if row is None:
+            raise LookupError(f"buyer {buyer_id} not found")
+        return row
 
     async def mark_reminder_sent(self, tour_id: UUID | str) -> None:
         await self._fetch("update tours_and_appointments set reminder_sent = true where id = %s returning id", (str(tour_id),))
@@ -957,7 +982,7 @@ class Repository:
 
     async def list_tours(self, limit: int = 100) -> list[dict]:
         return await self._fetch(
-            "select t.id, t.scheduled_start, t.kind, t.mapbox_route_json, t.reminder_sent, t.project_id, pj.name as project_name, b.id as buyer_id, b.full_name, b.thread_id, "
+            "select t.id, t.scheduled_start, t.kind, t.cancelled_at, t.mapbox_route_json, t.reminder_sent, t.project_id, pj.name as project_name, b.id as buyer_id, b.full_name, b.thread_id, "
             "(select coalesce(json_agg(json_build_object('stop_order', tp.stop_order, 'property_id', p.id, 'title', p.title, "
             "'lat', p.lat, 'lng', p.lng, 'sub_city', p.sub_city) order by tp.stop_order), '[]'::json) "
             "from tour_properties tp join properties p on p.id = tp.property_id where tp.tour_id = t.id) as stops "
@@ -976,7 +1001,7 @@ class Repository:
             "(select count(*) from commission_ledger where status in ('LEAD_REGISTERED', 'TOUR_COMPLETED', 'CONTRACT_SIGNED', 'COMMISSION_PENDING')) as open_deals, "
             "(select coalesce(sum(expected_commission_etb), 0) from commission_ledger where status in ('LEAD_REGISTERED', 'TOUR_COMPLETED', 'CONTRACT_SIGNED', 'COMMISSION_PENDING')) as pipeline_commission_etb, "
             "(select coalesce(sum(expected_commission_etb), 0) from commission_ledger where status = 'COMMISSION_PENDING') as commission_pending_etb, "
-            "(select count(*) from tours_and_appointments where scheduled_start > now()) as upcoming_tours, "
+            "(select count(*) from tours_and_appointments where scheduled_start > now() and cancelled_at is null) as upcoming_tours, "
             "(select count(*) from proactive_events where status = 'sent' and created_at >= %s) as proactive_sent",
             (since,),
         )

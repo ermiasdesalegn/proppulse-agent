@@ -127,7 +127,7 @@ class ProactiveService:
 
         for buyer_id, matches in per_buyer.items():
             buyer = await self.repo.get_buyer(buyer_id)
-            if buyer is None:
+            if buyer is None or not buyer.get("alerts_enabled", True):  # a buyer who switched alerts off hears nothing, and nothing is reserved
                 continue
             matches.sort(key=lambda t: t[1], reverse=True)
 

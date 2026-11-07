@@ -5,6 +5,8 @@ query is keyed by the id inside that token, so a buyer can only ever read or cha
 """
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -25,6 +27,7 @@ from app.model3d import Layout, render_png, to_glb
 from app.repository import Repository
 from app.tenancy import resolve_org_id
 
+log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(agency_scope)])
 
 MATCH_FIELDS = ("id", "title", "sub_city", "price_etb", "bedrooms", "similarity")  # what the agent recommended, without internal ids
@@ -294,3 +297,74 @@ async def chat_file(request: Request, message_id: int, name: Literal["model.png"
                           buyer_name=buyer.get("full_name"), route=tour.get("mapbox_route_json"))
     return Response(await run_in_threadpool(brochure_pdf, sheet), media_type="application/pdf",
                     headers={**private, "Content-Disposition": 'attachment; filename="property-comparison.pdf"'})
+
+
+# ---------------- my visits and my alerts ----------------
+
+def _visit(row: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """One booking as the buyer sees it. `status` is what the page shows; `can_cancel` is what the Cancel button is allowed to do."""
+    cancelled = row["cancelled_at"] is not None
+    past = row["scheduled_start"] <= now
+    status = "cancelled" if cancelled else "past" if past else "upcoming"
+    homes = list(row["homes"] or [])
+    return {"id": str(row["id"]), "scheduled_start": row["scheduled_start"].isoformat(), "kind": row["kind"], "status": status,
+            "can_cancel": status == "upcoming", "homes": homes, "project": row["project_name"]}
+
+
+@router.get("/api/me/visits")
+async def my_visits(me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of)):
+    buyer = await repo.get_buyer_by_thread(me.thread_id)
+    if buyer is None:
+        return {"items": []}
+    now = datetime.now(UTC)
+    return {"items": [_visit(r, now) for r in await repo.buyer_tours(buyer["id"])]}
+
+
+@router.post("/api/me/visits/{tour_id}/cancel")
+async def cancel_visit(request: Request, tour_id: UUID, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of),
+                       service: ChatService = Depends(chat_of)):
+    """Cancel one of the signed-in buyer's own upcoming bookings: mark it, free the calendar slot, tell the broker. Someone else's booking
+    answers exactly like one that does not exist."""
+    buyer = await repo.get_buyer_by_thread(me.thread_id)
+    tour = await repo.get_tour(tour_id)
+    if buyer is None or tour is None or str(tour["buyer_id"]) != str(buyer["id"]):
+        raise HTTPException(404, "We could not find that visit")
+    if tour["cancelled_at"] is not None:
+        raise HTTPException(409, "This visit is already cancelled")
+    if tour["scheduled_start"] <= datetime.now(UTC):
+        raise HTTPException(409, "This visit has already happened, so it cannot be cancelled")
+    cancelled = await repo.cancel_buyer_tour(buyer["id"], tour_id)
+    if cancelled is None:  # lost a race with another cancel, or the start time passed in between
+        raise HTTPException(409, "This visit can no longer be cancelled")
+    if tour.get("calendar_event_id"):
+        try:
+            await service.services.calendar.cancel(tour["calendar_event_id"])
+        except Exception:  # the booking is cancelled either way; the broker is told below so the calendar can be fixed by hand
+            log.exception("could not free the calendar slot of tour %s", tour_id)
+    proactive = getattr(request.app.state, "proactive", None)
+    if proactive is not None:
+        s = request.app.state.settings
+        when = tour["scheduled_start"].astimezone(ZoneInfo(s.timezone)).strftime("%a %d %b, %H:%M")
+        who = buyer.get("full_name") or me.full_name or me.email or "A buyer"
+        try:
+            await proactive.notify_broker("PORTAL_ALERT", f"visit-cancelled:{tour_id}", f"{who} cancelled the visit on {when}. The calendar slot is free again.")
+        except Exception:
+            log.exception("could not tell the broker about the cancelled visit %s", tour_id)
+    mine = next(r for r in await repo.buyer_tours(buyer["id"]) if r["id"] == tour["id"])
+    return _visit(mine, datetime.now(UTC))
+
+
+class AlertsIn(BaseModel):
+    enabled: bool
+
+
+@router.get("/api/me/alerts")
+async def my_alerts(me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of)):
+    buyer = await repo.get_buyer_by_thread(me.thread_id)
+    return {"enabled": True if buyer is None else bool(buyer["alerts_enabled"])}
+
+
+@router.put("/api/me/alerts")
+async def set_my_alerts(body: AlertsIn, me: BuyerIdentity = Depends(current_buyer), repo: Repository = Depends(repo_of)):
+    buyer = await _known_buyer(repo, me)  # a buyer who has never chatted gets their record now, so the choice is kept
+    return {"enabled": bool((await repo.set_buyer_alerts(buyer["id"], body.enabled))["alerts_enabled"])}
