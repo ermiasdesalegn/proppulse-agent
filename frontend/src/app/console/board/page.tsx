@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import clsx from "@/components/clsx";
 import Select from "@/components/Select";
+import ClaimDialog from "./ClaimDialog";
+import SplitDialog from "./SplitDialog";
+import DocumentsDialog from "./DocumentsDialog";
+import { isMine, memberLabel } from "@/lib/assignment";
+import { CLAIM_LABEL, CLAIM_TONE, showsClaim } from "@/lib/claims";
 import { PageHeader, Button, Card, DEVELOPER_COLOR, DEVELOPER_VAR, ErrorNote, Pill, ScoreBar } from "@/components/ui";
-import { errorMessage, patch } from "@/lib/api";
+import { errorMessage, patch, put } from "@/lib/api";
 import { COLUMNS, applyMove, canMove, dealsByStatus, expectedCommission, needsContractDetails, qualifiedLabel, type ColumnId } from "@/lib/board";
 import { displayName, fmtDate, fmtEtb } from "@/lib/format";
 import { useLive } from "@/lib/live";
@@ -21,6 +26,11 @@ export default function BoardPage() {
   const board = useApi<BoardData>("board", 20_000);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<{ deal: Deal; to: LedgerStatus } | null>(null);
+  const people = useApi<{ me: string | null; members: { user_id: string }[] }>("members");
+  const [mineOnly, setMineOnly] = useState(false);
+  const [documenting, setDocumenting] = useState<Deal | null>(null);
+  const [splitting, setSplitting] = useState<Deal | null>(null);
+  const [claiming, setClaiming] = useState<Deal | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<ColumnId | null>(null);
   // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
@@ -47,12 +57,19 @@ export default function BoardPage() {
   }
 
   const data = board.data;
-  const grouped = dealsByStatus(data?.deals ?? []);
+  const me = people.data?.me ?? null;
+  const memberIds = (people.data?.members ?? []).map((m) => m.user_id);
+  const visible = (data?.deals ?? []).filter((d) => !mineOnly || isMine(d, me));
+  const grouped = dealsByStatus(visible);
   const findDeal = (id: string) => data?.deals.find((d) => d.id === id);
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Pipeline" title="Deal Board" description={<>One card per developer opportunity. Drag a card to move it, or use the menu on the card. Moving the winner forward does not close the others; drag those to Lost yourself.</>} />
+      <PageHeader eyebrow="Pipeline" title="Deal Board" actions={<>
+        {me && <Button type="button" aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)}>{mineOnly ? "Showing mine" : "Show mine"}</Button>}
+        <a href="/api/proxy/commission/export.csv" download className="rounded-lg border border-line px-3.5 py-1.5 text-sm font-medium hover:border-[#444] hover:bg-white/[0.04]">Export CSV</a>
+        <a href="/api/proxy/commission/earnings.csv" download className="rounded-lg border border-line px-3.5 py-1.5 text-sm font-medium hover:border-[#444] hover:bg-white/[0.04]">Who earned what</a>
+      </>} description={<>One card per developer opportunity. Drag a card to move it, or use the menu on the card. Moving the winner forward does not close the others; drag those to Lost yourself.</>} />
       {(board.error || error) && <ErrorNote>{error ?? board.error}</ErrorNote>}
 
       {/* relative: keeps the hidden (sr-only) labels inside this scroller instead of widening the whole page */}
@@ -84,7 +101,7 @@ export default function BoardPage() {
                 </header>
                 <div className="min-h-[6rem] flex-1 space-y-2 p-2">
                   {col.id === "QUALIFIED"
-                    ? (data?.qualified ?? []).map((b) => (
+                    ? (data?.qualified ?? []).filter((b) => !mineOnly || !me || b.assigned_to === me).map((b) => (
                         <article key={b.id} className="rounded-xl border border-line bg-raised p-3.5 text-sm transition-colors hover:border-[#333]">
                           <div className="flex items-center justify-between gap-2">
                             <Link href="/console/crm" className="truncate font-medium hover:text-accent">{displayName(b)}</Link>
@@ -109,6 +126,24 @@ export default function BoardPage() {
                           <p className="text-xs text-muted">{d.property_title}</p>
                           <p className="tnum mt-1 text-xs">{fmtEtb(d.property_price_etb)} <span className="text-muted">- commission</span> {fmtEtb(d.expected_commission_etb)}</p>
                           {d.next_buyer_milestone_date && <p className="mt-1 text-xs text-warn">Payment due {fmtDate(d.next_buyer_milestone_date)}</p>}
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                            <span className="text-muted">{d.split && d.split.length > 0 ? `Split between ${d.split.length}` : memberLabel(d.assigned_to, me)}</span>
+                            <span className="flex gap-3">
+                              <button type="button" onClick={() => setDocumenting(d)} className="font-medium text-accent hover:underline">Documents</button>
+                              <button type="button" onClick={() => setSplitting(d)} className="font-medium text-accent hover:underline">Split</button>
+                            </span>
+                          </div>
+                          <label className="sr-only" htmlFor={`assign-${d.id}`}>Assign deal for {d.buyer_name} to</label>
+                          <Select id={`assign-${d.id}`} size="sm" className="mt-1 max-w-[11rem]" menuWidth="content" value="" placeholder="Assign to..."
+                            onChange={(v) => { void put(`ledger/${d.id}/assignee`, { user_id: v === "none" ? null : v }).then(() => board.reload()).catch((e) => setError(errorMessage(e))); }}
+                            options={[...memberIds.map((m) => ({ value: m, label: memberLabel(m, me) })), { value: "none", label: "Unassigned" }]} />
+                          {d.overdue_flagged_at && d.status === "COMMISSION_PENDING" && <p className="mt-1 text-xs text-warn">Pending longer than expected</p>}
+                          {showsClaim(d) && (
+                            <div className="mt-1 flex items-center gap-2">
+                              {d.claim_status && <Pill tone={CLAIM_TONE[d.claim_status]}>{CLAIM_LABEL[d.claim_status]}</Pill>}
+                              <button type="button" onClick={() => setClaiming(d)} className="text-xs font-medium text-accent hover:underline">{d.claim_status ? "Claim details" : "Send claim"}</button>
+                            </div>
+                          )}
                           {d.tour_id && <Link href={`/console/tours/${d.tour_id}`} className="mt-1 inline-block text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>}
                           <div className="mt-2 flex items-center justify-between gap-2">
                             <ScoreBar score={d.lead_score} />
@@ -129,6 +164,9 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {documenting && <DocumentsDialog deal={documenting} onClose={() => setDocumenting(null)} />}
+      {splitting && <SplitDialog deal={splitting} members={memberIds} me={me} onClose={() => setSplitting(null)} onSaved={() => void board.reload()} />}
+      {claiming && <ClaimDialog deal={claiming} onClose={() => setClaiming(null)} onChanged={() => void board.reload()} />}
       {pending && (
         <ContractDialog
           deal={pending.deal}

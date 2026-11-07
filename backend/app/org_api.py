@@ -95,7 +95,8 @@ async def create_organization(body: OrgIn, request: Request):
 @router.get("/api/members")
 async def list_members(request: Request, p: Principal = Depends(console_access)):
     members = await platform_repo(request).list_members(p.tenant.org_id)
-    return {"members": [{"user_id": str(m["user_id"]), "role": m["role"], "since": m["created_at"]} for m in members]}
+    me = p.tenant.user_id
+    return {"me": str(me) if me else None, "members": [{"user_id": str(m["user_id"]), "role": m["role"], "since": m["created_at"]} for m in members]}
 
 
 def _may_change(p: Principal, target_role: str, new_role: str | None = None) -> None:

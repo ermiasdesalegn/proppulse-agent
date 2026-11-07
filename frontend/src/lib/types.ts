@@ -44,6 +44,11 @@ export interface Deal {
   expected_commission_etb: number | null;
   contract_value_etb: number | null;
   next_buyer_milestone_date: string | null;
+  assigned_to: string | null;
+  split: { user_id: string; percent: number }[];
+  claim_status: "SENT" | "ACKNOWLEDGED" | "DISPUTED" | null;
+  claim_sent_at: string | null;
+  overdue_flagged_at: string | null;
   lead_reg_email_id: string | null;
   tour_id: string | null;
   lead_score: number;
@@ -52,6 +57,7 @@ export interface Deal {
 }
 
 export interface QualifiedBuyer {
+  assigned_to: string | null;
   id: string;
   full_name: string | null;
   thread_id: string;

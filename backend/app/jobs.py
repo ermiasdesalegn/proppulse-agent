@@ -479,6 +479,10 @@ async def milestone_reminders(state: Any, dry_run: bool = False) -> dict:
     return await state.proactive.milestone_reminders(dry_run)
 
 
+async def commission_overdue(state: Any, dry_run: bool = False) -> dict:
+    return await state.proactive.commission_overdue(dry_run)
+
+
 async def promotion_ads(state: Any, dry_run: bool = False) -> dict:
     return await state.projects.run_promotion_ads(dry_run)
 
@@ -497,6 +501,7 @@ SCHEDULED: dict[str, tuple[Callable[[Any, bool], Awaitable[dict]], str]] = {
     "proactive.milestone_reminders": (milestone_reminders, "hour"),
     "projects.promotion_ads": (promotion_ads, "hour"),
     "audit.export": (audit_export, "day"),
+    "commission.overdue": (commission_overdue, "day"),
 }
 
 

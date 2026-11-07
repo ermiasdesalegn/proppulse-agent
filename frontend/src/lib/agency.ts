@@ -91,6 +91,13 @@ const ACTION_LABEL: Record<string, string> = {
   "terms.clear": "Went back to the shared commission rate",
   "org.plan_change": "The platform changed the plan",
   "org.status_change": "The platform changed the agency's status",
+  "claim.send": "Sent a commission claim to a developer",
+  "claim.acknowledge": "Recorded that a developer acknowledged a commission claim",
+  "deal.assign": "Assigned a buyer or deal to a member",
+  "deal.split": "Set or cleared how a deal's commission is shared",
+  "document.upload": "Attached a document to a deal",
+  "document.delete": "Deleted a deal document",
+  "claim.dispute": "Recorded that a developer disputed a commission claim",
 };
 
 export function actionLabel(action: string): string {

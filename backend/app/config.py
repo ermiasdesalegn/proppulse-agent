@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    deal_documents_bucket: str = ""  # a PRIVATE Supabase Storage bucket for contracts and receipts; needs SUPABASE_URL and the service role key
+    deal_documents_dir: str = ""  # development only: keep documents in this folder instead (never set it on a host whose disk is lost on restart)
     supabase_jwt_secret: str = ""  # only for projects that still sign tokens with the shared HS256 secret; newer ones are checked against the published public keys
     database_url: str = ""
 
@@ -119,6 +121,7 @@ class Settings(BaseSettings):
     broker_telegram_chat_id: str = ""  # where the broker's own notices go; falls back to DEMO_FALLBACK_TELEGRAM_CHAT_ID
     proactive_lookback_hours: int = 24  # how far back price drops and new listings count as news
     tour_reminder_window_hours: int = 24
+    commission_overdue_days: int = 14  # a commission still pending after this many days is flagged and the agency's owner is told
     milestone_notice_days: int = 3  # remind the buyer this many days before a payment milestone, and again on the day
     max_alerts_per_buyer_per_day: int = 1
     max_properties_per_alert: int = 3

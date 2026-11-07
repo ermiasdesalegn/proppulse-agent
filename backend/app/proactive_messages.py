@@ -85,6 +85,12 @@ def commission_ready_notice(row: dict) -> str:
     return f"Commission ready to collect: {row['developer_name']} - {row['property_title']} ({row.get('full_name') or 'buyer'}).{amount}"
 
 
+def commission_overdue_notice(row: dict) -> str:
+    claim = {"SENT": "A claim was sent and has no answer yet.", "DISPUTED": "The developer disputed the claim."}.get(row.get("claim_status") or "", "No claim was sent yet.")
+    return (f"Commission overdue: {row['developer_name']} - {row['property_title']} ({row.get('full_name') or 'buyer'}) has been pending for "
+            f"{row['days_pending']} days. {claim}")
+
+
 def price_increase_notice(item: dict) -> str:
     return (f"Price increase: {item['title']} ({item['sub_city']}) went from {fmt_etb(float(item['old_price_etb']))} to "
             f"{fmt_etb(float(item['price_etb']))}, up {_drop(item)}. Buyers are not alerted about increases; you may want to tell anyone who was considering it.")
