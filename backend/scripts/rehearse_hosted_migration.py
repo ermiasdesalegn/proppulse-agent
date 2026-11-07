@@ -216,7 +216,7 @@ with psycopg.connect(url) as c:
                         [(orgs[i % 3], "rehearsal.event", f"t{i}") for i in range(args.audit_rows)])
     c.commit()
 
-apply(url, 27, 33, "027-033")
+apply(url, 27, 99, "027-newest")
 
 # ---------------------------------------------------------------------------------------------------------------------------------
 print("\n== Checks on the finished database")
@@ -224,7 +224,8 @@ afterAll = counts(url)
 check("row counts of every 019 table unchanged after 033", all(afterAll[t] == v for t, v in before.items()))
 with psycopg.connect(url) as c:
     q = lambda s, *a: c.execute(s, a).fetchone()[0]  # noqa: E731
-    check("schema_migrations has 001-033", q("select count(*) from schema_migrations") == 33, str(q("select max(name) from schema_migrations")))
+    newest = len(list(ALL.glob("*.sql")))
+    check(f"schema_migrations has all {newest} files", q("select count(*) from schema_migrations") == newest, str(q("select max(name) from schema_migrations")))
     check("audit back-fill: every entry has seq/hash", q("select count(*) from audit_log where hash is null or seq is null") == 0, f"{q('select count(*) from audit_log')} entries")
     check("audit chain: seq runs 1..n per agency", q("select count(*) from (select org_id, count(*) n, max(seq) m from audit_log group by org_id) s where n <> m") == 0)
 

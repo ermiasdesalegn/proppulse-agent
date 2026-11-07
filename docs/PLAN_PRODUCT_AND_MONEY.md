@@ -1,6 +1,6 @@
 # Plan: make the platform productive for buyers and brokers, and pay for itself
 
-Status: **proposal, nothing built.** Written 2026-11-07 after the multi-agency platform went live (migrations 001 to 033). Sizes are relative (S about a day, M a few days, L a week or more of focused work). Every database change is a new numbered migration, added in the expand-then-switch way described in [MIGRATION_HOSTED.md](MIGRATION_HOSTED.md), and every phase ends with the same checks (ruff, the backend suite, the frontend suite, a rehearsal on a scratch database, then one deploy).
+Status: **first slice built locally on 2026-11-07, not deployed:** per-agency commission rates (phase 1, item 1, migration 034, `/console/terms`), operator plan and status controls (phase 2, item 1, `/console/operator`), and the audit export scheduled in the cron workflow (phase 4). Everything else is still a proposal. Written 2026-11-07 after the multi-agency platform went live (migrations 001 to 033). Sizes are relative (S about a day, M a few days, L a week or more of focused work). Every database change is a new numbered migration, added in the expand-then-switch way described in [MIGRATION_HOSTED.md](MIGRATION_HOSTED.md), and every phase ends with the same checks (ruff, the backend suite, the frontend suite, a rehearsal on a scratch database, then one deploy).
 
 ## 0. What is true today (so the plan starts from facts)
 

@@ -150,7 +150,7 @@ class Repository:
             "select p.id, p.developer_id, p.title, p.project_name, p.unit_type, p.sub_city, p.lat, p.lng, p.price_etb, "
             "p.bedrooms, p.sqm, p.down_payment_pct, p.construction_stage_pct, p.est_rental_yield_pct, p.delivery_date, "
             "p.status, p.description, p.floor_plan_image_url, p.vision_amenities, p.payment_plan, p.source_url, "
-            "d.name as developer_name, d.slug as developer_slug, d.sales_email, d.commission_rate_pct, "
+            "d.name as developer_name, d.slug as developer_slug, d.sales_email, effective_commission_rate(d.id) as commission_rate_pct, "
             "d.payment_plan as developer_payment_plan, d.reliability_score, p.shared_price_etb, p.agency_price_etb "
             "from agency_properties p join developers d on d.id = p.developer_id where p.id = any(%s::uuid[])",
             ([str(i) for i in ids],),
@@ -662,7 +662,7 @@ class Repository:
                         "insert into commission_ledger (buyer_id, developer_id, property_id, tour_id, lead_reg_email_id, "
                         "lead_registered_at, expected_commission_etb) "
                         "select %s, p.developer_id, p.id, %s, %s, case when %s::text is null then null else now() end, "
-                        "round(p.price_etb * d.commission_rate_pct / 100, 2) "
+                        "round(p.price_etb * effective_commission_rate(d.id) / 100, 2) "
                         "from agency_properties p join developers d on d.id = p.developer_id where p.id = %s returning *",
                         (str(buyer_id), str(tour_id) if tour_id else None, e.lead_reg_email_id, e.lead_reg_email_id, str(e.property_id)),
                     )
@@ -1088,6 +1088,28 @@ class Repository:
             "from agency_prices a left join projects pr on a.target_kind = 'project' and pr.id = a.target_id "
             "left join properties p on a.target_kind = 'property' and p.id = a.target_id order by a.updated_at desc")
 
+    # ---- an agency's own commission terms with a developer (migration 034) ----
+
+    async def list_developer_terms(self) -> list[dict]:
+        """Every developer with the shared rate and, if this agency set one, its own."""
+        return await self._fetch(
+            "select d.id as developer_id, d.name, d.slug, d.commission_rate_pct as shared_rate_pct, t.rate_pct as agency_rate_pct, "
+            "t.note, t.valid_until, t.updated_at, effective_commission_rate(d.id) as effective_rate_pct "
+            "from developers d left join agency_developer_terms t on t.org_id = current_org() and t.developer_id = d.id order by d.name")
+
+    async def set_developer_term(self, developer_id: UUID | str, rate_pct: float, *, note: str | None = None, valid_until: date | None = None,
+                                 created_by: UUID | str | None = None) -> dict:
+        row = await self._one(
+            "insert into agency_developer_terms (developer_id, rate_pct, note, valid_until, created_by) values (%s, %s, %s, %s, %s) "
+            "on conflict (org_id, developer_id) do update set rate_pct = excluded.rate_pct, note = excluded.note, "
+            "valid_until = excluded.valid_until, created_by = excluded.created_by, updated_at = now() returning *",
+            (str(developer_id), rate_pct, note, valid_until, None if created_by is None else str(created_by)))
+        assert row is not None
+        return row
+
+    async def clear_developer_term(self, developer_id: UUID | str) -> bool:
+        return bool(await self._fetch("delete from agency_developer_terms where developer_id = %s returning developer_id", (str(developer_id),)))
+
     async def answered_price_requests(self, project_id: UUID | str) -> list[dict]:
         """Buyers who asked for this project's price and were told: the ones to tell when the price changes."""
         return await self._fetch(
@@ -1102,6 +1124,24 @@ class Repository:
 
     async def organization(self, org_id: UUID | str) -> dict | None:
         return await self._one("select id, slug, name, plan, status from organizations where id = %s", (str(org_id),))
+
+    async def operator_agencies(self) -> list[dict]:
+        """Every agency with a few counts, for the operator. Platform only: it reads across agencies."""
+        return await self._fetch(
+            "select o.id, o.slug, o.name, o.plan, o.status, o.created_at, "
+            "(select count(*) from memberships m where m.org_id = o.id) as members, "
+            "(select count(*) from buyers_crm b where b.org_id = o.id) as buyers, "
+            "(select count(*) from chat_messages c where c.org_id = o.id and c.role = 'buyer' "
+            "   and c.created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc') as messages_today "
+            "from organizations o order by o.created_at")
+
+    async def set_organization_plan_status(self, org_id: UUID | str, *, plan: str | None = None, status: str | None = None) -> dict:
+        row = await self._one(
+            "update organizations set plan = coalesce(%s, plan), status = coalesce(%s, status) where id = %s returning id, slug, name, plan, status",
+            (plan, status, str(org_id)))
+        if row is None:
+            raise LookupError(f"organization {org_id} not found")
+        return row
 
     async def memberships_for_user(self, user_id: UUID | str) -> list[dict]:
         return await self._fetch(

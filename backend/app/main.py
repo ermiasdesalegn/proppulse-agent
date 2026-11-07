@@ -28,6 +28,7 @@ from app.jobs import JobQueue, JobWorker
 from app.jobs_api import router as jobs_router
 from app.keys import check_keys
 from app.observability import GuardMiddleware, secrets_from
+from app.operator_api import router as operator_router
 from app.org_api import router as org_router
 from app.portal_api import router as portal_router
 from app.prices_api import router as prices_router
@@ -39,6 +40,7 @@ from app.runtime import TenantRuntime
 from app.services import build_services
 from app.services.telegram import BotApiTelegramService
 from app.telegram_updates import TelegramPoller, TelegramUpdateHandler
+from app.terms_api import router as terms_router
 from app.tracing import trace_repo, trace_services
 from app.vault import Vault
 
@@ -158,6 +160,8 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(quota_router)
     app.include_router(jobs_router)
     app.include_router(prices_router)
+    app.include_router(terms_router)
+    app.include_router(operator_router)
 
     @app.get("/health")
     def health() -> dict:

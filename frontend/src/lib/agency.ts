@@ -87,6 +87,10 @@ const ACTION_LABEL: Record<string, string> = {
   "price.override_clear": "Went back to the shared price",
   "key.rewrap": "Re-sealed the agency's data key under the new master key",
   "key.rotate": "Replaced the agency's data key and re-sealed its secrets",
+  "terms.set": "Set the agency's own commission rate with a developer",
+  "terms.clear": "Went back to the shared commission rate",
+  "org.plan_change": "The platform changed the plan",
+  "org.status_change": "The platform changed the agency's status",
 };
 
 export function actionLabel(action: string): string {
