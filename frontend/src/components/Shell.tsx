@@ -71,7 +71,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <LiveProvider>
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="shrink-0 border-b border-[#222] bg-[#0f0f0f] md:sticky md:top-0 md:h-screen md:w-56 md:border-b-0 md:border-r md:border-[#222]">
+        <aside className="shrink-0 border-b border-[#222] bg-[#0f0f0f] md:sticky md:top-0 md:flex md:h-screen md:w-56 md:flex-col md:border-b-0 md:border-r md:border-[#222]">
           <div className="flex items-center justify-between px-4 py-3 md:block md:py-5">
             <div className="flex items-center gap-3">
               <Logo />
@@ -82,7 +82,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="md:mt-4"><LiveBadge /></div>
           </div>
-          <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0 md:overflow-visible md:px-3 md:pb-0">
+          <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-2 pb-2 md:min-h-0 md:flex-1 md:flex-col md:gap-0 md:overflow-y-auto md:px-3 md:pb-0">
             {GROUPS.map((group) => (
               <div key={group.label} className="flex gap-1 md:mb-4 md:flex-col">
                 <p className="hidden px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted/70 md:block">{group.label}</p>
@@ -109,7 +109,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               </div>
             ))}
           </nav>
-          <div className="hidden border-t border-[#222] p-3 md:absolute md:bottom-0 md:block md:w-56">
+          <div className="hidden shrink-0 border-t border-[#222] p-3 md:block">
             <OrgSwitcher onSignOut={signOut} signOutIcon={<Icon name="signout" />} />
           </div>
         </aside>
