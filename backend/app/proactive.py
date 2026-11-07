@@ -229,6 +229,21 @@ class ProactiveService:
 
     # ---------------- C: payment milestones and commission ----------------
 
+    async def commission_overdue(self, dry_run: bool = False) -> dict:
+        """Flag commissions that have been pending longer than `commission_overdue_days` and tell the agency's owner once per deal."""
+        out = _result("commission_overdue", dry_run)
+        for row in await self.repo.ledger_overdue(self.settings.commission_overdue_days):
+            text = msg.commission_overdue_notice(row)
+            if dry_run:
+                out["details"].append({"would_notify_broker": text})
+                continue
+            if await self._notify_broker("COMMISSION_OVERDUE", f"commission-overdue:{row['id']}", text, buyer_id=row["buyer_id"], ledger_id=row["id"]):
+                out["sent"] += 1
+            else:
+                out["skipped"] += 1
+            await self.repo.flag_overdue(row["id"])
+        return out
+
     async def milestone_reminders(self, dry_run: bool = False) -> dict:
         s, out = self.settings, _result("milestone_reminders", dry_run)
         today = self.now().date()

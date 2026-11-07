@@ -347,7 +347,7 @@ async def test_many_workers_on_their_own_connections_run_each_of_500_jobs_exactl
 def test_every_scheduled_job_is_registered():
     assert set(SCHEDULED) <= set(REGISTRY)
     assert set(SCHEDULED) == {"proactive.daily", "proactive.reverse_rag", "proactive.tour_reminders", "proactive.milestone_reminders",
-                              "projects.promotion_ads", "audit.export"}
+                              "projects.promotion_ads", "audit.export", "commission.overdue"}
 
 
 def test_the_cron_queues_once_per_period_and_a_button_once_per_minute():
@@ -374,6 +374,8 @@ async def something_to_send(repo, db_conn):
     await repo.update_property_price(await pid(db_conn, NOAH), 17_500_000)
     await book(repo, db_conn, abel, datetime.now(UTC) + timedelta(hours=6), GIFT)
     await signed(repo, db_conn, abel, GIFT, date.today() + timedelta(days=2))
+    await signed(repo, db_conn, await make_buyer(repo, db_conn, "late"), NOAH, date.today(), status="COMMISSION_PENDING")
+    await db_conn.execute("update commission_ledger set pending_since = now() - interval '30 days' where status = 'COMMISSION_PENDING'")  # pending for a month
     await add_project(repo, db_conn, promotion="10% off", promotion_until=(date.today() + timedelta(days=3)).isoformat())
 
 

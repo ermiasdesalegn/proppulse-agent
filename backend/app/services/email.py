@@ -22,7 +22,7 @@ class Attachment:
 
 class EmailService(Protocol):
     async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None, attachments: Sequence[Attachment] = (),
-                   from_name: str | None = None) -> str:
+                   from_name: str | None = None, reply_to: str | None = None) -> str:
         """Send one email and return the provider message id."""
 
 
@@ -46,7 +46,7 @@ class ResendEmailService:
         self._transport = transport
 
     async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None, attachments: Sequence[Attachment] = (),
-                   from_name: str | None = None) -> str:
+                   from_name: str | None = None, reply_to: str | None = None) -> str:
         if self._override_to:
             # Resend's sandbox sender only delivers to the account owner's address.
             subject, to = f"[to: {to}] {subject}", self._override_to
@@ -59,6 +59,8 @@ class ResendEmailService:
                 address = sender.rsplit("<", 1)[-1].rstrip("> ")
                 sender = f"{shown} via PropPulse <{address}>"
             payload: dict = {"from": sender, "to": [to], "subject": subject, "html": html}
+            if reply_to:
+                payload["reply_to"] = reply_to
             if attachments:
                 payload["attachments"] = [{"filename": a.filename, "content": base64.b64encode(a.content).decode("ascii")} for a in attachments]
             res = await client.post(self.URL, headers=headers, json=payload)
@@ -72,7 +74,7 @@ class MockEmailService:
         self.sent: list[dict] = []
 
     async def send(self, *, to: str, subject: str, html: str, idempotency_key: str | None = None, attachments: Sequence[Attachment] = (),
-                   from_name: str | None = None) -> str:
+                   from_name: str | None = None, reply_to: str | None = None) -> str:
         message_id = f"mock-email-{len(self.sent) + 1}"
-        self.sent.append(dict(id=message_id, to=to, subject=subject, html=html, idempotency_key=idempotency_key, attachments=list(attachments), from_name=from_name))
+        self.sent.append(dict(id=message_id, to=to, subject=subject, html=html, idempotency_key=idempotency_key, attachments=list(attachments), from_name=from_name, reply_to=reply_to))
         return message_id

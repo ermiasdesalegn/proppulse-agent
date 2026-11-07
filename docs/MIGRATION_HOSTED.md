@@ -23,6 +23,7 @@ Everything below is done from a branch that is merged on purpose. Until then `ma
 | 032 | `org_settings.listed boolean not null default false` | Yes (metadata-only add column with a constant default) |
 | 033 | Replaces the 029 trigger function so deleting an agency that has its own prices works | Yes. Must be applied if 029 is: without it, deleting an agency with unit prices fails |
 | 034 | `agency_developer_terms` and `effective_commission_rate()` (an agency's own commission rate with a developer). Added after go-live | Yes, only adds. **Apply it before deploying the code that reads it** (the property queries call the function), never after |
+| 035 | Commission claims: claim columns and `pending_since` on `commission_ledger`, a trigger that stamps `pending_since`, the `commission_claim_events` table (row-level security), and the `COMMISSION_OVERDUE` notice kind. Added after go-live | Yes, only adds (the notice-kind check is widened). **Apply it before deploying the code that reads it** (the deal board query reads the new columns) |
 
 So the migration is **expand, then switch**: 020 to 022 go first, with the old code running. 023 and the new code must change together, in one short window; 024 to 033 go with them. The rehearsal also applied 027 to 029 and 031 to 033 on top of Step A with the old code probes running and nothing broke, so they are additive, but there is no benefit in applying them early, and `scripts.migrate` is simpler when Step B is one command.
 

@@ -31,6 +31,7 @@ Status: **first slice built locally on 2026-11-07, not deployed:** per-agency co
 3. **Commission claims and reminders (M).**
    - Ledger statuses gain: claim sent, acknowledged, disputed. A "Send claim" action emails the developer's sales contact from the agency's name with the deal facts and attachments.
    - A daily job (the existing queue) flags pending commissions older than N days and notifies the owner.
+   - **Built locally 2026-11-07** (migration 035; `POST/PUT/GET /api/ledger/{id}/claim`; the daily job `commission.overdue`, N = `COMMISSION_OVERDUE_DAYS`, default 14, cron at 03:45 UTC; Send claim and Claim details on the Deal Board). The claim is a second state on the ledger row, so the deal stages are unchanged. A claim emails the developer's sales contact from the agency's name with the member's address as reply-to; without a configured email provider the console says so and records nothing. Attachments in the claim email wait for item 2 (documents).
 4. **Deal assignment and split (M).** `assigned_to` (a member) on a buyer and ledger entry; an optional split table (member, percent, sums to 100). The deal board filters "mine".
 5. **Export (S).** CSV of the ledger and deals for accounting. **Built locally 2026-11-07** (`GET /api/commission/export.csv`, agent role or higher, Export CSV button on the Deal Board; no migration).
 

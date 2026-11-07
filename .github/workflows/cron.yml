@@ -6,6 +6,7 @@ on:
     - cron: "0 * * * *"   # every hour: wake the service, send 24 h tour and milestone reminders
     - cron: "0 3 * * *"   # 06:00 Addis Ababa: market sweep (starts in the background)
     - cron: "0 5 * * *"   # 08:00 Addis Ababa: follow-ups, price alerts, offer ads
+    - cron: "45 3 * * *"  # 06:45 Addis Ababa: flag commissions pending too long and tell each agency owner
     - cron: "30 3 * * *"  # 06:30 Addis Ababa: copy each agency's new audit entries to the export (does nothing until AUDIT_EXPORT_* is set)
   workflow_dispatch:
 jobs:
@@ -25,5 +26,6 @@ jobs:
             "0 3 * * *") call /api/cron/scrape-market ;;
             "0 5 * * *") call /api/cron/daily-proactive-run ;;
             "30 3 * * *") call /api/cron/audit-export ;;
+            "45 3 * * *") call /api/cron/commission-overdue ;;
             *) call /api/cron/reminders ;;
           esac

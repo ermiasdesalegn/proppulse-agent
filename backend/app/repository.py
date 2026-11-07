@@ -726,6 +726,55 @@ class Repository:
                     await conn.execute("update buyers_crm set deal_stage = %s where id = %s", (status, row["buyer_id"]))
         return updated
 
+    # ---- claims to the developer and reminders for late commissions (migration 035) ----
+
+    async def ledger_for_claim(self, ledger_id: UUID | str) -> dict | None:
+        return await self._one(
+            "select l.*, b.full_name as buyer_name, d.name as developer_name, d.sales_email, p.title as property_title, "
+            "p.price_etb as property_price_etb "
+            "from commission_ledger l join buyers_crm b on b.id = l.buyer_id join developers d on d.id = l.developer_id "
+            "join agency_properties p on p.id = l.property_id where l.id = %s", (str(ledger_id),))
+
+    async def set_claim(self, ledger_id: UUID | str, status: str, *, action: str, note: str | None, actor_id: UUID | str | None,
+                        to: str | None = None, email_id: str | None = None) -> dict:
+        """Move a deal's claim to `status` and write the event, in one transaction. A new claim (`to` given) records where it went."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                if to is not None:
+                    cur = await conn.execute(
+                        "update commission_ledger set claim_status = %s, claim_sent_at = now(), claim_to = %s, claim_email_id = %s, claim_updated_at = now() "
+                        "where id = %s returning *", (status, to, email_id, str(ledger_id)))
+                else:
+                    cur = await conn.execute(
+                        "update commission_ledger set claim_status = %s, claim_updated_at = now() where id = %s returning *", (status, str(ledger_id)))
+                row = await cur.fetchone()
+                if row is None:
+                    raise LookupError(f"ledger row {ledger_id} not found")
+                await conn.execute(
+                    "insert into commission_claim_events (ledger_id, action, note, actor_id) values (%s, %s, %s, %s)",
+                    (str(ledger_id), action, note, None if actor_id is None else str(actor_id)))
+        return row
+
+    async def claim_events(self, ledger_id: UUID | str) -> list[dict]:
+        return await self._fetch(
+            "select id, action, note, actor_id, created_at from commission_claim_events where ledger_id = %s order by created_at, id", (str(ledger_id),))
+
+    async def ledger_overdue(self, days: int) -> list[dict]:
+        """Commissions pending for more than `days` days that nobody was told about yet, unless the developer already acknowledged the claim."""
+        return await self._fetch(
+            "select l.id, l.expected_commission_etb, l.pending_since, l.claim_status, b.id as buyer_id, b.full_name, "
+            "d.name as developer_name, p.title as property_title, (current_date - l.pending_since::date) as days_pending "
+            "from commission_ledger l join buyers_crm b on b.id = l.buyer_id join developers d on d.id = l.developer_id "
+            "join properties p on p.id = l.property_id "
+            "where l.status = 'COMMISSION_PENDING' and l.pending_since is not null and l.pending_since < now() - make_interval(days => %s) "
+            "and l.overdue_flagged_at is null and coalesce(l.claim_status, '') <> 'ACKNOWLEDGED' order by l.pending_since", (days,))
+
+    async def flag_overdue(self, ledger_id: UUID | str) -> None:
+        async with self._conn() as conn:
+            async with conn.transaction():
+                await conn.execute("update commission_ledger set overdue_flagged_at = now() where id = %s", (str(ledger_id),))
+                await conn.execute("insert into commission_claim_events (ledger_id, action) values (%s, 'overdue_flagged')", (str(ledger_id),))
+
     async def board(self) -> dict:
         """Everything the deal board shows: qualified buyers with no deal yet, and every deal row."""
         qualified = await self._fetch(

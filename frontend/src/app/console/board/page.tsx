@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import clsx from "@/components/clsx";
 import Select from "@/components/Select";
+import ClaimDialog from "./ClaimDialog";
+import { CLAIM_LABEL, CLAIM_TONE, showsClaim } from "@/lib/claims";
 import { PageHeader, Button, Card, DEVELOPER_COLOR, DEVELOPER_VAR, ErrorNote, Pill, ScoreBar } from "@/components/ui";
 import { errorMessage, patch } from "@/lib/api";
 import { COLUMNS, applyMove, canMove, dealsByStatus, expectedCommission, needsContractDetails, qualifiedLabel, type ColumnId } from "@/lib/board";
@@ -21,6 +23,7 @@ export default function BoardPage() {
   const board = useApi<BoardData>("board", 20_000);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<{ deal: Deal; to: LedgerStatus } | null>(null);
+  const [claiming, setClaiming] = useState<Deal | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<ColumnId | null>(null);
   // Reload when the live stream reports a change; the reload function is replaced on every render, so it is left out of the list.
@@ -109,6 +112,13 @@ export default function BoardPage() {
                           <p className="text-xs text-muted">{d.property_title}</p>
                           <p className="tnum mt-1 text-xs">{fmtEtb(d.property_price_etb)} <span className="text-muted">- commission</span> {fmtEtb(d.expected_commission_etb)}</p>
                           {d.next_buyer_milestone_date && <p className="mt-1 text-xs text-warn">Payment due {fmtDate(d.next_buyer_milestone_date)}</p>}
+                          {d.overdue_flagged_at && d.status === "COMMISSION_PENDING" && <p className="mt-1 text-xs text-warn">Pending longer than expected</p>}
+                          {showsClaim(d) && (
+                            <div className="mt-1 flex items-center gap-2">
+                              {d.claim_status && <Pill tone={CLAIM_TONE[d.claim_status]}>{CLAIM_LABEL[d.claim_status]}</Pill>}
+                              <button type="button" onClick={() => setClaiming(d)} className="text-xs font-medium text-accent hover:underline">{d.claim_status ? "Claim details" : "Send claim"}</button>
+                            </div>
+                          )}
                           {d.tour_id && <Link href={`/console/tours/${d.tour_id}`} className="mt-1 inline-block text-xs font-medium text-accent hover:underline">Pre-tour dossier</Link>}
                           <div className="mt-2 flex items-center justify-between gap-2">
                             <ScoreBar score={d.lead_score} />
@@ -129,6 +139,7 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {claiming && <ClaimDialog deal={claiming} onClose={() => setClaiming(null)} onChanged={() => void board.reload()} />}
       {pending && (
         <ContractDialog
           deal={pending.deal}

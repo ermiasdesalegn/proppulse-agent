@@ -193,6 +193,12 @@ async def audit_export(request: Request, dry_run: bool = False, orgs: list[UUID]
     return await scheduled(request, orgs, ["audit.export"], dry_run)
 
 
+@router.post("/api/cron/commission-overdue")
+async def commission_overdue(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
+    """Flag commissions pending longer than COMMISSION_OVERDUE_DAYS and tell each agency's owner."""
+    return await scheduled(request, orgs, ["commission.overdue"], dry_run)
+
+
 @router.post("/api/cron/reminders")
 async def all_reminders(request: Request, dry_run: bool = False, orgs: list[UUID] = Depends(job_access())):
     """Tour and milestone reminders together: the dashboard's 'Send 24h Tour & Milestone Reminders' button."""
