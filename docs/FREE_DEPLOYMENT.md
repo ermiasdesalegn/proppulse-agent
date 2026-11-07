@@ -1,7 +1,7 @@
 # Free deployment (no card): Supabase + Render + Vercel + GitHub Actions
 
 ## 1. Database: Supabase (already done)
-Use the session pooler string as `DATABASE_URL`. The hosted database is believed to be at migration 019 (check `select name from schema_migrations order by name;`); the multi-agency migrations 020-033 are **not applied yet**, and the new code needs all of them: follow [MIGRATION_HOSTED.md](MIGRATION_HOSTED.md) (expand 020-022, then switch with 023-033 and the new code). For a fresh database: `cd backend; python -m scripts.migrate; python -m scripts.seed`.
+Use the session pooler string as `DATABASE_URL`. The hosted database is at migration 039 (check `select name from schema_migrations order by name;`). New migrations are applied with `cd backend; python -m scripts.migrate` against the session-pooler string **before** pushing the code that needs them; [MIGRATION_HOSTED.md](MIGRATION_HOSTED.md) records how 020 to 039 were applied. For a fresh database: `cd backend; python -m scripts.migrate; python -m scripts.seed`.
 
 ## 2. Backend: Render free web service
 1. render.com → sign in with GitHub → **New + → Web Service** → pick the repo. Or **New + → Blueprint**, which reads `render.yaml` and pre-fills everything below.

@@ -199,7 +199,7 @@ Moving the live database and app over (what is safe to apply first, why migratio
 
 Also built: the shared market data is read-only for an agency's database role (writes run as the platform) and only the platform or the operator's own agency can edit it from the console, every change to roles, invitations and channels is recorded in a per-agency audit trail, each plan caps how many buyer messages the assistant answers per day (free 100, pro 1,000, business 10,000), and the console has an **Agency** page to connect a Telegram bot and calendar, see today's use and read the change history.
 
-Not done yet: a public page to choose an agency, key rotation, and the hosted database is still at migration 019 (020 to 033 run on the local and test databases and were rehearsed on a scratch copy).
+The hosted database is at migration 039 and the multi-agency platform is live. Still to do: your own settings (a verified email domain and Supabase SMTP, a private storage bucket for deal documents, the audit export), real payments (billing runs in demo mode with a mock checkout), and the later items in [docs/PLAN_NEXT_SLICES.md](docs/PLAN_NEXT_SLICES.md).
 
 ## Several Gemini keys
 Set `GEMINI_API_KEYS` in `backend/.env` to a comma-separated list (the first key is `GEMINI_API_KEY`). Each key runs the whole model chain; when every model on a key is out of quota or rate-limited, the next key takes over, the same request is retried, and the first key is tried again after six hours. Text, structured output, voice, images and embeddings all rotate, so the agent and the market sweep share it. `/health` shows how many keys are loaded. Keys are redacted from logs.

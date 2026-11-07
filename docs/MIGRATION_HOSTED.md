@@ -1,8 +1,8 @@
 # Plan: moving the hosted database and live app to multi-tenancy
 
-Status: **rehearsed on a local copy through migration 033 (section 8), not yet carried out.** Nothing here has been run against the hosted Supabase database. The local and test databases already run migrations 020 to 033; the hosted one does not. This page says what changes, in what order, how to check each step, what could break after going live, and how to go back.
+Status: **carried out on the hosted database** (Addis time): migrations 020 to 033 on 2026-11-07 (Step A first, then the switch with the new backend and frontend), 034 to 037 the same day, 038 and 039 on 2026-11-08. The hosted database is at **039**. Each step was rehearsed first on a scratch database (section 8) and checked live afterwards (`post_deploy_check` 6 of 6, `verify_audit` intact, the bot and the console answered). A fresh backup was taken before 020 and before 023; the ones planned before 034 to 037 did not complete because the Supabase connection kept dropping (those migrations only add tables, columns and functions). This page stays as the record of how it was done and as the runbook for a second environment.
 
-Everything below is done from a branch that is merged on purpose. Until then `main` and the hosted system stay exactly as they are.
+The order that worked for every later migration (034 to 039) was: rehearse on a scratch database, apply the migration to the hosted database first (it only adds), then push `main` so Render and Vercel deploy the code that needs it.
 
 ## 1. What is different about this migration
 
