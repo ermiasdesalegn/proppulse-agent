@@ -45,6 +45,10 @@ class OrgIn(BaseModel):
     slug: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
 
 
+class RenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)  # the real limits (2 to 80 characters after trimming) are checked in the handler
+
+
 class RoleIn(BaseModel):
     role: Role
 
@@ -90,6 +94,30 @@ async def create_organization(body: OrgIn, request: Request):
         raise HTTPException(409, "That address is already taken") from None
     await record(request, None, "org.create", slug, org_id=org["id"], actor_id=who.user_id, name=org["name"])
     return {"id": str(org["id"]), "slug": org["slug"], "name": org["name"], "role": "owner", "plan": org["plan"], "status": org["status"]}
+
+
+@router.get("/api/onboarding")
+async def onboarding(request: Request, p: Principal = Depends(console_admin)):
+    """Which of the four first steps this agency has done: a Telegram bot, an own price, a commission rate, a teammate. Read only."""
+    done = await platform_repo(request).onboarding_progress(p.tenant.org_id)
+    return {"org_id": str(p.tenant.org_id), **{k: bool(v) for k, v in done.items()}}
+
+
+@router.patch("/api/org/name")
+async def rename_organization(body: RenameIn, request: Request, p: Principal = Depends(console_admin)):
+    """Change the name the console, the website and emails show. The address (slug) stays the same."""
+    name = " ".join(body.name.split())
+    if not 2 <= len(name) <= 80:
+        raise HTTPException(422, "The name must be 2 to 80 characters")
+    profile = await platform_repo(request).org_profile(p.tenant.org_id)
+    old = (profile or {}).get("display_name") or (profile or {}).get("name")
+    if name == old and name == (profile or {}).get("name"):
+        return {"name": name}
+    await platform_repo(request).rename_organization(p.tenant.org_id, name)
+    if (runtime := getattr(request.app.state, "runtime", None)) is not None:
+        runtime.invalidate(p.tenant.org_id)
+    await record(request, p, "org.rename", name, old_name=old)
+    return {"name": name}
 
 
 @router.get("/api/members")

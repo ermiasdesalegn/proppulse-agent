@@ -1,6 +1,8 @@
 // Which organization a signed-in person is acting for. Pure helpers, so the rules can be tested without a request.
 
 export const ORG_COOKIE = "pp_org";
+/** Fired on `window` after the agency is renamed, so the sidebar switcher reloads its list. */
+export const ORG_RENAMED = "pp-org-renamed";
 
 export type OrgRole = "viewer" | "agent" | "admin" | "owner";
 const ROLE_ORDER: OrgRole[] = ["viewer", "agent", "admin", "owner"];

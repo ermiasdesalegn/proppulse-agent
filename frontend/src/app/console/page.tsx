@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ActivityList, useBuyerNames } from "@/components/Activity";
 import Link from "next/link";
 import { Icon, type IconName } from "@/components/icons";
@@ -8,6 +8,7 @@ import { Card, CardLink, Empty, ErrorNote, PageHeader, Pill, Stat } from "@/comp
 import { fmtEtb, timeAgo } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import type { ProactiveEvent, Stats } from "@/lib/types";
+import { dismissKey, onboardingSteps, showOnboarding, type Onboarding } from "@/lib/onboarding";
 import { useApi } from "@/lib/useApi";
 
 const KIND_LABEL: Record<string, string> = {
@@ -18,6 +19,42 @@ const KIND_LABEL: Record<string, string> = {
 const KIND_ICON: Record<string, IconName> = {
   PRICE_DROP: "deals", PRICE_INCREASE: "deals", PRICE_REQUEST: "chat", PROJECT_PRICE: "money", NEW_LISTING: "listing", TOUR_REMINDER: "calendar", MILESTONE_REMINDER: "clock", MILESTONE_OVERDUE: "clock", COMMISSION_READY: "money", TAKEOVER_MATCH: "chat",
 };
+
+/** The first steps for a new agency, ticked from what is in the database. Admins and owners only (others get a 403 and see nothing). */
+function GetStarted() {
+  const progress = useApi<Onboarding>("onboarding", 20_000);
+  const [dismissed, setDismissed] = useState<boolean | null>(null);
+  const orgId = progress.data?.org_id;
+
+  useEffect(() => {
+    if (!orgId) return;
+    try { setDismissed(window.localStorage.getItem(dismissKey(orgId)) === "1"); } catch { setDismissed(false); }
+  }, [orgId]);
+
+  if (!progress.data || dismissed === null || !showOnboarding(progress.data, dismissed)) return null;
+  const steps = onboardingSteps(progress.data);
+  const left = steps.filter((s) => !s.done).length;
+  function dismiss() {
+    try { window.localStorage.setItem(dismissKey(progress.data!.org_id), "1"); } catch { /* the card just returns next time */ }
+    setDismissed(true);
+  }
+  return (
+    <Card title="Get started" subtitle={`${left} of ${steps.length} steps left. Each one ticks itself when it is done.`} action={<button type="button" onClick={dismiss} className="text-xs text-muted hover:text-white">Dismiss</button>}>
+      <ul>
+        {steps.map((s) => (
+          <li key={s.key} className="flex items-start gap-3 border-t border-[#222] px-5 py-3 text-sm">
+            <span aria-hidden className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-xs ${s.done ? "border-good bg-good/20 text-good" : "border-[#444] text-transparent"}`}>&#10003;</span>
+            <div className="min-w-0 flex-1">
+              <Link href={s.href} className={`font-medium ${s.done ? "text-muted line-through" : "text-white hover:underline"}`}>{s.title}</Link>
+              <span className="sr-only">{s.done ? " (done)" : " (to do)"}</span>
+              <p className="text-xs text-muted">{s.hint}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
 
 export default function OverviewPage() {
   const { events, dataVersion } = useLive();
@@ -41,6 +78,7 @@ export default function OverviewPage() {
         actions={<><Link href="/console/board" className="rounded-lg border border-[#2a2a2a] px-3.5 py-1.5 text-sm font-medium hover:border-[#444] hover:bg-white/[0.04]">View deal board</Link><Link href="/console/chat" className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-[#111] hover:brightness-110"><Icon name="plus" className="h-4 w-4" />New conversation</Link></>}
       />
 
+      <GetStarted />
       {stats.error && <ErrorNote>{stats.error}</ErrorNote>}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Stat label="Buyers" icon="buyers" value={s?.buyers ?? "-"} trend={s?.trends?.buyers} hint={s ? `${s.qualified} qualified, ${s.in_takeover} in takeover` : undefined} />

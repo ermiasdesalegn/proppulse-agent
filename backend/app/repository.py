@@ -1321,6 +1321,26 @@ class Repository:
                 await conn.execute("insert into memberships (org_id, user_id, role) values (%s, %s, 'owner')", (org["id"], str(owner_id)))
                 return org
 
+    async def onboarding_progress(self, org_id: UUID | str) -> dict:
+        """Four facts that show whether an agency has done its first setup, each counted from that agency's own rows. Platform use: the
+        secrets and memberships tables are read here by naming the agency, so another agency's rows can never count."""
+        rows = await self._fetch(
+            "select exists (select 1 from org_secrets where org_id = %(o)s and name = 'telegram_bot_token') as telegram, "
+            "exists (select 1 from agency_prices where org_id = %(o)s) as price, "
+            "exists (select 1 from agency_developer_terms where org_id = %(o)s) as commission, "
+            "(exists (select 1 from invitations where org_id = %(o)s) or (select count(*) from memberships where org_id = %(o)s) > 1) as teammate",
+            {"o": str(org_id)})
+        return rows[0]
+
+    async def rename_organization(self, org_id: UUID | str, name: str) -> None:
+        """The agency's display name, kept the same in `organizations.name` and `org_settings.display_name`. The slug is not touched."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("update organizations set name = %s where id = %s returning id", (name, str(org_id)))
+                if await cur.fetchone() is None:
+                    raise LookupError("no such organization")
+                await conn.execute("update org_settings set display_name = %s, updated_at = now() where org_id = %s", (name, str(org_id)))
+
     async def count_owned_organizations(self, user_id: UUID | str) -> int:
         rows = await self._fetch("select count(*)::int as n from memberships where user_id = %s and role = 'owner'", (str(user_id),))
         return rows[0]["n"]

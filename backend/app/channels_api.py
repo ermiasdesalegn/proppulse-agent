@@ -59,6 +59,7 @@ async def _status(request: Request, p: Principal) -> dict[str, Any]:
     have = await runtime.secrets(p.tenant.org_id)
     return {
         "credentials_can_be_stored": runtime._vault is not None,
+        "name": profile["display_name"] or profile["name"], "slug": profile["slug"],
         "telegram": {
             "connected": "telegram_bot_token" in have, "bot_username": profile["telegram_bot_username"],
             "connected_at": profile["telegram_connected_at"], "webhook_url": _webhook_url(request, profile["slug"]),
