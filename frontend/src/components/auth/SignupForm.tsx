@@ -30,7 +30,13 @@ export default function SignupForm({ next: requestedNext }: { next: string | nul
       email: email.trim(), password, options: { data: { full_name: name.trim() }, emailRedirectTo: redirect },
     });
     if (failure) {
-      setError(failure.message.toLowerCase().includes("password") ? failure.message : "We could not create the account. Check the details and try again.");
+      const text = failure.message.toLowerCase();
+      // Say what we safely can. Whether an address is already registered is never revealed (Supabase answers that case like a success).
+      setError(
+        text.includes("password") ? failure.message
+        : failure.status === 429 || text.includes("rate limit") || text.includes("too many") ? "Too many sign-up emails were sent just now. Please wait a few minutes and try again."
+        : text.includes("valid email") || text.includes("invalid email") ? "That email address does not look right."
+        : "We could not create the account. Check the details and try again, and if it keeps failing tell the site owner.");
       setBusy(false);
     } else if (data.session) {
       window.location.href = next ? `/login?next=${encodeURIComponent(next)}` : "/login"; // email confirmation is off: already signed in
