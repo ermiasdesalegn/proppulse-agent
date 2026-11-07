@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    deal_documents_bucket: str = ""  # a PRIVATE Supabase Storage bucket for contracts and receipts; needs SUPABASE_URL and the service role key
+    deal_documents_dir: str = ""  # development only: keep documents in this folder instead (never set it on a host whose disk is lost on restart)
     supabase_jwt_secret: str = ""  # only for projects that still sign tokens with the shared HS256 secret; newer ones are checked against the published public keys
     database_url: str = ""
 

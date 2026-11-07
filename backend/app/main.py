@@ -20,6 +20,7 @@ from app.chat import ChatService
 from app.commission_api import router as commission_router
 from app.config import Settings, get_settings
 from app.db import make_pool
+from app.documents_api import router as documents_router
 from app.events import DurableEventBus
 from app.gemini import get_gateway
 from app.ingest.browser import BrowserFetcher, Politeness
@@ -163,6 +164,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(prices_router)
     app.include_router(terms_router)
     app.include_router(commission_router)
+    app.include_router(documents_router)
     app.include_router(operator_router)
 
     @app.get("/health")

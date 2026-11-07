@@ -95,6 +95,8 @@ const ACTION_LABEL: Record<string, string> = {
   "claim.acknowledge": "Recorded that a developer acknowledged a commission claim",
   "deal.assign": "Assigned a buyer or deal to a member",
   "deal.split": "Set or cleared how a deal's commission is shared",
+  "document.upload": "Attached a document to a deal",
+  "document.delete": "Deleted a deal document",
   "claim.dispute": "Recorded that a developer disputed a commission claim",
 };
 

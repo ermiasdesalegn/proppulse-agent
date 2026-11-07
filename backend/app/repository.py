@@ -777,6 +777,26 @@ class Repository:
                 await conn.execute("update commission_ledger set overdue_flagged_at = now() where id = %s", (str(ledger_id),))
                 await conn.execute("insert into commission_claim_events (ledger_id, action) values (%s, 'overdue_flagged')", (str(ledger_id),))
 
+    # ---- documents attached to a deal (migration 037) ----
+
+    async def list_deal_documents(self, ledger_id: UUID | str) -> list[dict]:
+        return await self._fetch("select * from deal_documents where ledger_id = %s order by created_at, id", (str(ledger_id),))
+
+    async def get_deal_document(self, ledger_id: UUID | str, doc_id: UUID | str) -> dict | None:
+        return await self._one("select * from deal_documents where ledger_id = %s and id = %s", (str(ledger_id), str(doc_id)))
+
+    async def add_deal_document(self, doc_id: UUID | str, ledger_id: UUID | str, *, kind: str, filename: str, content_type: str, size_bytes: int,
+                                storage_key: str, uploaded_by: UUID | str | None) -> dict:
+        row = await self._one(
+            "insert into deal_documents (id, ledger_id, kind, filename, content_type, size_bytes, storage_key, uploaded_by) "
+            "values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
+            (str(doc_id), str(ledger_id), kind, filename, content_type, size_bytes, storage_key, None if uploaded_by is None else str(uploaded_by)))
+        assert row is not None
+        return row
+
+    async def delete_deal_document(self, doc_id: UUID | str) -> None:
+        await self._fetch("delete from deal_documents where id = %s returning id", (str(doc_id),))
+
     # ---- who owns a buyer or a deal, and how a deal's commission is shared (migration 036) ----
 
     async def assign_buyer(self, buyer_id: UUID | str, user_id: UUID | str | None) -> dict:

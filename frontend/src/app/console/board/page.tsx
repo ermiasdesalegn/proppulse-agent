@@ -6,6 +6,7 @@ import clsx from "@/components/clsx";
 import Select from "@/components/Select";
 import ClaimDialog from "./ClaimDialog";
 import SplitDialog from "./SplitDialog";
+import DocumentsDialog from "./DocumentsDialog";
 import { isMine, memberLabel } from "@/lib/assignment";
 import { CLAIM_LABEL, CLAIM_TONE, showsClaim } from "@/lib/claims";
 import { PageHeader, Button, Card, DEVELOPER_COLOR, DEVELOPER_VAR, ErrorNote, Pill, ScoreBar } from "@/components/ui";
@@ -27,6 +28,7 @@ export default function BoardPage() {
   const [pending, setPending] = useState<{ deal: Deal; to: LedgerStatus } | null>(null);
   const people = useApi<{ me: string | null; members: { user_id: string }[] }>("members");
   const [mineOnly, setMineOnly] = useState(false);
+  const [documenting, setDocumenting] = useState<Deal | null>(null);
   const [splitting, setSplitting] = useState<Deal | null>(null);
   const [claiming, setClaiming] = useState<Deal | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -126,7 +128,10 @@ export default function BoardPage() {
                           {d.next_buyer_milestone_date && <p className="mt-1 text-xs text-warn">Payment due {fmtDate(d.next_buyer_milestone_date)}</p>}
                           <div className="mt-1 flex items-center justify-between gap-2 text-xs">
                             <span className="text-muted">{d.split && d.split.length > 0 ? `Split between ${d.split.length}` : memberLabel(d.assigned_to, me)}</span>
-                            <button type="button" onClick={() => setSplitting(d)} className="font-medium text-accent hover:underline">Split</button>
+                            <span className="flex gap-3">
+                              <button type="button" onClick={() => setDocumenting(d)} className="font-medium text-accent hover:underline">Documents</button>
+                              <button type="button" onClick={() => setSplitting(d)} className="font-medium text-accent hover:underline">Split</button>
+                            </span>
                           </div>
                           <label className="sr-only" htmlFor={`assign-${d.id}`}>Assign deal for {d.buyer_name} to</label>
                           <Select id={`assign-${d.id}`} size="sm" className="mt-1 max-w-[11rem]" menuWidth="content" value="" placeholder="Assign to..."
@@ -159,6 +164,7 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {documenting && <DocumentsDialog deal={documenting} onClose={() => setDocumenting(null)} />}
       {splitting && <SplitDialog deal={splitting} members={memberIds} me={me} onClose={() => setSplitting(null)} onSaved={() => void board.reload()} />}
       {claiming && <ClaimDialog deal={claiming} onClose={() => setClaiming(null)} onChanged={() => void board.reload()} />}
       {pending && (
