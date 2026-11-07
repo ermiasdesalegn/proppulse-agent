@@ -29,8 +29,8 @@ ap.add_argument("--live-model", action="store_true", help="use the real Gemini i
 ap.add_argument("--port", type=int, default=8123)
 args = ap.parse_args()
 
-import pgserver  # noqa: E402
-import psycopg  # noqa: E402
+import pgserver
+import psycopg
 
 NAME = "proppulse_dev"
 server = pgserver.get_server(BACKEND / ".pgdata", cleanup_mode=None)
@@ -49,9 +49,9 @@ with psycopg.connect(admin, autocommit=True) as c:
 with psycopg.connect(url, autocommit=True) as c:
     c.execute("create extension if not exists vector")
 
-from scripts.migrate import migrate  # noqa: E402
-from scripts.seed import main as seed  # noqa: E402
-from tests.localdb import EMBEDDINGS  # noqa: E402
+from scripts.migrate import migrate
+from scripts.seed import main as seed
+from tests.localdb import EMBEDDINGS
 
 migrate(url)
 seed(url=url, embeddings_file=str(EMBEDDINGS))
@@ -71,8 +71,8 @@ if not args.live_model:
 
 print(f"\nlocal backend on http://127.0.0.1:{args.port}  database {NAME}  model {'LIVE Gemini' if args.live_model else 'replayed'}  (Ctrl+C stops it)\n")
 
-import uvicorn  # noqa: E402
+import uvicorn
 
-import app  # noqa: E402,F401  (picks the Windows-compatible event loop)
+import app  # noqa: F401  (picks the Windows-compatible event loop)
 
 uvicorn.run("app.main:app", host="127.0.0.1", port=args.port, loop="none", log_level="info")
