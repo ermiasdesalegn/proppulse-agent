@@ -38,6 +38,7 @@ def _shown(row: dict) -> dict:
         "id": str(row["id"]), "slug": row["slug"], "name": row["name"], "plan": row["plan"], "status": row["status"],
         "created_at": row["created_at"], "operator": row["id"] == OPERATOR_ORG_ID,
         "members": int(row["members"]), "buyers": int(row["buyers"]), "messages_today": int(row["messages_today"]),
+        "demo_revenue_etb": float(row["demo_revenue_etb"]), "demo_fees_etb": float(row["demo_fees_etb"]),
     }
 
 

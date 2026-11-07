@@ -97,6 +97,7 @@ const ACTION_LABEL: Record<string, string> = {
   "deal.split": "Set or cleared how a deal's commission is shared",
   "document.upload": "Attached a document to a deal",
   "document.delete": "Deleted a deal document",
+  "billing.upgrade": "Upgraded the plan (demo checkout, no real money)",
   "claim.dispute": "Recorded that a developer disputed a commission claim",
 };
 

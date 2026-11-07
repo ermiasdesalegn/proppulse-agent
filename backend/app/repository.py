@@ -1241,7 +1241,9 @@ class Repository:
             "(select count(*) from memberships m where m.org_id = o.id) as members, "
             "(select count(*) from buyers_crm b where b.org_id = o.id) as buyers, "
             "(select count(*) from chat_messages c where c.org_id = o.id and c.role = 'buyer' "
-            "   and c.created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc') as messages_today "
+            "   and c.created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc') as messages_today, "
+            "(select coalesce(sum(i.amount_etb), 0) from invoices i where i.org_id = o.id) as demo_revenue_etb, "
+            "(select coalesce(sum(f.fee_etb), 0) from platform_fees f where f.org_id = o.id) as demo_fees_etb "
             "from organizations o order by o.created_at")
 
     async def set_organization_plan_status(self, org_id: UUID | str, *, plan: str | None = None, status: str | None = None) -> dict:
@@ -1251,6 +1253,33 @@ class Repository:
         if row is None:
             raise LookupError(f"organization {org_id} not found")
         return row
+
+    # ---- demo billing (migration 038) ----
+
+    async def plan_prices(self) -> list[dict]:
+        return await self._fetch("select plan, rank, price_etb, fee_pct from plan_prices order by rank")
+
+    async def list_invoices(self, limit: int = 50) -> list[dict]:
+        return await self._fetch("select * from invoices order by created_at desc, number desc limit %s", (limit,))
+
+    async def list_platform_fees(self, limit: int = 100) -> list[dict]:
+        return await self._fetch(
+            "select f.*, b.full_name as buyer_name, p.title as property_title from platform_fees f "
+            "left join commission_ledger l on l.id = f.ledger_id left join buyers_crm b on b.id = l.buyer_id "
+            "left join properties p on p.id = l.property_id order by f.created_at desc limit %s", (limit,))
+
+    async def buy_plan(self, org_id: UUID | str, *, from_plan: str, plan: str, amount_etb: float, created_by: UUID | str | None) -> dict:
+        """The plan change and its receipt together or not at all. Platform use. A plan that is no longer `from_plan` (a second click, an
+        operator's change in between) is refused, so one click is one receipt."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("update organizations set plan = %s where id = %s and plan = %s returning id", (plan, str(org_id), from_plan))
+                if await cur.fetchone() is None:
+                    raise LookupError("the plan changed meanwhile")
+                cur = await conn.execute(
+                    "insert into invoices (org_id, from_plan, plan, amount_etb, created_by) values (%s, %s, %s, %s, %s) returning *",
+                    (str(org_id), from_plan, plan, amount_etb, None if created_by is None else str(created_by)))
+                return await cur.fetchone()
 
     async def memberships_for_user(self, user_id: UUID | str) -> list[dict]:
         return await self._fetch(

@@ -7,7 +7,7 @@ TENANT_ONE = "00000000-0000-4000-8000-000000000001"
 # Shared market data: the crawl runs once and every organization reads it. A new table must be placed in one of the two groups.
 SHARED_TABLES = {
     "developers", "projects", "project_media", "price_history", "crawl_runs", "ingest_runs", "properties",
-    "schema_migrations",
+    "schema_migrations", "plan_prices",  # plan_prices: the platform's placeholder price list, the same for every agency (migration 038)
 }
 TENANCY_TABLES = {"organizations", "memberships", "invitations", "org_settings"}
 LIBRARY_TABLES = {"checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"}  # LangGraph's own

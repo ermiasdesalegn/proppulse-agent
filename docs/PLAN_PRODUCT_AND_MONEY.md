@@ -1,6 +1,6 @@
 # Plan: make the platform productive for buyers and brokers, and pay for itself
 
-Status: **all of phase 1 built locally on 2026-11-07 (items 2 to 5, migrations 035 to 037), not deployed;** the **first slice** was also built locally the same day: per-agency commission rates (phase 1, item 1, migration 034, `/console/terms`), operator plan and status controls (phase 2, item 1, `/console/operator`), and the audit export scheduled in the cron workflow (phase 4). Everything else is still a proposal. Written 2026-11-07 after the multi-agency platform went live (migrations 001 to 033). Sizes are relative (S about a day, M a few days, L a week or more of focused work). Every database change is a new numbered migration, added in the expand-then-switch way described in [MIGRATION_HOSTED.md](MIGRATION_HOSTED.md), and every phase ends with the same checks (ruff, the backend suite, the frontend suite, a rehearsal on a scratch database, then one deploy).
+Status: **phase 2 built locally as a demo (mock payments, migration 038, see section 3), not deployed;** **all of phase 1 built locally on 2026-11-07 (items 2 to 5, migrations 035 to 037), not deployed;** the **first slice** was also built locally the same day: per-agency commission rates (phase 1, item 1, migration 034, `/console/terms`), operator plan and status controls (phase 2, item 1, `/console/operator`), and the audit export scheduled in the cron workflow (phase 4). Everything else is still a proposal. Written 2026-11-07 after the multi-agency platform went live (migrations 001 to 033). Sizes are relative (S about a day, M a few days, L a week or more of focused work). Every database change is a new numbered migration, added in the expand-then-switch way described in [MIGRATION_HOSTED.md](MIGRATION_HOSTED.md), and every phase ends with the same checks (ruff, the backend suite, the frontend suite, a rehearsal on a scratch database, then one deploy).
 
 ## 0. What is true today (so the plan starts from facts)
 
@@ -58,6 +58,35 @@ Acceptance: a broker can show, for any closed deal, the agreed rate, the documen
    - Risk: agencies can mark a deal lost to avoid the fee. Mitigation: documents, audit trail, and a contractual clause (outside this plan).
 4. **Usage overage (S, optional).** Charge or block when the monthly model budget or message cap is reached, as the quotas already measure.
 5. **Invoices (M).** Numbered invoice per period, sent by email (needs the Resend domain, Phase 4).
+
+### Phase 2 built as a DEMO (2026-11-07, migration 038, not deployed)
+
+The owner cannot decide D1 to D5 yet and legal and payment integration are not possible, so a small demo flow was built. **Nothing moves real money, and every billing screen says "DEMO MODE: no real money moves".**
+
+Demo defaults, **to be confirmed by the owner** (all in one table, `plan_prices`, migration 038; change a row, no code):
+
+| Decision | Demo default |
+|---|---|
+| D1 how the platform earns | both: a monthly plan and a share of paid commission |
+| D2 prices (ETB per month, placeholders) | free 0, pro 2,500, business 9,000 |
+| D3 provider | `MockPaymentProvider` in `backend/app/billing.py`: accepts every charge it is asked for; the buyer's choice is the checkout's Pay / Cancel buttons |
+| D4 deal share (placeholders) | percentage of the agency's expected commission when the deal reaches COMMISSION_PAID: free 10%, pro 5%, business 2% |
+| D5 who may start an agency | anyone, as today |
+
+What exists:
+- `/console/billing` (owner buys, admin looks): current plan, plan cards with their limits and an Upgrade button, usage against the caps, "Platform fee on your paid deals", and a list of demo invoices.
+- Upgrade opens `/console/billing/checkout/<plan>` (plan, price in ETB, **Pay (demo)** and **Cancel**). Pay changes the plan at once (so the quotas change with it), writes one receipt (`invoices`, numbered DEMO-00001...) and an audit entry `billing.upgrade`. Cancel only goes back: nothing is written. Only a higher plan can be bought; a second click makes no second receipt.
+- `platform_fees`: a database trigger on `commission_ledger` writes one row, once per deal (unique on the deal), when it first reaches COMMISSION_PAID, with the percentage of the agency's plan at that moment. It works for every path that moves a deal.
+- The operator's All agencies page shows each agency's demo plan revenue and demo fees and the totals (read-only).
+- Tests: `backend/tests/test_demo_billing.py`, `frontend/src/lib/billing.test.ts`.
+
+**Later (deliberately not built; a real provider needs all of it):**
+- a real provider behind a `PaymentProvider` interface (create checkout, confirm, refund, verify webhook) such as Chapa or Telebirr, with its registration, terms and keys;
+- the provider's signed webhook, with idempotency keys on payments and forged-signature refusal; a plan should change only on a confirmed payment;
+- refunds, a grace period and a daily job that returns a lapsed agency to the free caps;
+- a monthly invoice job with numbered invoices per period and line items (the plan plus the period's fees), sent by email; the demo invoice is only a receipt for one plan purchase and fees are shown, not billed;
+- an operator billing API and page (revenue per agency over time, fees outstanding, collections);
+- legal and tax: VAT, proper invoices, the contract clause for the deal share (D4), and the decision to let agencies cancel or downgrade (the demo has no downgrade).
 
 Acceptance: an agency can upgrade from the console, pays, and gets the higher caps without anyone touching the database; the owner sees revenue, per agency, in one page.
 
