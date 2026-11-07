@@ -17,6 +17,7 @@ from app.api import router
 from app.calllog import ModelCallLog
 from app.channels_api import router as channels_router
 from app.chat import ChatService
+from app.commission_api import router as commission_router
 from app.config import Settings, get_settings
 from app.db import make_pool
 from app.events import DurableEventBus
@@ -161,6 +162,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(jobs_router)
     app.include_router(prices_router)
     app.include_router(terms_router)
+    app.include_router(commission_router)
     app.include_router(operator_router)
 
     @app.get("/health")

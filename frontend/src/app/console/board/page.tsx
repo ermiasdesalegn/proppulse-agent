@@ -52,7 +52,7 @@ export default function BoardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Pipeline" title="Deal Board" description={<>One card per developer opportunity. Drag a card to move it, or use the menu on the card. Moving the winner forward does not close the others; drag those to Lost yourself.</>} />
+      <PageHeader eyebrow="Pipeline" title="Deal Board" actions={<a href="/api/proxy/commission/export.csv" download className="rounded-lg border border-line px-3.5 py-1.5 text-sm font-medium hover:border-[#444] hover:bg-white/[0.04]">Export CSV</a>} description={<>One card per developer opportunity. Drag a card to move it, or use the menu on the card. Moving the winner forward does not close the others; drag those to Lost yourself.</>} />
       {(board.error || error) && <ErrorNote>{error ?? board.error}</ErrorNote>}
 
       {/* relative: keeps the hidden (sr-only) labels inside this scroller instead of widening the whole page */}

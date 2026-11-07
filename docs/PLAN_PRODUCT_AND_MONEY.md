@@ -32,7 +32,7 @@ Status: **first slice built locally on 2026-11-07, not deployed:** per-agency co
    - Ledger statuses gain: claim sent, acknowledged, disputed. A "Send claim" action emails the developer's sales contact from the agency's name with the deal facts and attachments.
    - A daily job (the existing queue) flags pending commissions older than N days and notifies the owner.
 4. **Deal assignment and split (M).** `assigned_to` (a member) on a buyer and ledger entry; an optional split table (member, percent, sums to 100). The deal board filters "mine".
-5. **Export (S).** CSV of the ledger and deals for accounting.
+5. **Export (S).** CSV of the ledger and deals for accounting. **Built locally 2026-11-07** (`GET /api/commission/export.csv`, agent role or higher, Export CSV button on the Deal Board; no migration).
 
 Acceptance: a broker can show, for any closed deal, the agreed rate, the documents, the claim and its status, and who earned what.
 
