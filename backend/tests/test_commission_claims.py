@@ -18,6 +18,9 @@ LIVE = {"resend_api_key": "re_test", "email_backend": "resend"}
 
 
 def with_email(world, on=True):
+    # The developer's .env may hold a real Resend key: an agency's own services are built from the runtime's settings, so blank it there or
+    # the tests would call the real provider. The server's own settings below say whether email is "configured".
+    world.runtime.settings = world.runtime.settings.model_copy(update={"resend_api_key": "", "email_backend": "mock"})
     app = app_of(world.client)
     s = app.state.settings
     app.state.settings = s.model_copy(update=LIVE if on else {"resend_api_key": "", "email_backend": "auto"})
