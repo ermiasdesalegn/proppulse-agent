@@ -1,9 +1,9 @@
 import clsx from "./clsx";
 import { Icon, type IconName } from "./icons";
 
-export function Card({ title, subtitle, action, children, className }: { title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Card({ id, title, subtitle, action, children, className }: { id?: string; title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={clsx("card rounded-xl border", className)}>
+    <section id={id} className={clsx("card rounded-xl border scroll-mt-4", className)}>
       {(title || action) && (
         <header className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
           <div className="min-w-0">

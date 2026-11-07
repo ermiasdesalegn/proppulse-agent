@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui";
-import { parseOrgs, type Org } from "@/lib/org";
+import { ORG_RENAMED, parseOrgs, type Org } from "@/lib/org";
 
 /**
  * Who is signed in and which agency they are working in. A person with several agencies can switch; the choice is remembered in a
@@ -16,7 +16,7 @@ export default function OrgSwitcher({ onSignOut, signOutIcon }: { onSignOut: () 
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/orgs/select", { cache: "no-store" })
+    const load = () => fetch("/api/orgs/select", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (!alive) return;
@@ -24,7 +24,9 @@ export default function OrgSwitcher({ onSignOut, signOutIcon }: { onSignOut: () 
         setCurrent(typeof body?.selected === "string" ? body.selected : null);
       })
       .catch(() => alive && setOrgs([]));
-    return () => { alive = false; };
+    void load();
+    window.addEventListener(ORG_RENAMED, load); // the Agency page renames the agency: show the new name at once
+    return () => { alive = false; window.removeEventListener(ORG_RENAMED, load); };
   }, []);
 
   async function pick(id: string) {

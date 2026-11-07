@@ -8,6 +8,8 @@ import {
 } from "@/lib/agency";
 import { api, errorMessage, patch, post, put } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
+import { ORG_RENAMED } from "@/lib/org";
+import { agencyNameBody } from "@/lib/onboarding";
 import { useApi } from "@/lib/useApi";
 
 const BAR: Record<"good" | "warn" | "bad", string> = { good: "bg-good", warn: "bg-warn", bad: "bg-bad" };
@@ -20,16 +22,18 @@ export default function AgencyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Agency"
+        title={channels.data?.name ?? "Agency"}
         description="Connect this agency's own Telegram bot and calendar, set how the assistant introduces you, see today's use against your plan and the background jobs, and read who changed what."
       />
       {channels.error && <ErrorNote>{channels.error}</ErrorNote>}
+      <NameCard name={channels.data?.name} slug={channels.data?.slug} onSaved={() => { void channels.reload(); void audit.reload(); window.dispatchEvent(new Event(ORG_RENAMED)); }} />
       <UsageCard usage={usage.data} error={usage.error} />
       <div className="grid gap-6 xl:grid-cols-2">
         <TelegramCard status={channels.data?.telegram} onChanged={() => { void channels.reload(); void audit.reload(); }} />
         <CalendarCard status={channels.data?.calendar} onChanged={() => { void channels.reload(); void audit.reload(); }} />
       </div>
       <SettingsCard settings={channels.data?.settings} onSaved={() => { void channels.reload(); void audit.reload(); }} />
+      <TeamCard onInvited={() => void audit.reload()} />
       <JobsCard onRetried={() => void audit.reload()} />
       <KeysCard />
       <Card title="Change history" subtitle="Roles, invitations, channels and settings. Only admins can read this.">
@@ -161,7 +165,7 @@ function TelegramCard({ status, onChanged }: { status: ChannelStatus["telegram"]
 
   const ready = looksLikeBotToken(token);
   return (
-    <Card title="Telegram bot" subtitle="Buyers message this bot; replies come from it." action={status ? <Pill tone={status.connected ? "good" : "neutral"}>{status.connected ? "Connected" : "Not connected"}</Pill> : undefined}>
+    <Card id="telegram" title="Telegram bot" subtitle="Buyers message this bot; replies come from it." action={status ? <Pill tone={status.connected ? "good" : "neutral"}>{status.connected ? "Connected" : "Not connected"}</Pill> : undefined}>
       <div className="space-y-3 px-5 pb-5 text-sm">
         {status?.connected && <p className="text-muted">@{status.bot_username}{status.connected_at ? `, connected ${timeAgo(status.connected_at)}` : ""}</p>}
         <label className="block"><span className="mb-1 block text-muted">{status?.connected ? "Replace the bot" : "Bot token from BotFather"}</span>
@@ -256,6 +260,77 @@ function SettingsCard({ settings, onSaved }: { settings: ChannelStatus["settings
           <Button variant="primary" disabled={busy || !changed} onClick={() => void save()}>{busy ? "Saving..." : "Save"}</Button>
           {note && <span role="status" className="text-sm text-muted">{note}</span>}
         </div>
+        {error && <ErrorNote>{error}</ErrorNote>}
+      </div>
+    </Card>
+  );
+}
+
+function NameCard({ name, slug, onSaved }: { name: string | undefined; slug: string | undefined; onSaved: () => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const value = draft ?? name ?? "";
+  const checked = agencyNameBody(value);
+  const changed = draft !== null && "name" in checked && checked.name !== name;
+
+  async function save() {
+    if (!("name" in checked)) return;
+    setBusy(true); setError(null); setNote(null);
+    try { await patch("org/name", { name: checked.name }); setDraft(null); setNote("Renamed."); onSaved(); } catch (e) { setError(errorMessage(e)); }
+    setBusy(false);
+  }
+  return (
+    <Card title="Agency name" subtitle="Shown in the console, on your public page and in emails. Your address stays the same.">
+      <div className="space-y-3 px-5 pb-5 text-sm">
+        <label className="block"><span className="mb-1 block text-muted">Name</span>
+          <input value={value} onChange={(e) => setDraft(e.target.value)} maxLength={80} className="w-full rounded-lg border border-white/10 bg-transparent px-3 py-2" aria-label="Agency name" />
+        </label>
+        {slug && <p className="text-xs text-muted">Address: {slug}</p>}
+        {draft !== null && "error" in checked && <p className="text-xs text-warn">{checked.error}</p>}
+        <div className="flex items-center gap-3">
+          <Button variant="primary" disabled={busy || !changed} onClick={() => void save()}>{busy ? "Saving..." : "Rename"}</Button>
+          {note && <span role="status" className="text-muted">{note}</span>}
+        </div>
+        {error && <ErrorNote>{error}</ErrorNote>}
+      </div>
+    </Card>
+  );
+}
+
+function TeamCard({ onInvited }: { onInvited: () => void }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("agent");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ready = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+
+  async function invite() {
+    setBusy(true); setError(null); setNote(null); setLink(null);
+    try {
+      const r = await post<{ emailed: boolean; token?: string; note?: string }>("invitations", { email: email.trim(), role });
+      setEmail("");
+      if (r.emailed) setNote("Invitation emailed.");
+      else { setNote(r.note ?? "Copy the link to the person yourself."); setLink(r.token ? `${window.location.origin}/join?token=${r.token}` : null); }
+      onInvited();
+    } catch (e) { setError(errorMessage(e)); }
+    setBusy(false);
+  }
+  return (
+    <Card id="team" title="Invite a teammate" subtitle="They join with a link that only works for their email address.">
+      <div className="space-y-3 px-5 pb-5 text-sm">
+        <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="colleague@example.com" className="w-full rounded-lg border border-white/10 bg-transparent px-3 py-2" aria-label="Teammate email" />
+          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-lg border border-white/10 bg-[#111] px-3 py-2" aria-label="Role">
+            <option value="admin">Admin</option><option value="agent">Agent</option><option value="viewer">Viewer</option>
+          </select>
+        </div>
+        <Button variant="primary" disabled={busy || !ready} onClick={() => void invite()}>{busy ? "Inviting..." : "Send invitation"}</Button>
+        {note && <p role="status" className="text-muted">{note}</p>}
+        {link && <p className="break-all rounded-lg border border-white/10 px-3 py-2 font-mono text-xs">{link}</p>}
         {error && <ErrorNote>{error}</ErrorNote>}
       </div>
     </Card>

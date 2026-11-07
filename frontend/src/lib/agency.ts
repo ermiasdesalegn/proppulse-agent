@@ -1,6 +1,8 @@
 // Helpers for the Agency page: channel status, usage against the plan, and the audit trail in plain words.
 
 export interface ChannelStatus {
+  name: string;
+  slug: string;
   telegram: { connected: boolean; bot_username: string | null; connected_at: string | null; webhook_url: string | null };
   calendar: { connected: boolean; calendar_id: string | null };
   settings: { broker_name: string | null; persona: string | null; broker_chat_id: string | null; timezone: string | null };
@@ -70,6 +72,7 @@ export function dollars(amount: number): string {
 
 const ACTION_LABEL: Record<string, string> = {
   "org.create": "Created the agency",
+  "org.rename": "Renamed the agency",
   "member.role_change": "Changed a member's role",
   "member.remove": "Removed a member",
   "member.leave": "A member left",
