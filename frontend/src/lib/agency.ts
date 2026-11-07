@@ -93,6 +93,8 @@ const ACTION_LABEL: Record<string, string> = {
   "org.status_change": "The platform changed the agency's status",
   "claim.send": "Sent a commission claim to a developer",
   "claim.acknowledge": "Recorded that a developer acknowledged a commission claim",
+  "deal.assign": "Assigned a buyer or deal to a member",
+  "deal.split": "Set or cleared how a deal's commission is shared",
   "claim.dispute": "Recorded that a developer disputed a commission claim",
 };
 

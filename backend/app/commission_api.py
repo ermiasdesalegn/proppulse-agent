@@ -28,6 +28,11 @@ EXPORT_COLUMNS = [
     ("property_title", "Unit"), ("status", "Stage"), ("property_price_etb", "Listed price (ETB)"),
     ("contract_value_etb", "Contract value (ETB)"), ("expected_commission_etb", "Expected commission (ETB)"),
     ("lead_registered_at", "Lead registered"), ("next_buyer_milestone_date", "Next payment due"),
+    ("assigned_to", "Assigned to (member id)"), ("split_text", "Split (member id percent)"),
+]
+EARNINGS_COLUMNS = [
+    ("deal_id", "Deal id"), ("buyer_name", "Buyer"), ("developer_name", "Developer"), ("property_title", "Unit"), ("status", "Stage"),
+    ("member", "Member id"), ("percent", "Share (%)"), ("earned_etb", "Commission share (ETB)"), ("paid", "Paid"),
 ]
 
 
@@ -52,7 +57,19 @@ def render_csv(rows: list[dict], columns: list[tuple[str, str]]) -> str:
 
 async def export_rows(request: Request) -> list[dict]:
     rows = await request.app.state.repo.list_ledger()
-    return [{**r, "deal_id": str(r["id"])} for r in rows]
+    return [{**r, "deal_id": str(r["id"]), "split_text": "; ".join(f"{s['user_id']} {s['percent']:g}%" for s in r.get("split") or [])} for r in rows]
+
+
+def earnings_rows(deals: list[dict]) -> list[dict]:
+    """Who earned what: one row per deal and member. The split when there is one, else the assignee for the whole commission,
+    else 'unassigned'. The amount is the deal's expected commission; `paid` says whether the developer has paid it."""
+    out = []
+    for d in deals:
+        total = float(d["expected_commission_etb"] or 0)
+        shares = [(s["user_id"], float(s["percent"])) for s in d.get("split") or []] or [(str(d["assigned_to"]) if d.get("assigned_to") else "unassigned", 100.0)]
+        for member, pct in shares:
+            out.append({**d, "member": member, "percent": pct, "earned_etb": round(total * pct / 100, 2), "paid": "yes" if d["status"] == "COMMISSION_PAID" else "no"})
+    return out
 
 
 @router.get("/api/commission/export.csv")
@@ -60,6 +77,73 @@ async def export_commission(request: Request, p: Principal = Depends(agent_acces
     body = render_csv(await export_rows(request), EXPORT_COLUMNS)
     name = f"commission-{date.today().isoformat()}.csv"
     return Response("﻿" + body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@router.get("/api/commission/earnings.csv")
+async def export_earnings(request: Request, p: Principal = Depends(agent_access)):
+    body = render_csv(earnings_rows(await export_rows(request)), EARNINGS_COLUMNS)
+    name = f"commission-earnings-{date.today().isoformat()}.csv"
+    return Response("﻿" + body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
+# ---------------- assignment and split (migration 036) ----------------
+
+class AssigneeIn(BaseModel):
+    user_id: UUID | None = None
+
+
+class ShareIn(BaseModel):
+    user_id: UUID
+    percent: float = Field(gt=0, le=100)
+
+
+class SplitIn(BaseModel):
+    shares: list[ShareIn] = Field(max_length=10)
+
+
+async def _member_or_404(request: Request, p: Principal, user_id: UUID | None) -> None:
+    if user_id is not None and await request.app.state.repo.as_platform().get_member(p.tenant.org_id, user_id) is None:
+        raise HTTPException(422, "That person is not a member of this agency")
+
+
+@router.put("/api/buyers/{buyer_id}/assignee")
+async def assign_buyer(buyer_id: UUID, body: AssigneeIn, request: Request, p: Principal = Depends(agent_access)):
+    await _member_or_404(request, p, body.user_id)
+    try:
+        res = await request.app.state.repo.assign_buyer(buyer_id, body.user_id)
+    except LookupError:
+        raise HTTPException(404, "Buyer not found") from None
+    await audit.record(request, p, "deal.assign", f"buyer {buyer_id}", assigned_to=str(body.user_id) if body.user_id else "nobody", deals_moved=res["deals_moved"])
+    return res
+
+
+@router.put("/api/ledger/{ledger_id}/assignee")
+async def assign_deal(ledger_id: UUID, body: AssigneeIn, request: Request, p: Principal = Depends(agent_access)):
+    await _member_or_404(request, p, body.user_id)
+    try:
+        row = await request.app.state.repo.assign_deal(ledger_id, body.user_id)
+    except LookupError:
+        raise HTTPException(404, "Deal not found") from None
+    await audit.record(request, p, "deal.assign", f"deal {ledger_id}", assigned_to=str(body.user_id) if body.user_id else "nobody")
+    return {"ledger_id": str(row["id"]), "assigned_to": str(row["assigned_to"]) if row["assigned_to"] else None}
+
+
+@router.put("/api/ledger/{ledger_id}/split")
+async def set_split(ledger_id: UUID, body: SplitIn, request: Request, p: Principal = Depends(agent_access)):
+    """Share a deal's commission between members. The percents must add up to 100; an empty list clears the split."""
+    ids = [s.user_id for s in body.shares]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, "Each member can appear once")
+    if body.shares and round(sum(s.percent for s in body.shares), 2) != 100:
+        raise HTTPException(422, "The shares must add up to 100 percent")
+    for uid in ids:
+        await _member_or_404(request, p, uid)
+    try:
+        rows = await request.app.state.repo.set_split(ledger_id, [(s.user_id, s.percent) for s in body.shares])
+    except LookupError:
+        raise HTTPException(404, "Deal not found") from None
+    await audit.record(request, p, "deal.split", f"deal {ledger_id}", shares=[f"{r['user_id']} {float(r['percent']):g}%" for r in rows] or "cleared")
+    return {"ledger_id": str(ledger_id), "split": [{"user_id": str(r["user_id"]), "percent": float(r["percent"])} for r in rows]}
 
 
 # ---------------- claims to the developer (migration 035) ----------------

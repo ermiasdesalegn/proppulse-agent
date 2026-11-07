@@ -660,11 +660,11 @@ class Repository:
                 for e in entries:
                     cur = await conn.execute(
                         "insert into commission_ledger (buyer_id, developer_id, property_id, tour_id, lead_reg_email_id, "
-                        "lead_registered_at, expected_commission_etb) "
+                        "lead_registered_at, expected_commission_etb, assigned_to) "
                         "select %s, p.developer_id, p.id, %s, %s, case when %s::text is null then null else now() end, "
-                        "round(p.price_etb * effective_commission_rate(d.id) / 100, 2) "
+                        "round(p.price_etb * effective_commission_rate(d.id) / 100, 2), (select b.assigned_to from buyers_crm b where b.id = %s) "
                         "from agency_properties p join developers d on d.id = p.developer_id where p.id = %s returning *",
-                        (str(buyer_id), str(tour_id) if tour_id else None, e.lead_reg_email_id, e.lead_reg_email_id, str(e.property_id)),
+                        (str(buyer_id), str(tour_id) if tour_id else None, e.lead_reg_email_id, e.lead_reg_email_id, str(buyer_id), str(e.property_id)),
                     )
                     row = await cur.fetchone()
                     if row is None:
@@ -692,7 +692,9 @@ class Repository:
     async def list_ledger(self, status: str | None = None) -> list[dict]:
         return await self._fetch(
             "select l.*, b.full_name as buyer_name, b.lead_score, d.name as developer_name, d.slug as developer_slug, "
-            "p.title as property_title, p.price_etb as property_price_etb "
+            "p.title as property_title, p.price_etb as property_price_etb, "
+            "(select coalesce(json_agg(json_build_object('user_id', s.user_id, 'percent', s.percent) order by s.percent desc, s.user_id), '[]'::json) "
+            "from commission_splits s where s.ledger_id = l.id) as split "
             "from commission_ledger l join buyers_crm b on b.id = l.buyer_id "
             "join developers d on d.id = l.developer_id join agency_properties p on p.id = l.property_id "
             "where (%s::text is null or l.status = %s) order by l.created_at desc",
@@ -775,11 +777,49 @@ class Repository:
                 await conn.execute("update commission_ledger set overdue_flagged_at = now() where id = %s", (str(ledger_id),))
                 await conn.execute("insert into commission_claim_events (ledger_id, action) values (%s, 'overdue_flagged')", (str(ledger_id),))
 
+    # ---- who owns a buyer or a deal, and how a deal's commission is shared (migration 036) ----
+
+    async def assign_buyer(self, buyer_id: UUID | str, user_id: UUID | str | None) -> dict:
+        """Give a buyer to a member (or to nobody). The buyer's open deals that were with the previous owner (or nobody) follow."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("select assigned_to from buyers_crm where id = %s for update", (str(buyer_id),))
+                before = await cur.fetchone()
+                if before is None:
+                    raise LookupError(f"buyer {buyer_id} not found")
+                new = None if user_id is None else str(user_id)
+                await conn.execute("update buyers_crm set assigned_to = %s where id = %s", (new, str(buyer_id)))
+                cur = await conn.execute(
+                    "update commission_ledger set assigned_to = %s where buyer_id = %s and assigned_to is not distinct from %s "
+                    "and status not in ('COMMISSION_PAID', 'CLOSED_LOST')", (new, str(buyer_id), before["assigned_to"]))
+                return {"buyer_id": str(buyer_id), "assigned_to": new, "was": before["assigned_to"], "deals_moved": cur.rowcount}
+
+    async def assign_deal(self, ledger_id: UUID | str, user_id: UUID | str | None) -> dict:
+        row = await self._one("update commission_ledger set assigned_to = %s where id = %s returning id, assigned_to",
+                              (None if user_id is None else str(user_id), str(ledger_id)))
+        if row is None:
+            raise LookupError(f"ledger row {ledger_id} not found")
+        return row
+
+    async def set_split(self, ledger_id: UUID | str, shares: Sequence[tuple[UUID | str, float]]) -> list[dict]:
+        """Replace a deal's split (an empty list clears it). The database refuses a split that does not add up to 100 when it commits."""
+        async with self._conn() as conn:
+            async with conn.transaction():
+                cur = await conn.execute("select 1 from commission_ledger where id = %s for update", (str(ledger_id),))
+                if await cur.fetchone() is None:
+                    raise LookupError(f"ledger row {ledger_id} not found")
+                await conn.execute("delete from commission_splits where ledger_id = %s", (str(ledger_id),))
+                for user_id, percent in shares:
+                    await conn.execute("insert into commission_splits (ledger_id, user_id, percent) values (%s, %s, %s)", (str(ledger_id), str(user_id), percent))
+                await conn.execute("set constraints commission_split_sums immediate")
+                cur = await conn.execute("select user_id, percent from commission_splits where ledger_id = %s order by percent desc, user_id", (str(ledger_id),))
+                return await cur.fetchall()
+
     async def board(self) -> dict:
         """Everything the deal board shows: qualified buyers with no deal yet, and every deal row."""
         qualified = await self._fetch(
             "select b.id, b.full_name, b.thread_id, b.max_budget_etb, b.min_bedrooms, b.preferred_sub_cities, b.lead_score, "
-            "b.deal_stage, b.human_takeover from buyers_crm b "
+            "b.deal_stage, b.human_takeover, b.assigned_to from buyers_crm b "
             "where b.deal_stage in ('QUALIFIED', 'INVENTORY_PENDING') "
             "and not exists (select 1 from commission_ledger l where l.buyer_id = b.id) order by b.lead_score desc, b.updated_at desc"
         )
