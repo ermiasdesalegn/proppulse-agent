@@ -14,6 +14,7 @@ from app.agent.checkpointer import open_checkpointer
 from app.agent.deps import AgentDeps
 from app.agent.graph import BrokerAgent
 from app.api import router
+from app.billing import router as billing_router
 from app.calllog import ModelCallLog
 from app.channels_api import router as channels_router
 from app.chat import ChatService
@@ -166,6 +167,7 @@ def create_app(*, use_lifespan: bool = True, settings: Settings | None = None) -
     app.include_router(commission_router)
     app.include_router(documents_router)
     app.include_router(operator_router)
+    app.include_router(billing_router)
 
     @app.get("/health")
     def health() -> dict:

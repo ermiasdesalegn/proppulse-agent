@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Card, Empty, ErrorNote, PageHeader, Pill } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
-import { fmtDate } from "@/lib/format";
+import DemoBanner from "@/components/DemoBanner";
+import { fmtDate, fmtEtb } from "@/lib/format";
 import { useMarketAccess } from "@/lib/useMarketAccess";
 import { useApi } from "@/lib/useApi";
 
@@ -18,6 +19,8 @@ interface Agency {
   members: number;
   buyers: number;
   messages_today: number;
+  demo_revenue_etb: number;
+  demo_fees_etb: number;
 }
 
 const select = "rounded-md border border-line bg-bg px-2 py-1.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 disabled:opacity-50";
@@ -51,7 +54,9 @@ function Row({ agency, onSaved }: { agency: Agency; onSaved: () => void }) {
       </td>
       <td className="py-3 pr-4 text-muted">{agency.members}</td>
       <td className="py-3 pr-4 text-muted">{agency.buyers}</td>
-      <td className="py-3 text-muted">{agency.messages_today}{error && <p role="alert" className="text-xs text-bad">{error}</p>}</td>
+      <td className="py-3 pr-4 text-muted">{agency.messages_today}</td>
+      <td className="py-3 pr-4 text-muted">{fmtEtb(agency.demo_revenue_etb)}</td>
+      <td className="py-3 text-muted">{fmtEtb(agency.demo_fees_etb)}{error && <p role="alert" className="text-xs text-bad">{error}</p>}</td>
     </tr>
   );
 }
@@ -68,13 +73,17 @@ export default function OperatorPage() {
       />
       {!allowed && <Empty>This page is for the platform operator.</Empty>}
       {data.error && <ErrorNote>{data.error}</ErrorNote>}
+      {allowed && <DemoBanner />}
+      {allowed && list.length > 0 && (
+        <p className="text-sm text-muted">Demo totals: plan revenue {fmtEtb(list.reduce((n, a) => n + a.demo_revenue_etb, 0))}, platform fees {fmtEtb(list.reduce((n, a) => n + a.demo_fees_etb, 0))}. Read-only, nothing was really charged.</p>
+      )}
       {allowed && (
         <Card>
           {data.loading && !data.data ? <Empty>Loading agencies...</Empty> : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left text-sm">
+              <table className="w-full min-w-[960px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-muted">
-                  <tr><th className="pb-2 pr-4">Agency</th><th className="pb-2 pr-4">Plan</th><th className="pb-2 pr-4">Status</th><th className="pb-2 pr-4">Members</th><th className="pb-2 pr-4">Buyers</th><th className="pb-2">Messages today</th></tr>
+                  <tr><th className="pb-2 pr-4">Agency</th><th className="pb-2 pr-4">Plan</th><th className="pb-2 pr-4">Status</th><th className="pb-2 pr-4">Members</th><th className="pb-2 pr-4">Buyers</th><th className="pb-2 pr-4">Messages today</th><th className="pb-2 pr-4">Demo plan revenue</th><th className="pb-2">Demo platform fees</th></tr>
                 </thead>
                 <tbody>{list.map((a) => <Row key={`${a.id}:${a.plan}:${a.status}`} agency={a} onSaved={() => void data.reload()} />)}</tbody>
               </table>
